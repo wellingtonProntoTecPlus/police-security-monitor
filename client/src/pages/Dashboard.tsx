@@ -6,7 +6,7 @@ import { useSocket, AlarmEvent } from "@/hooks/useSocket";
 import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
-  ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin
+  ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,24 @@ interface QueueEvent extends AlarmEvent {
   clientName?: string;
   systemModel?: string;
   zoneName?: string;
+}
+
+// Modal de câmera expandida
+function CameraModal({ cam, onClose }: { cam: number; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={onClose}>
+      <div className="relative w-[80vw] h-[70vh] bg-black border border-border rounded-lg flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-3 right-3 text-white hover:text-red-400 z-10">
+          <X className="h-6 w-6" />
+        </button>
+        <div className="text-center">
+          <Camera className="h-16 w-16 mx-auto text-muted-foreground mb-3" />
+          <span className="text-white text-xl font-bold">Câmera {cam}</span>
+          <p className="text-muted-foreground text-sm mt-2">Stream RTSP será exibido aqui</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
@@ -73,6 +91,7 @@ export default function Dashboard() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const processedIds = useRef<Set<string>>(new Set());
   const [attendStartTime, setAttendStartTime] = useState<number>(0);
+  const [expandedCam, setExpandedCam] = useState<number | null>(null);
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -241,6 +260,7 @@ export default function Dashboard() {
       <audio ref={audioRef} preload="auto">
         <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbsGczHjqIrNjVpWQ+IjV8nczUr3hLMi5xi8DJtIRYPC0uf5y/xbOCVzYpZYqvuLmOaEkwMmqIqbK3lnFOMy9shqewtZd1UjUwbYamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2AA==" type="audio/wav" />
       </audio>
+      {expandedCam && <CameraModal cam={expandedCam} onClose={() => setExpandedCam(null)} />}
 
       <div className="flex flex-col h-full overflow-hidden">
         {/* TOP BAR - Botões de Status */}
@@ -377,17 +397,19 @@ export default function Dashboard() {
 
                 {/* CÂMERAS / CONTEÚDO */}
                 <div className="flex-1 px-4 py-3 overflow-hidden flex flex-col">
-                  {/* Carrossel de Câmeras */}
-                  <div className="flex items-center gap-3 flex-1 min-h-0">
-                    <button className="text-muted-foreground hover:text-foreground"><ChevronLeft className="h-6 w-6" /></button>
-                    <div className="flex-1 grid grid-cols-4 gap-3 h-full">
-                      {[1, 2, 3, 4].map((cam) => (
-                        <div key={cam} className="border border-border rounded-lg flex items-center justify-center bg-black/50 min-h-[120px]">
-                          <span className="text-muted-foreground text-sm font-medium">Câmera {cam}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <button className="text-muted-foreground hover:text-foreground"><ChevronRight className="h-6 w-6" /></button>
+                  {/* Câmeras em grid quadrado - clicáveis */}
+                  <div className="grid grid-cols-4 gap-3 flex-1 min-h-0">
+                    {[1, 2, 3, 4].map((cam) => (
+                      <div
+                        key={cam}
+                        onClick={() => setExpandedCam(cam)}
+                        className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-square"
+                      >
+                        <Camera className="h-8 w-8 text-muted-foreground mb-1" />
+                        <span className="text-muted-foreground text-sm font-medium">Câmera {cam}</span>
+                        <Maximize2 className="h-3.5 w-3.5 text-muted-foreground absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    ))}
                   </div>
 
                   {/* Abas: Contatos / Setor-Zona */}
