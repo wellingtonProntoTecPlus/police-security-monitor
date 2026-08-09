@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { startReceivers, setEventCallback } from "../receiver/index";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -61,6 +62,14 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Iniciar receptores de alarme Contact ID
+  try {
+    startReceivers();
+    console.log("[RECIP] Receptores de alarme iniciados com sucesso");
+  } catch (err: any) {
+    console.warn("[RECIP] Falha ao iniciar receptores (não-fatal):", err.message);
+  }
 }
 
 startServer().catch(console.error);
