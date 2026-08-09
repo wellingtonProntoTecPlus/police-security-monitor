@@ -456,15 +456,15 @@ export default function Dashboard() {
                 </div>
 
                 {/* CÂMERAS / CONTEÚDO */}
-                <div className="flex-1 px-4 py-3 overflow-hidden flex flex-col justify-center">
-                  {/* Carrossel de Câmeras - setas para navegar, clique para expandir */}
-                  <div className="flex items-center gap-2">
+                <div className="flex-1 px-4 py-2 overflow-hidden flex flex-col">
+                  {/* Carrossel de Câmeras - logo abaixo dos botões de ação */}
+                  <div className="flex items-center gap-2 mb-2">
                     <button
                       onClick={() => setCamPage(Math.max(0, camPage - 1))}
                       className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                       disabled={camPage === 0}
                     >
-                      <ChevronLeft className="h-7 w-7" />
+                      <ChevronLeft className="h-6 w-6" />
                     </button>
                     <div className="flex-1 grid grid-cols-4 gap-3">
                       {Array.from({ length: camsPerPage }, (_, i) => {
@@ -474,7 +474,7 @@ export default function Dashboard() {
                           <div
                             key={camNum}
                             onClick={() => setExpandedCam(camNum)}
-                            className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-square max-h-[160px]"
+                            className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-[4/3] max-h-[140px]"
                           >
                             {camData?.rtspUrl ? (
                               <HLSPlayer url={camData.rtspUrl} label={camData.name || `Câmera ${camNum}`} className="w-full h-full" />
@@ -494,7 +494,7 @@ export default function Dashboard() {
                       className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                       disabled={camPage >= Math.ceil(totalCams / camsPerPage) - 1}
                     >
-                      <ChevronRight className="h-7 w-7" />
+                      <ChevronRight className="h-6 w-6" />
                     </button>
                   </div>
 

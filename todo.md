@@ -115,3 +115,13 @@
 - [x] API tRPC para listar ocorrências (Relatórios/Finalizações)
 - [x] Conectar botão Finalizar do dashboard à API de persistência
 - [x] Salvar tempo de atendimento, observações e logs da ocorrência
+
+## Ajustes de Layout e Cadastros
+- [x] Câmeras posicionadas logo abaixo dos botões de ação no dashboard
+- [x] Dashboard fixo na viewport (sem scroll geral, apenas fila rolável)
+- [x] Página de Empresa Gestora com formulário completo
+- [x] Campo WhatsApp na Empresa Gestora
+- [x] Campo CEP com busca automática de endereço (ViaCEP) na Empresa Gestora
+- [x] Campo de Logo (URL) na Empresa Gestora
+- [x] Campos WhatsApp e CEP na Empresa Parceira (schema pronto)
+- [x] Campo de Logo na Empresa Parceira (schema pronto)

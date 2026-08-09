@@ -36,6 +36,13 @@
       "when": 1786269505576,
       "tag": "0004_slim_devos",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1786271440352,
+      "tag": "0005_chubby_slapstick",
+      "breakpoints": true
     }
   ]
 }
