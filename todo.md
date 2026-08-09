@@ -93,3 +93,12 @@
 ## Melhorias no Cadastro de Parceira
 - [x] Cadastro de Feriados por empresa parceira (API pronta)
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
+
+## Dashboard Operacional Funcional
+- [x] Painel de atendimento ao clicar no evento (dados do cliente, zona, providências)
+- [x] Lista de contatos do cliente na ordem de prioridade
+- [x] Botões de ação: Atender, Isolar Zona, Câmeras, Despachar Tático, Chamar Polícia, Finalizar
+- [x] Registro de observações do operador durante atendimento
+- [x] Visualização de câmeras do cliente (botão)
+- [x] Alerta sonoro para eventos críticos
+- [x] Fluxo de status: Aguardando → Em Atendimento → Observação/Despacho → Finalizado
