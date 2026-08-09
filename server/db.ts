@@ -14,6 +14,12 @@ import {
   incidents, InsertIncident,
   contactIdCodes,
 } from "../drizzle/schema";
+import {
+  alarmPgms, InsertAlarmPgm,
+  alarmSchedules, InsertAlarmSchedule,
+  clientProcedures, InsertClientProcedure,
+  partnerHolidays, InsertPartnerHoliday,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -375,4 +381,80 @@ export async function getDashboardStats() {
     eventsPerMin: Math.round((eventsResult?.count ?? 0) / 5),
     totalClients: clientsResult?.count ?? 0,
   };
+}
+
+// ============================================================
+// PGMs
+// ============================================================
+export async function listAlarmPgms(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(alarmPgms).where(eq(alarmPgms.alarmSystemId, alarmSystemId)).orderBy(alarmPgms.pgmNumber);
+}
+
+export async function createAlarmPgm(data: InsertAlarmPgm) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(alarmPgms).values(data);
+  return { id: result[0].insertId };
+}
+
+// ============================================================
+// ALARM SCHEDULES
+// ============================================================
+export async function listAlarmSchedules(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(alarmSchedules).where(eq(alarmSchedules.alarmSystemId, alarmSystemId));
+}
+
+export async function createAlarmSchedule(data: InsertAlarmSchedule) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(alarmSchedules).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function updateAlarmSchedule(id: number, data: Partial<InsertAlarmSchedule>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(alarmSchedules).set(data).where(eq(alarmSchedules.id, id));
+}
+
+// ============================================================
+// CLIENT PROCEDURES
+// ============================================================
+export async function listClientProcedures(clientId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientProcedures).where(eq(clientProcedures.clientId, clientId)).orderBy(clientProcedures.priority);
+}
+
+export async function createClientProcedure(data: InsertClientProcedure) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(clientProcedures).values(data);
+  return { id: result[0].insertId };
+}
+
+// ============================================================
+// PARTNER HOLIDAYS
+// ============================================================
+export async function listPartnerHolidays(partnerCompanyId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerHolidays).where(eq(partnerHolidays.partnerCompanyId, partnerCompanyId)).orderBy(partnerHolidays.date);
+}
+
+export async function createPartnerHoliday(data: InsertPartnerHoliday) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(partnerHolidays).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function deletePartnerHoliday(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(partnerHolidays).where(eq(partnerHolidays.id, id));
 }

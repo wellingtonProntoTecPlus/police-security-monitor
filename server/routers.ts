@@ -201,9 +201,14 @@ export const appRouter = router({
       brand: z.enum(["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"]),
       model: z.string().optional(),
       firmwareVersion: z.string().optional(),
+      communicationType: z.enum(["ethernet", "gprs", "both"]).optional(),
+      macAddress: z.string().max(6).optional(),
+      viawebCode: z.string().max(4).optional(),
       partitions: z.number().optional(),
       receiverPort: z.number().optional(),
       ipAddress: z.string().optional(),
+      installDate: z.date().optional(),
+      batteryDate: z.date().optional(),
     })).mutation(({ input }) => db.createAlarmSystem(input)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
@@ -211,10 +216,15 @@ export const appRouter = router({
       brand: z.enum(["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"]).optional(),
       model: z.string().optional(),
       firmwareVersion: z.string().optional(),
+      communicationType: z.enum(["ethernet", "gprs", "both"]).optional(),
+      macAddress: z.string().max(6).optional(),
+      viawebCode: z.string().max(4).optional(),
       partitions: z.number().optional(),
       receiverPort: z.number().optional(),
       ipAddress: z.string().optional(),
       isActive: z.boolean().optional(),
+      installDate: z.date().optional(),
+      batteryDate: z.date().optional(),
     })).mutation(({ input }) => {
       const { id, ...data } = input;
       return db.updateAlarmSystem(id, data);
@@ -323,6 +333,49 @@ export const appRouter = router({
   // ============================================================
   dashboard: router({
     stats: operatorProcedure.query(() => db.getDashboardStats()),
+  }),
+  alarmPgm: router({
+    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmPgms(input.alarmSystemId)),
+    create: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      pgmNumber: z.number().min(1).max(16),
+      name: z.string().min(1),
+      type: z.string().optional(),
+    })).mutation(({ input }) => db.createAlarmPgm(input)),
+  }),
+  alarmSchedule: router({
+    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmSchedules(input.alarmSystemId)),
+    create: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      partition: z.number().min(1).max(8).optional(),
+      name: z.string().optional(),
+      mondayArm: z.string().optional(), mondayDisarm: z.string().optional(),
+      tuesdayArm: z.string().optional(), tuesdayDisarm: z.string().optional(),
+      wednesdayArm: z.string().optional(), wednesdayDisarm: z.string().optional(),
+      thursdayArm: z.string().optional(), thursdayDisarm: z.string().optional(),
+      fridayArm: z.string().optional(), fridayDisarm: z.string().optional(),
+      saturdayArm: z.string().optional(), saturdayDisarm: z.string().optional(),
+      sundayArm: z.string().optional(), sundayDisarm: z.string().optional(),
+    })).mutation(({ input }) => db.createAlarmSchedule(input)),
+  }),
+  clientProcedure: router({
+    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(({ input }) => db.listClientProcedures(input.clientId)),
+    create: operatorProcedure.input(z.object({
+      clientId: z.number(),
+      title: z.string().min(1),
+      description: z.string().min(1),
+      priority: z.number().optional(),
+    })).mutation(({ input }) => db.createClientProcedure(input)),
+  }),
+  partnerHoliday: router({
+    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number() })).query(({ input }) => db.listPartnerHolidays(input.partnerCompanyId)),
+    create: operatorProcedure.input(z.object({
+      partnerCompanyId: z.number(),
+      name: z.string().min(1),
+      date: z.string().min(8),
+      recurring: z.boolean().optional(),
+    })).mutation(({ input }) => db.createPartnerHoliday(input)),
+    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deletePartnerHoliday(input.id)),
   }),
 });
 

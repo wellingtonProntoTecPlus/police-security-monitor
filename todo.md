@@ -69,3 +69,27 @@
 - [x] Menu lateral recolhível/expansível (toggle)
 - [x] Layout de cadastros otimizado para telas de computador (desktop-first)
 - [x] Melhor aproveitamento do espaço horizontal nos formulários
+
+## Cadastro de Sistema de Alarme (Completo)
+- [ ] Buscar empresa parceira e cliente no cadastro de sistema
+- [ ] Campos: Marca, Modelo, Versão da central
+- [ ] Tipo de comunicação: Ethernet IP / GPRS / Ambos
+- [ ] MAC últimos 6 dígitos (identificação no dashboard)
+- [ ] Código ViaWeb 4 dígitos (quando marca = ViaWeb)
+- [ ] Partições (até 8)
+- [ ] Número da Conta: 2 primeiras letras do cliente + 4 dígitos (ex: PS0001)
+- [ ] Câmeras: Marca, Modelo, Link RTSP
+- [ ] Usuários (até 254)
+- [ ] Zonas/Setores (até 254)
+- [ ] PGM (até 16)
+- [ ] Tabela de Horários (Seg-Dom) para verificar arme/desarme
+- [ ] Data de Instalação
+- [ ] Data da Bateria
+
+## Melhorias no Cadastro de Cliente
+- [ ] Contatos com Telefone, WhatsApp, Senha, Contra-Senha, Senha de Coação
+- [ ] Providências: descrição de como o operador deve proceder
+
+## Melhorias no Cadastro de Parceira
+- [ ] Cadastro de Feriados por empresa parceira
+- [ ] Busca de endereço por CEP em todos os cadastros com endereço

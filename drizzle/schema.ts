@@ -106,6 +106,9 @@ export const clientContacts = mysqlTable("client_contacts", {
   whatsapp: varchar("whatsapp", { length: 20 }),
   email: varchar("email", { length: 320 }),
   role: varchar("role", { length: 100 }), // ex: proprietário, responsável, zelador
+  password: varchar("password", { length: 50 }), // Senha
+  counterPassword: varchar("counterPassword", { length: 50 }), // Contra-Senha
+  coercionPassword: varchar("coercionPassword", { length: 50 }), // Senha de Coação
   priority: int("priority").default(1).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -124,9 +127,14 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   brand: mysqlEnum("brand", ["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"]).notNull(),
   model: varchar("model", { length: 100 }),
   firmwareVersion: varchar("firmwareVersion", { length: 50 }),
-  partitions: int("partitions").default(1).notNull(),
-  receiverPort: int("receiverPort"), // Porta TCP do receptor
+  communicationType: mysqlEnum("communicationType", ["ethernet", "gprs", "both"]).default("ethernet").notNull(),
+  macAddress: varchar("macAddress", { length: 6 }), // Últimos 6 dígitos do MAC
+  viawebCode: varchar("viawebCode", { length: 4 }), // Código ViaWeb 4 dígitos
+  partitions: int("partitions").default(1).notNull(), // Até 8
+  receiverPort: int("receiverPort"),
   ipAddress: varchar("ipAddress", { length: 45 }),
+  installDate: timestamp("installDate"),
+  batteryDate: timestamp("batteryDate"),
   isActive: boolean("isActive").default(true).notNull(),
   isOnline: boolean("isOnline").default(false).notNull(),
   lastCommunication: timestamp("lastCommunication"),
@@ -246,3 +254,79 @@ export const contactIdCodes = mysqlTable("contact_id_codes", {
 
 export type ContactIdCode = typeof contactIdCodes.$inferSelect;
 export type InsertContactIdCode = typeof contactIdCodes.$inferInsert;
+
+// ============================================================
+// PGMs DO SISTEMA DE ALARME (até 16)
+// ============================================================
+export const alarmPgms = mysqlTable("alarm_pgms", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  pgmNumber: int("pgmNumber").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 100 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AlarmPgm = typeof alarmPgms.$inferSelect;
+export type InsertAlarmPgm = typeof alarmPgms.$inferInsert;
+
+// ============================================================
+// TABELA DE HORÁRIOS (Arme/Desarme programado)
+// ============================================================
+export const alarmSchedules = mysqlTable("alarm_schedules", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  partition: int("partition").default(1).notNull(),
+  name: varchar("name", { length: 255 }),
+  mondayArm: varchar("mondayArm", { length: 5 }),
+  mondayDisarm: varchar("mondayDisarm", { length: 5 }),
+  tuesdayArm: varchar("tuesdayArm", { length: 5 }),
+  tuesdayDisarm: varchar("tuesdayDisarm", { length: 5 }),
+  wednesdayArm: varchar("wednesdayArm", { length: 5 }),
+  wednesdayDisarm: varchar("wednesdayDisarm", { length: 5 }),
+  thursdayArm: varchar("thursdayArm", { length: 5 }),
+  thursdayDisarm: varchar("thursdayDisarm", { length: 5 }),
+  fridayArm: varchar("fridayArm", { length: 5 }),
+  fridayDisarm: varchar("fridayDisarm", { length: 5 }),
+  saturdayArm: varchar("saturdayArm", { length: 5 }),
+  saturdayDisarm: varchar("saturdayDisarm", { length: 5 }),
+  sundayArm: varchar("sundayArm", { length: 5 }),
+  sundayDisarm: varchar("sundayDisarm", { length: 5 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AlarmSchedule = typeof alarmSchedules.$inferSelect;
+export type InsertAlarmSchedule = typeof alarmSchedules.$inferInsert;
+
+// ============================================================
+// PROVIDÊNCIAS DO CLIENTE (instruções para o operador)
+// ============================================================
+export const clientProcedures = mysqlTable("client_procedures", {
+  id: int("id").autoincrement().primaryKey(),
+  clientId: int("clientId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  priority: int("priority").default(1).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ClientProcedure = typeof clientProcedures.$inferSelect;
+export type InsertClientProcedure = typeof clientProcedures.$inferInsert;
+
+// ============================================================
+// FERIADOS DA EMPRESA PARCEIRA
+// ============================================================
+export const partnerHolidays = mysqlTable("partner_holidays", {
+  id: int("id").autoincrement().primaryKey(),
+  partnerCompanyId: int("partnerCompanyId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  date: varchar("date", { length: 10 }).notNull(), // DD/MM/YYYY
+  recurring: boolean("recurring").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PartnerHoliday = typeof partnerHolidays.$inferSelect;
+export type InsertPartnerHoliday = typeof partnerHolidays.$inferInsert;
