@@ -7,32 +7,49 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Shield, ArrowLeft, Save } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Plus, Search, Shield, ArrowLeft, Save, Wifi, Radio, Clock, Camera, Users, Layers } from "lucide-react";
 import { toast } from "sonner";
 
 const BRANDS = ["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"] as const;
 
 const INITIAL_FORM = {
   clientId: 0,
+  partnerId: 0,
   account: "",
   brand: "" as string,
   model: "",
-  version: "",
-  receiverIp: "",
+  firmwareVersion: "",
+  communicationType: "ethernet" as "ethernet" | "gprs" | "both",
+  macAddress: "",
+  viawebCode: "",
+  partitions: 1,
+  ipAddress: "",
+  installDate: "",
+  batteryDate: "",
 };
 
 export default function AlarmSystems() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
+  const [selectedPartner, setSelectedPartner] = useState(0);
 
   const { data: systems = [], refetch } = trpc.alarmSystem.list.useQuery(undefined);
-  const { data: clients = [] } = trpc.monitoredClient.list.useQuery(undefined);
+  const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
+  const { data: allClients = [] } = trpc.monitoredClient.list.useQuery(undefined);
+
+  // Filtrar clientes pela parceira selecionada
+  const filteredClients = selectedPartner
+    ? allClients.filter((c: any) => c.partnerCompanyId === selectedPartner)
+    : allClients;
+
   const createMutation = trpc.alarmSystem.create.useMutation({
     onSuccess: () => {
       toast.success("Sistema de alarme cadastrado!");
       setView("list");
       setForm({ ...INITIAL_FORM });
+      setSelectedPartner(0);
       refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -42,11 +59,39 @@ export default function AlarmSystems() {
     s.account.includes(search) || s.brand.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Gerar número da conta automaticamente
+  function generateAccount(clientId: number) {
+    const client = allClients.find((c: any) => c.id === clientId);
+    if (client) {
+      const prefix = (client.fantasyName || client.name).substring(0, 2).toUpperCase();
+      const nextNum = String(systems.length + 1).padStart(4, "0");
+      setForm((prev) => ({ ...prev, account: `${prefix}${nextNum}`, clientId }));
+    } else {
+      setForm((prev) => ({ ...prev, clientId }));
+    }
+  }
+
   function handleSubmit() {
     if (!form.clientId) { toast.error("Selecione o cliente"); return; }
-    if (!form.account.trim()) { toast.error("Informe a conta Contact ID"); return; }
+    if (!form.account.trim()) { toast.error("Informe o número da conta"); return; }
     if (!form.brand) { toast.error("Selecione a marca"); return; }
-    createMutation.mutate(form as any);
+    if (form.brand === "VIAWEB" && !form.viawebCode) { toast.error("Informe o código ViaWeb (4 dígitos)"); return; }
+
+    const payload: any = {
+      clientId: form.clientId,
+      account: form.account,
+      brand: form.brand,
+      model: form.model || undefined,
+      firmwareVersion: form.firmwareVersion || undefined,
+      communicationType: form.communicationType,
+      macAddress: form.macAddress || undefined,
+      viawebCode: form.viawebCode || undefined,
+      partitions: form.partitions,
+      ipAddress: form.ipAddress || undefined,
+      installDate: form.installDate ? new Date(form.installDate) : undefined,
+      batteryDate: form.batteryDate ? new Date(form.batteryDate) : undefined,
+    };
+    createMutation.mutate(payload);
   }
 
   // ===== VIEW: FORMULÁRIO =====
@@ -54,7 +99,7 @@ export default function AlarmSystems() {
     return (
       <DashboardLayout>
         <div className="h-full overflow-auto">
-          <div className="p-6 max-w-[1200px] mx-auto">
+          <div className="p-6 max-w-[1400px] mx-auto">
             <div className="flex items-center gap-4 mb-6">
               <Button variant="ghost" size="sm" onClick={() => setView("list")}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
@@ -63,29 +108,50 @@ export default function AlarmSystems() {
             </div>
 
             <div className="grid grid-cols-12 gap-6">
-              <div className="col-span-8">
+              {/* COLUNA PRINCIPAL */}
+              <div className="col-span-8 space-y-6">
+                {/* Empresa e Cliente */}
                 <Card>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-2 mb-4">
-                      <Shield className="h-5 w-5 text-primary" />
-                      <h3 className="font-bold text-foreground">Dados do Sistema</h3>
+                      <Users className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Empresa e Cliente</h3>
                     </div>
                     <div className="grid grid-cols-6 gap-4">
-                      <div className="col-span-6">
-                        <Label className="text-sm font-medium">Cliente *</Label>
-                        <Select onValueChange={(v) => setForm({ ...form, clientId: Number(v) })}>
-                          <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione o cliente..." /></SelectTrigger>
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">Empresa Parceira *</Label>
+                        <Select onValueChange={(v) => { setSelectedPartner(Number(v)); setForm({ ...form, clientId: 0 }); }}>
+                          <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione a parceira..." /></SelectTrigger>
                           <SelectContent>
-                            {clients.map((c: any) => (
-                              <SelectItem key={c.id} value={String(c.id)}>{c.fantasyName || c.name} — {c.document}</SelectItem>
+                            {partners.map((p: any) => (
+                              <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="col-span-2">
-                        <Label className="text-sm font-medium">Conta Contact ID *</Label>
-                        <Input className="mt-1 font-mono" placeholder="0000" maxLength={4} value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value.replace(/\D/g, "").slice(0, 4) })} />
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">Cliente *</Label>
+                        <Select onValueChange={(v) => generateAccount(Number(v))} disabled={!selectedPartner}>
+                          <SelectTrigger className="mt-1"><SelectValue placeholder={selectedPartner ? "Selecione o cliente..." : "Selecione a parceira primeiro"} /></SelectTrigger>
+                          <SelectContent>
+                            {filteredClients.map((c: any) => (
+                              <SelectItem key={c.id} value={String(c.id)}>{c.fantasyName || c.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Central de Alarme */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Shield className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Central de Alarme</h3>
+                    </div>
+                    <div className="grid grid-cols-6 gap-4">
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Marca *</Label>
                         <Select onValueChange={(v) => setForm({ ...form, brand: v })}>
@@ -99,22 +165,105 @@ export default function AlarmSystems() {
                       </div>
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Modelo</Label>
-                        <Input className="mt-1" placeholder="Ex: Active 20" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                        <Input className="mt-1" placeholder="Ex: Active 20 Ultra" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
                       </div>
-                      <div className="col-span-3">
+                      <div className="col-span-2">
                         <Label className="text-sm font-medium">Versão/Firmware</Label>
-                        <Input className="mt-1" placeholder="Ex: v3.2.1" value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} />
+                        <Input className="mt-1" placeholder="Ex: v3.2.1" value={form.firmwareVersion} onChange={(e) => setForm({ ...form, firmwareVersion: e.target.value })} />
                       </div>
-                      <div className="col-span-3">
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Nº da Conta *</Label>
+                        <Input className="mt-1 font-mono font-bold text-lg" placeholder="PS0001" value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value.toUpperCase() })} />
+                        <span className="text-xs text-muted-foreground">2 letras do cliente + 4 dígitos</span>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Partições (até 8)</Label>
+                        <Input className="mt-1" type="number" min={1} max={8} value={form.partitions} onChange={(e) => setForm({ ...form, partitions: Number(e.target.value) })} />
+                      </div>
+                      {form.brand === "VIAWEB" && (
+                        <div className="col-span-2">
+                          <Label className="text-sm font-medium text-orange-400">Código ViaWeb *</Label>
+                          <Input className="mt-1 font-mono" placeholder="0000" maxLength={4} value={form.viawebCode} onChange={(e) => setForm({ ...form, viawebCode: e.target.value.replace(/\D/g, "").slice(0, 4) })} />
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Comunicação */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Wifi className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Comunicação</h3>
+                    </div>
+                    <div className="grid grid-cols-6 gap-4">
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Tipo de Comunicação *</Label>
+                        <Select value={form.communicationType} onValueChange={(v) => setForm({ ...form, communicationType: v as any })}>
+                          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ethernet">Ethernet / IP</SelectItem>
+                            <SelectItem value="gprs">GPRS</SelectItem>
+                            <SelectItem value="both">Ethernet + GPRS</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">MAC (últimos 6 dígitos)</Label>
+                        <Input className="mt-1 font-mono uppercase" placeholder="A1B2C3" maxLength={6} value={form.macAddress} onChange={(e) => setForm({ ...form, macAddress: e.target.value.toUpperCase().replace(/[^0-9A-F]/gi, "").slice(0, 6) })} />
+                        <span className="text-xs text-muted-foreground">Identifica no dashboard</span>
+                      </div>
+                      <div className="col-span-2">
                         <Label className="text-sm font-medium">IP do Receptor</Label>
-                        <Input className="mt-1 font-mono" placeholder="192.168.0.100" value={form.receiverIp} onChange={(e) => setForm({ ...form, receiverIp: e.target.value })} />
+                        <Input className="mt-1 font-mono" placeholder="192.168.0.100" value={form.ipAddress} onChange={(e) => setForm({ ...form, ipAddress: e.target.value })} />
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               </div>
 
-              <div className="col-span-4">
+              {/* COLUNA LATERAL */}
+              <div className="col-span-4 space-y-6">
+                {/* Datas */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Clock className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Datas</h3>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-sm font-medium">Data de Instalação</Label>
+                        <Input className="mt-1" type="date" value={form.installDate} onChange={(e) => setForm({ ...form, installDate: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium">Data da Bateria</Label>
+                        <Input className="mt-1" type="date" value={form.batteryDate} onChange={(e) => setForm({ ...form, batteryDate: e.target.value })} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Resumo */}
+                <Card className="border-primary/30">
+                  <CardContent className="p-5">
+                    <h3 className="font-bold text-foreground mb-3">Resumo</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Conta:</span><span className="font-mono font-bold">{form.account || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Marca:</span><span>{form.brand || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Comunicação:</span><span>{form.communicationType === "both" ? "ETH+GPRS" : form.communicationType.toUpperCase()}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">MAC:</span><span className="font-mono">{form.macAddress || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Partições:</span><span>{form.partitions}</span></div>
+                    </div>
+                    <Separator className="my-4" />
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Após cadastrar, adicione: Zonas, Usuários, PGMs, Câmeras e Tabela de Horários na tela de detalhes do sistema.
+                    </p>
+                  </CardContent>
+                </Card>
+
+                {/* Botão Salvar */}
                 <Button onClick={handleSubmit} disabled={createMutation.isPending} className="w-full h-12 text-base font-bold">
                   <Save className="h-5 w-5 mr-2" />
                   {createMutation.isPending ? "Salvando..." : "Cadastrar Sistema"}
@@ -144,24 +293,26 @@ export default function AlarmSystems() {
         </div>
 
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[80px_120px_1fr_120px_140px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+          <div className="grid grid-cols-[100px_100px_1fr_100px_100px_80px_100px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
             <span>Conta</span>
             <span>Marca</span>
             <span>Modelo</span>
-            <span>Versão</span>
-            <span>IP Receptor</span>
+            <span>Comunic.</span>
+            <span>MAC</span>
+            <span>Part.</span>
             <span>Status</span>
           </div>
           {filteredSystems.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">Nenhum sistema de alarme encontrado</div>
           ) : (
             filteredSystems.map((sys: any) => (
-              <div key={sys.id} className="grid grid-cols-[80px_120px_1fr_120px_140px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center">
+              <div key={sys.id} className="grid grid-cols-[100px_100px_1fr_100px_100px_80px_100px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center">
                 <span className="font-mono font-bold text-foreground">{sys.account}</span>
                 <Badge variant="outline" className="text-xs justify-center">{sys.brand}</Badge>
                 <span className="text-sm text-foreground">{sys.model || "—"}</span>
-                <span className="text-xs text-muted-foreground">{sys.version || "—"}</span>
-                <span className="font-mono text-xs text-muted-foreground">{sys.receiverIp || "—"}</span>
+                <span className="text-xs text-muted-foreground">{sys.communicationType === "both" ? "ETH+GPRS" : (sys.communicationType || "ETH").toUpperCase()}</span>
+                <span className="font-mono text-xs text-muted-foreground">{sys.macAddress || "—"}</span>
+                <span className="text-xs text-center text-muted-foreground">{sys.partitions}</span>
                 <Badge variant={sys.isActive ? "default" : "destructive"} className="text-xs justify-center">
                   {sys.isActive ? "Ativo" : "Inativo"}
                 </Badge>
