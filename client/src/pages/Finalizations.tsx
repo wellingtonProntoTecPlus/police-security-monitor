@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,8 +11,8 @@ export default function Finalizations() {
     offset: 0,
   });
 
-  return (
-    <div className="p-6 space-y-6">
+  return (<DashboardLayout>
+    <div className="p-6 space-y-6 overflow-auto h-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <CheckCircle className="w-6 h-6" /> Finalizações
@@ -59,6 +60,5 @@ export default function Finalizations() {
           </ScrollArea>
         </CardContent>
       </Card>
-    </div>
-  );
+    </div></DashboardLayout>);
 }

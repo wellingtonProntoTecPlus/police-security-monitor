@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,8 +25,8 @@ export default function Reports() {
     return true;
   });
 
-  return (
-    <div className="p-6 space-y-6">
+  return (<DashboardLayout>
+    <div className="p-6 space-y-6 overflow-auto h-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <FileText className="w-6 h-6" /> Relatórios
@@ -97,6 +98,5 @@ export default function Reports() {
           </ScrollArea>
         </CardContent>
       </Card>
-    </div>
-  );
+    </div></DashboardLayout>);
 }
