@@ -250,10 +250,19 @@ export type InsertIncident = typeof incidents.$inferInsert;
 // ============================================================
 export const contactIdCodes = mysqlTable("contact_id_codes", {
   id: int("id").autoincrement().primaryKey(),
-  code: varchar("code", { length: 4 }).notNull().unique(),
+  code: varchar("code", { length: 10 }).notNull(),
+  fabricante: varchar("fabricante", { length: 20 }).notNull().default("COMPATEC"),
   description: varchar("description", { length: 255 }).notNull(),
-  category: mysqlEnum("category", ["alarm", "restore", "fault", "arm_disarm", "test", "system", "access"]).notNull(),
-  priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium").notNull(),
+  tipo: varchar("tipo", { length: 20 }).notNull().default("alarme"),
+  cor: varchar("cor", { length: 10 }).notNull().default("#EF4444"),
+  abreTela: int("abre_tela").notNull().default(1),
+  fechaAutomatico: int("fecha_automatico").notNull().default(0),
+  fechaComRestauracao: int("fecha_com_restauracao").notNull().default(0),
+  codigoRestauracao: varchar("codigo_restauracao", { length: 10 }).default(""),
+  tempoEsperaSegundos: int("tempo_espera_segundos").notNull().default(0),
+  prioridade: int("prioridade").notNull().default(1),
+  category: mysqlEnum("category", ["alarm", "restore", "fault", "arm_disarm", "test", "system", "access"]).default("alarm").notNull(),
+  priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium"),
 });
 
 export type ContactIdCode = typeof contactIdCodes.$inferSelect;

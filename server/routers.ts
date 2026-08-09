@@ -353,6 +353,37 @@ export const appRouter = router({
     list: protectedProcedure.query(() => db.listContactIdCodes()),
     get: protectedProcedure.input(z.object({ code: z.string() })).query(({ input }) => db.getContactIdDescription(input.code)),
   }),
+  contactId: router({
+    listByFabricante: publicProcedure.input(z.object({ fabricante: z.string() })).query(({ input }) => db.listContactIdByFabricante(input.fabricante)),
+    create: publicProcedure.input(z.object({
+      code: z.string().min(1),
+      fabricante: z.string().min(1),
+      description: z.string().min(1),
+      tipo: z.string().default("alarme"),
+      cor: z.string().default("#EF4444"),
+      abreTela: z.number().default(1),
+      fechaAutomatico: z.number().default(0),
+      fechaComRestauracao: z.number().default(0),
+      codigoRestauracao: z.string().default(""),
+      tempoEsperaSegundos: z.number().default(0),
+      prioridade: z.number().default(1),
+    })).mutation(({ input }) => db.createContactId(input)),
+    update: publicProcedure.input(z.object({
+      id: z.number(),
+      code: z.string().min(1),
+      fabricante: z.string().min(1),
+      description: z.string().min(1),
+      tipo: z.string().default("alarme"),
+      cor: z.string().default("#EF4444"),
+      abreTela: z.number().default(1),
+      fechaAutomatico: z.number().default(0),
+      fechaComRestauracao: z.number().default(0),
+      codigoRestauracao: z.string().default(""),
+      tempoEsperaSegundos: z.number().default(0),
+      prioridade: z.number().default(1),
+    })).mutation(({ input }) => db.updateContactId(input.id, input)),
+    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteContactId(input.id)),
+  }),
 
   // ============================================================
   // DASHBOARD

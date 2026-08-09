@@ -551,3 +551,52 @@ export async function deleteAlarmSystem(id: number) {
   const db = await getDb(); if (!db) return;
   await db.delete(alarmSystems).where(eq(alarmSystems.id, id));
 }
+
+export async function listContactIdByFabricante(fabricante: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(contactIdCodes).where(eq(contactIdCodes.fabricante, fabricante)).orderBy(contactIdCodes.code);
+}
+
+export async function createContactId(data: any) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(contactIdCodes).values({
+    code: data.code,
+    fabricante: data.fabricante,
+    description: data.description,
+    tipo: data.tipo,
+    cor: data.cor,
+    abreTela: data.abreTela,
+    fechaAutomatico: data.fechaAutomatico,
+    fechaComRestauracao: data.fechaComRestauracao,
+    codigoRestauracao: data.codigoRestauracao,
+    tempoEsperaSegundos: data.tempoEsperaSegundos,
+    prioridade: data.prioridade,
+    category: 'alarm',
+  });
+}
+
+export async function updateContactId(id: number, data: any) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(contactIdCodes).set({
+    code: data.code,
+    fabricante: data.fabricante,
+    description: data.description,
+    tipo: data.tipo,
+    cor: data.cor,
+    abreTela: data.abreTela,
+    fechaAutomatico: data.fechaAutomatico,
+    fechaComRestauracao: data.fechaComRestauracao,
+    codigoRestauracao: data.codigoRestauracao,
+    tempoEsperaSegundos: data.tempoEsperaSegundos,
+    prioridade: data.prioridade,
+  }).where(eq(contactIdCodes.id, id));
+}
+
+export async function deleteContactId(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(contactIdCodes).where(eq(contactIdCodes.id, id));
+}
