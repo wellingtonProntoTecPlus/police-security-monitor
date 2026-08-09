@@ -478,6 +478,11 @@ export const appRouter = router({
       startedAt: z.date().optional(),
     })).mutation(({ input }) => db.createOccurrence(input)),
   }),
+  systemUser: router({
+    list: publicProcedure.query(() => db.listSystemUsers()),
+    create: publicProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.string().default("operator") })).mutation(({ input }) => db.createSystemUser(input)),
+    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteSystemUser(input.id)),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

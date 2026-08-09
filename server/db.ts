@@ -600,3 +600,32 @@ export async function deleteContactId(id: number) {
   if (!db) return;
   await db.delete(contactIdCodes).where(eq(contactIdCodes.id, id));
 }
+
+// ============ SYSTEM USERS ============
+export async function listSystemUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(users).orderBy(desc(users.createdAt));
+}
+
+export async function createSystemUser(data: { name: string; email: string; password: string; role: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const openId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  await db.insert(users).values({
+    openId,
+    name: data.name,
+    email: data.email,
+    loginMethod: "local",
+    role: data.role as any,
+    password: data.password,
+  });
+  return { success: true };
+}
+
+export async function deleteSystemUser(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(users).where(eq(users.id, id));
+  return { success: true };
+}

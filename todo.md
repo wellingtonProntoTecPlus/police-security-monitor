@@ -142,3 +142,10 @@
 - [x] Editar e excluir Contatos do cliente
 - [x] Editar e excluir Câmeras
 - [x] Tela/seção de Zonas/Setores acessível para cadastro
+
+## Páginas Faltantes
+- [ ] Criar página de Relatórios (/reports) com filtros por data, operador, cliente
+- [ ] Criar página de Finalizações (/finalizations) com histórico de ocorrências
+- [ ] Criar página de Usuários (/users) com hierarquias Admin/Supervisor/Operador
+- [ ] Implementar login próprio com usuário/senha (independente do Manus OAuth)
+- [ ] Adicionar todos os 78 códigos Contact ID no banco local da VPS

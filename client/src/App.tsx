@@ -24,6 +24,9 @@ function Router() {
       <Route path={"/settings"} component={Settings} />
       <Route path={"/managing-company"} component={ManagingCompany} />
       <Route path={"/contact-id"} component={ContactId} />
+      <Route path={"/reports"} component={Reports} />
+      <Route path={"/finalizations"} component={Finalizations} />
+      <Route path={"/users"} component={UsersPage} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -46,3 +49,6 @@ function App() {
 export default App;
 import ManagingCompany from "./pages/ManagingCompany";
 import ContactId from "./pages/ContactId";
+import Reports from "./pages/Reports";
+import Finalizations from "./pages/Finalizations";
+import UsersPage from "./pages/Users";
