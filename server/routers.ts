@@ -96,6 +96,7 @@ export const appRouter = router({
       logoUrl: z.string().optional(),
       primaryColor: z.string().optional(),
     })).mutation(({ input }) => db.createPartnerCompany(input)),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deletePartnerCompany(input.id)),
     update: adminProcedure.input(z.object({
       id: z.number(),
       name: z.string().min(1).optional(),
@@ -163,6 +164,7 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateClient(id, data);
     }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteClient(input.id)),
   }),
 
   // ============================================================
@@ -192,6 +194,7 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateClientContact(id, data);
     }),
+    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteClientContact(input.id)),
   }),
 
   // ============================================================
@@ -235,6 +238,7 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateAlarmSystem(id, data);
     }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmSystem(input.id)),
   }),
 
   // ============================================================
@@ -249,6 +253,14 @@ export const appRouter = router({
       type: z.enum(["perimeter", "internal", "24h", "fire", "panic", "medical"]).optional(),
       partition: z.number().optional(),
     })).mutation(({ input }) => db.createAlarmZone(input)),
+    update: operatorProcedure.input(z.object({
+      id: z.number(),
+      zoneNumber: z.number().optional(),
+      name: z.string().optional(),
+      type: z.enum(["perimeter", "internal", "24h", "fire", "panic", "medical"]).optional(),
+      partition: z.number().optional(),
+    })).mutation(({ input }) => { const { id, ...data } = input; return db.updateAlarmZone(id, data); }),
+    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmZone(input.id)),
   }),
 
   // ============================================================
@@ -262,6 +274,13 @@ export const appRouter = router({
       name: z.string().min(1),
       phone: z.string().optional(),
     })).mutation(({ input }) => db.createAlarmUser(input)),
+    update: operatorProcedure.input(z.object({
+      id: z.number(),
+      userNumber: z.number().optional(),
+      name: z.string().optional(),
+      phone: z.string().optional(),
+    })).mutation(({ input }) => { const { id, ...data } = input; return db.updateAlarmUser(id, data); }),
+    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmUser(input.id)),
   }),
 
   // ============================================================
@@ -289,6 +308,7 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateCamera(id, data);
     }),
+    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteCamera(input.id)),
   }),
 
   // ============================================================

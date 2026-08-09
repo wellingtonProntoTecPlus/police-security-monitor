@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save } from "lucide-react";
+import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Trash2, Pencil } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -113,6 +113,10 @@ export default function Clients() {
       refetch();
     },
     onError: (err) => toast.error(err.message),
+  });
+  const deleteMut = trpc.monitoredClient.delete.useMutation({
+    onSuccess: () => { toast.success("Cliente excluído!"); refetch(); },
+    onError: (err) => toast.error("Erro ao excluir: " + err.message),
   });
 
   // Busca CEP via ViaCEP
@@ -384,13 +388,14 @@ export default function Clients() {
 
         {/* TABELA DE CLIENTES - Layout Desktop */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+          <div className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
             <span>Razão Social / Nome</span>
             <span>Nome Fantasia</span>
             <span>CPF/CNPJ</span>
             <span>Telefone / WhatsApp</span>
             <span>Cidade/UF</span>
             <span>Status</span>
+            <span>Ações</span>
           </div>
           {filteredClients.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
@@ -400,7 +405,7 @@ export default function Clients() {
             filteredClients.map((client: any) => (
               <div
                 key={client.id}
-                className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
+                className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
                 onClick={() => navigate(`/clients/${client.id}`)}
               >
                 <div className="flex items-center gap-2 min-w-0">
@@ -417,6 +422,18 @@ export default function Clients() {
                 <Badge variant={client.isActive ? "default" : "destructive"} className="text-xs justify-center">
                   {client.isActive ? "Ativo" : "Inativo"}
                 </Badge>
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/clients/${client.id}`)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
+                    if (confirm("Excluir este cliente permanentemente?")) {
+                      deleteMut.mutate({ id: client.id });
+                    }
+                  }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             ))
           )}
@@ -425,4 +442,3 @@ export default function Clients() {
     </DashboardLayout>
   );
 }
-

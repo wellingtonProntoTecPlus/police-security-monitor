@@ -505,3 +505,49 @@ export async function deleteManagingHoliday(id: number) {
   const db = await getDb(); if (!db) return;
   await db.delete(managingHolidays).where(eq(managingHolidays.id, id));
 }
+
+// ===== DELETE FUNCTIONS =====
+export async function deleteClientContact(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(clientContacts).where(eq(clientContacts.id, id));
+}
+
+export async function updateAlarmZone(id: number, data: Partial<InsertAlarmZone>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(alarmZones).set(data).where(eq(alarmZones.id, id));
+}
+
+export async function deleteAlarmZone(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(alarmZones).where(eq(alarmZones.id, id));
+}
+
+export async function updateAlarmUser(id: number, data: Partial<InsertAlarmUser>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(alarmUsers).set(data).where(eq(alarmUsers.id, id));
+}
+
+export async function deleteAlarmUser(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(alarmUsers).where(eq(alarmUsers.id, id));
+}
+
+export async function deleteCamera(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(cameras).where(eq(cameras.id, id));
+}
+
+export async function deletePartnerCompany(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(partnerCompanies).where(eq(partnerCompanies.id, id));
+}
+
+export async function deleteClient(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(clients).where(eq(clients.id, id));
+}
+
+export async function deleteAlarmSystem(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(alarmSystems).where(eq(alarmSystems.id, id));
+}

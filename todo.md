@@ -132,3 +132,13 @@
 - [x] Calendário de feriados na Empresa Gestora
 - [x] Calendário de feriados na Empresa Parceira
 - [x] Dashboard fixo definitivamente (sem scroll na tela de atendimento)
+
+## Edição e Exclusão de Cadastros
+- [x] Editar e excluir Empresa Gestora
+- [x] Editar e excluir Empresa Parceira
+- [x] Editar e excluir Clientes
+- [x] Editar e excluir Sistemas de Alarme
+- [x] Corrigir vinculação de cliente à empresa parceira no formulário
+- [x] Editar e excluir Contatos do cliente
+- [x] Editar e excluir Câmeras
+- [x] Tela/seção de Zonas/Setores acessível para cadastro

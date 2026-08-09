@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2 } from "lucide-react";
+import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 function maskCnpj(v: string) {
@@ -70,6 +70,7 @@ export default function Partners() {
   const createHolidayMut = trpc.partnerHoliday.create.useMutation({ onSuccess: () => { refetchHolidays(); setHolidayName(""); setHolidayDate(""); toast.success("Feriado adicionado!"); } });
   const deleteHolidayMut = trpc.partnerHoliday.delete.useMutation({ onSuccess: () => { refetchHolidays(); toast.success("Feriado removido!"); } });
 
+  const deletePartnerMut = trpc.partnerCompany.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Parceira excluída!"); }, onError: (err: any) => toast.error("Erro: " + err.message) });
   const filteredPartners = partners.filter((p: any) =>
     p.name.toLowerCase().includes(search.toLowerCase()) || p.cnpj.includes(search.replace(/\D/g, ""))
   );
@@ -247,6 +248,7 @@ export default function Partners() {
                 <span>Telefone</span>
                 <span>Cidade/UF</span>
                 <span>Status</span>
+                <span>Ações</span>
               </div>
               {filteredPartners.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">Nenhuma empresa parceira encontrada</div>
@@ -261,10 +263,19 @@ export default function Partners() {
                     <span className="text-sm text-muted-foreground">{partner.phone || "—"}</span>
                     <span className="text-sm text-muted-foreground">{partner.city ? `${partner.city}/${partner.state}` : "—"}</span>
                     <Badge variant={partner.isActive ? "default" : "destructive"} className="text-xs justify-center">
-                      {partner.isActive ? "Ativa" : "Inativa"}
-                    </Badge>
+                    {partner.isActive ? "Ativa" : "Inativa"}
+                  </Badge>
+                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
+                      if (confirm("Excluir esta parceira permanentemente?")) {
+                        deletePartnerMut.mutate({ id: partner.id });
+                      }
+                    }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                ))
+                </div>
+              ))
               )}
             </div>
           </div>
