@@ -29,9 +29,13 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-  { icon: Building2, label: "Parceiras", path: "/partners" },
+  { icon: Building2, label: "Empresa Gestora", path: "/managing-company" },
+  { icon: Building2, label: "Empresa Parceira", path: "/partners" },
   { icon: Users, label: "Clientes", path: "/clients" },
-  { icon: Shield, label: "Sistemas", path: "/alarm-systems" },
+  { icon: Radio, label: "Relatórios", path: "/reports" },
+  { icon: Shield, label: "Contact ID", path: "/alarm-systems" },
+  { icon: LayoutDashboard, label: "Finalizações", path: "/finalizations" },
+  { icon: Users, label: "Usuários", path: "/users" },
   { icon: Settings, label: "Configurações", path: "/settings" },
 ];
 
