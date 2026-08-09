@@ -245,28 +245,46 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
 async function processEvent(evento: any, remoteIp: string) {
   try {
     // Buscar descrição do código
-    const codeInfo = await getContactIdDescription(evento.eventCode);
-    const description = codeInfo?.description || `Evento ${evento.eventCode}`;
-    const priority = codeInfo?.priority || 'medium';
+    let description = `Evento ${evento.eventCode}`;
+    let priority = 'medium';
+    try {
+      const codeInfo = await getContactIdDescription(evento.eventCode);
+      if (codeInfo) {
+        description = codeInfo.description || description;
+        priority = codeInfo.priority || priority;
+      }
+    } catch (e: any) {
+      console.warn(`[RECIP] Não encontrou código ${evento.eventCode}: ${e.message}`);
+    }
 
     // Buscar sistema de alarme pela conta
-    const system = await getAlarmSystemByAccount(evento.account);
+    let system: any = null;
+    try {
+      system = await getAlarmSystemByAccount(evento.account);
+    } catch (e: any) {
+      console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);
+    }
 
     // Salvar evento no banco
-    const savedEvent = await createAlarmEvent({
-      alarmSystemId: system?.id || null,
-      account: evento.account,
-      brand: evento.brand,
-      qualifier: evento.qualifier,
-      eventCode: evento.eventCode,
-      partition: evento.partition,
-      zoneUser: evento.zoneUser,
-      description,
-      priority: priority as any,
-      receiverPort: evento.receiverPort,
-      remoteIp: remoteIp.replace('::ffff:', ''),
-      rawData: evento.rawData,
-    });
+    let savedEvent: any = { id: Date.now() };
+    try {
+      savedEvent = await createAlarmEvent({
+        alarmSystemId: system?.id || null,
+        account: evento.account,
+        brand: evento.brand,
+        qualifier: evento.qualifier,
+        eventCode: evento.eventCode,
+        partition: evento.partition,
+        zoneUser: evento.zoneUser,
+        description,
+        priority: priority as any,
+        receiverPort: evento.receiverPort,
+        remoteIp: remoteIp.replace('::ffff:', ''),
+        rawData: evento.rawData,
+      });
+    } catch (e: any) {
+      console.warn(`[RECIP] Erro ao salvar evento no banco: ${e.message}`);
+    }
 
     // Emitir para o dashboard via callback
     if (eventCallback) {
