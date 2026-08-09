@@ -36,9 +36,9 @@ const menuItems = [
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 240;
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 360;
 
 export default function DashboardLayout({
   children,
@@ -258,7 +258,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 p-4">{children}</main>
+        <main className="flex-1 overflow-auto h-screen">{children}</main>
       </SidebarInset>
     </>
   );

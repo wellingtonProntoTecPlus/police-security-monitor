@@ -64,3 +64,8 @@
 - [x] Busca de CEP automática (ViaCEP)
 - [x] Validação de CPF/CNPJ
 - [x] Máscara de campos (telefone, CEP, CPF/CNPJ)
+
+## Ajustes de Layout Desktop
+- [x] Menu lateral recolhível/expansível (toggle)
+- [x] Layout de cadastros otimizado para telas de computador (desktop-first)
+- [x] Melhor aproveitamento do espaço horizontal nos formulários

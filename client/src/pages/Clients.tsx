@@ -5,12 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Search, User, Building2, Phone, Mail, MapPin } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -94,12 +93,13 @@ const INITIAL_FORM = {
   city: "",
   state: "",
   zipCode: "",
+  notes: "",
 };
 
 export default function Clients() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
+  const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [loadingCep, setLoadingCep] = useState(false);
 
@@ -108,7 +108,7 @@ export default function Clients() {
   const createMutation = trpc.monitoredClient.create.useMutation({
     onSuccess: () => {
       toast.success("Cliente cadastrado com sucesso!");
-      setShowCreate(false);
+      setView("list");
       setForm({ ...INITIAL_FORM });
       refetch();
     },
@@ -164,227 +164,265 @@ export default function Clients() {
     });
   }
 
-  return (
-    <DashboardLayout>
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">Clientes Monitorados</h1>
-          <Dialog open={showCreate} onOpenChange={setShowCreate}>
-            <DialogTrigger asChild>
-              <Button><Plus className="h-4 w-4 mr-2" /> Novo Cliente</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="text-xl">Cadastrar Novo Cliente</DialogTitle>
-              </DialogHeader>
+  // ===== VIEW: FORMULÁRIO DE CADASTRO =====
+  if (view === "create") {
+    return (
+      <DashboardLayout>
+        <div className="h-full overflow-auto">
+          <div className="p-6 max-w-[1400px] mx-auto">
+            {/* Header */}
+            <div className="flex items-center gap-4 mb-6">
+              <Button variant="ghost" size="sm" onClick={() => setView("list")}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+              </Button>
+              <h1 className="text-xl font-bold text-foreground">Cadastrar Novo Cliente</h1>
+            </div>
 
-              {/* SEÇÃO: EMPRESA RESPONSÁVEL */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mt-4">
-                  <Building2 className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Empresa Responsável</h3>
-                </div>
-                <Separator />
-                <div>
-                  <Label className="text-sm font-medium">Empresa Parceira *</Label>
-                  <Select onValueChange={(v) => setForm({ ...form, partnerCompanyId: Number(v) })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione a empresa responsável..." /></SelectTrigger>
-                    <SelectContent>
-                      {partners.map((p: any) => (
-                        <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* SEÇÃO: DADOS DO CLIENTE */}
-                <div className="flex items-center gap-2 mt-6">
-                  <User className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Dados do Cliente</h3>
-                </div>
-                <Separator />
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">Tipo *</Label>
-                    <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "pf" | "pj", document: "" })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            {/* Formulário em grid desktop */}
+            <div className="grid grid-cols-12 gap-6">
+              {/* COLUNA ESQUERDA: Dados Principais */}
+              <div className="col-span-8 space-y-6">
+                {/* Empresa Responsável */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Building2 className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Empresa Responsável</h3>
+                    </div>
+                    <Select onValueChange={(v) => setForm({ ...form, partnerCompanyId: Number(v) })}>
+                      <SelectTrigger><SelectValue placeholder="Selecione a empresa parceira responsável por este cliente..." /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="pf">Pessoa Física</SelectItem>
-                        <SelectItem value="pj">Pessoa Jurídica</SelectItem>
+                        {partners.map((p: any) => (
+                          <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-sm font-medium">{form.type === "pf" ? "CPF *" : "CNPJ *"}</Label>
-                    <Input
-                      className="mt-1 font-mono"
-                      placeholder={form.type === "pf" ? "000.000.000-00" : "00.000.000/0000-00"}
-                      value={form.document}
-                      onChange={(e) => setForm({ ...form, document: maskCpfCnpj(e.target.value, form.type) })}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">{form.type === "pf" ? "Nome Completo *" : "Razão Social *"}</Label>
-                    <Input
-                      className="mt-1"
-                      placeholder={form.type === "pf" ? "Nome completo" : "Razão Social da empresa"}
-                      value={form.name}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Nome Fantasia</Label>
-                    <Input
-                      className="mt-1"
-                      placeholder="Nome fantasia ou apelido"
-                      value={form.fantasyName}
-                      onChange={(e) => setForm({ ...form, fantasyName: e.target.value })}
-                    />
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
 
-                {/* SEÇÃO: ENDEREÇO */}
-                <div className="flex items-center gap-2 mt-6">
-                  <MapPin className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Endereço</h3>
-                </div>
-                <Separator />
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">CEP</Label>
-                    <div className="flex gap-1 mt-1">
-                      <Input
-                        className="font-mono"
-                        placeholder="00000-000"
-                        value={form.zipCode}
-                        onChange={(e) => setForm({ ...form, zipCode: maskCep(e.target.value) })}
-                        onBlur={() => buscarCep(form.zipCode)}
-                      />
+                {/* Dados do Cliente */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <User className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Dados do Cliente</h3>
                     </div>
-                    {loadingCep && <span className="text-xs text-primary">Buscando...</span>}
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-sm font-medium">Logradouro</Label>
-                    <Input className="mt-1" placeholder="Rua, Avenida, etc." value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Número</Label>
-                    <Input className="mt-1" placeholder="Nº" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">Complemento</Label>
-                    <Input className="mt-1" placeholder="Apto, Sala, etc." value={form.complement} onChange={(e) => setForm({ ...form, complement: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Bairro</Label>
-                    <Input className="mt-1" placeholder="Bairro" value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Cidade</Label>
-                    <Input className="mt-1" placeholder="Cidade" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">UF</Label>
-                    <Input className="mt-1" placeholder="UF" maxLength={2} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase() })} />
-                  </div>
-                </div>
+                    <div className="grid grid-cols-6 gap-4">
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Tipo *</Label>
+                        <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "pf" | "pj", document: "" })}>
+                          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pf">Pessoa Física</SelectItem>
+                            <SelectItem value="pj">Pessoa Jurídica</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-4">
+                        <Label className="text-sm font-medium">{form.type === "pf" ? "CPF *" : "CNPJ *"}</Label>
+                        <Input
+                          className="mt-1 font-mono"
+                          placeholder={form.type === "pf" ? "000.000.000-00" : "00.000.000/0000-00"}
+                          value={form.document}
+                          onChange={(e) => setForm({ ...form, document: maskCpfCnpj(e.target.value, form.type) })}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">{form.type === "pf" ? "Nome Completo *" : "Razão Social *"}</Label>
+                        <Input
+                          className="mt-1"
+                          placeholder={form.type === "pf" ? "Nome completo" : "Razão Social da empresa"}
+                          value={form.name}
+                          onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">Nome Fantasia</Label>
+                        <Input
+                          className="mt-1"
+                          placeholder="Nome fantasia ou apelido"
+                          value={form.fantasyName}
+                          onChange={(e) => setForm({ ...form, fantasyName: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
-                {/* SEÇÃO: CONTATOS */}
-                <div className="flex items-center gap-2 mt-6">
-                  <Phone className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Contatos</h3>
-                </div>
-                <Separator />
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">Telefone</Label>
-                    <Input
-                      className="mt-1 font-mono"
-                      placeholder="(00) 00000-0000"
-                      value={form.phone}
-                      onChange={(e) => setForm({ ...form, phone: maskPhone(e.target.value) })}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">WhatsApp</Label>
-                    <Input
-                      className="mt-1 font-mono"
-                      placeholder="(00) 00000-0000"
-                      value={form.whatsapp}
-                      onChange={(e) => setForm({ ...form, whatsapp: maskPhone(e.target.value) })}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">E-mail</Label>
-                    <Input
-                      className="mt-1"
-                      type="email"
-                      placeholder="email@exemplo.com"
-                      value={form.email}
-                      onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    />
-                  </div>
-                </div>
+                {/* Endereço */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <MapPin className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Endereço</h3>
+                    </div>
+                    <div className="grid grid-cols-6 gap-4">
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">CEP</Label>
+                        <Input
+                          className="mt-1 font-mono"
+                          placeholder="00000-000"
+                          value={form.zipCode}
+                          onChange={(e) => setForm({ ...form, zipCode: maskCep(e.target.value) })}
+                          onBlur={() => buscarCep(form.zipCode)}
+                        />
+                        {loadingCep && <span className="text-xs text-primary mt-1">Buscando CEP...</span>}
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-sm font-medium">Logradouro</Label>
+                        <Input className="mt-1" placeholder="Rua, Avenida, Travessa..." value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+                      </div>
+                      <div className="col-span-1">
+                        <Label className="text-sm font-medium">Número</Label>
+                        <Input className="mt-1" placeholder="Nº" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Complemento</Label>
+                        <Input className="mt-1" placeholder="Apto, Sala, Bloco..." value={form.complement} onChange={(e) => setForm({ ...form, complement: e.target.value })} />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Bairro</Label>
+                        <Input className="mt-1" placeholder="Bairro" value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} />
+                      </div>
+                      <div className="col-span-1">
+                        <Label className="text-sm font-medium">Cidade</Label>
+                        <Input className="mt-1" placeholder="Cidade" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+                      </div>
+                      <div className="col-span-1">
+                        <Label className="text-sm font-medium">UF</Label>
+                        <Input className="mt-1" placeholder="UF" maxLength={2} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase() })} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
-              {/* BOTÕES */}
-              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-border">
-                <Button variant="outline" onClick={() => { setShowCreate(false); setForm({ ...INITIAL_FORM }); }}>
-                  Cancelar
-                </Button>
-                <Button onClick={handleSubmit} disabled={createMutation.isPending} className="min-w-[140px]">
+              {/* COLUNA DIREITA: Contatos + Observações */}
+              <div className="col-span-4 space-y-6">
+                {/* Contatos */}
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Phone className="h-5 w-5 text-primary" />
+                      <h3 className="font-bold text-foreground">Contatos</h3>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-sm font-medium">Telefone</Label>
+                        <Input
+                          className="mt-1 font-mono"
+                          placeholder="(00) 00000-0000"
+                          value={form.phone}
+                          onChange={(e) => setForm({ ...form, phone: maskPhone(e.target.value) })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium">WhatsApp</Label>
+                        <Input
+                          className="mt-1 font-mono"
+                          placeholder="(00) 00000-0000"
+                          value={form.whatsapp}
+                          onChange={(e) => setForm({ ...form, whatsapp: maskPhone(e.target.value) })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium">E-mail</Label>
+                        <Input
+                          className="mt-1"
+                          type="email"
+                          placeholder="email@exemplo.com"
+                          value={form.email}
+                          onChange={(e) => setForm({ ...form, email: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Observações */}
+                <Card>
+                  <CardContent className="p-5">
+                    <Label className="text-sm font-medium">Observações</Label>
+                    <Textarea
+                      className="mt-2 min-h-[100px]"
+                      placeholder="Informações adicionais sobre o cliente..."
+                      value={form.notes}
+                      onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Botão Salvar */}
+                <Button onClick={handleSubmit} disabled={createMutation.isPending} className="w-full h-12 text-base font-bold">
+                  <Save className="h-5 w-5 mr-2" />
                   {createMutation.isPending ? "Salvando..." : "Cadastrar Cliente"}
                 </Button>
               </div>
-            </DialogContent>
-          </Dialog>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // ===== VIEW: LISTA DE CLIENTES =====
+  return (
+    <DashboardLayout>
+      <div className="h-full overflow-auto p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Clientes Monitorados</h1>
+          <Button onClick={() => setView("create")}>
+            <Plus className="h-4 w-4 mr-2" /> Novo Cliente
+          </Button>
         </div>
 
         {/* BUSCA */}
-        <div className="relative max-w-md">
+        <div className="relative max-w-lg mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar por nome, fantasia ou documento..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
-        {/* LISTA DE CLIENTES */}
-        <ScrollArea className="h-[calc(100vh-250px)]">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredClients.map((client: any) => (
-              <Card key={client.id} className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(`/clients/${client.id}`)}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      {client.type === "pj" ? <Building2 className="h-5 w-5 text-primary" /> : <User className="h-5 w-5 text-primary" />}
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-foreground truncate">{client.fantasyName || client.name}</h3>
-                        {client.fantasyName && <p className="text-xs text-muted-foreground truncate">{client.name}</p>}
-                      </div>
-                    </div>
-                    <Badge variant={client.isActive ? "default" : "destructive"} className="text-xs shrink-0">
-                      {client.isActive ? "Ativo" : "Inativo"}
-                    </Badge>
-                  </div>
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    <p className="font-mono text-xs">{client.type === "pf" ? "CPF" : "CNPJ"}: {client.document}</p>
-                    {client.phone && <p className="flex items-center gap-1"><Phone className="h-3 w-3" />{client.phone}</p>}
-                    {client.email && <p className="flex items-center gap-1"><Mail className="h-3 w-3" />{client.email}</p>}
-                    {client.city && <p className="flex items-center gap-1"><MapPin className="h-3 w-3" />{client.neighborhood ? `${client.neighborhood}, ` : ""}{client.city}/{client.state}</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-            {filteredClients.length === 0 && (
-              <div className="col-span-3 text-center py-12 text-muted-foreground">
-                Nenhum cliente encontrado
-              </div>
-            )}
+        {/* TABELA DE CLIENTES - Layout Desktop */}
+        <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+            <span>Razão Social / Nome</span>
+            <span>Nome Fantasia</span>
+            <span>CPF/CNPJ</span>
+            <span>Telefone / WhatsApp</span>
+            <span>Cidade/UF</span>
+            <span>Status</span>
           </div>
-        </ScrollArea>
+          {filteredClients.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              Nenhum cliente encontrado
+            </div>
+          ) : (
+            filteredClients.map((client: any) => (
+              <div
+                key={client.id}
+                className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
+                onClick={() => navigate(`/clients/${client.id}`)}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {client.type === "pj" ? <Building2 className="h-4 w-4 text-primary shrink-0" /> : <User className="h-4 w-4 text-primary shrink-0" />}
+                  <span className="font-medium text-foreground truncate">{client.name}</span>
+                </div>
+                <span className="text-muted-foreground truncate">{client.fantasyName || "—"}</span>
+                <span className="font-mono text-xs text-muted-foreground">{client.document}</span>
+                <div className="text-xs text-muted-foreground">
+                  {client.phone && <span className="block">{client.phone}</span>}
+                  {client.whatsapp && <span className="block text-green-400">{client.whatsapp}</span>}
+                </div>
+                <span className="text-xs text-muted-foreground">{client.city ? `${client.city}/${client.state}` : "—"}</span>
+                <Badge variant={client.isActive ? "default" : "destructive"} className="text-xs justify-center">
+                  {client.isActive ? "Ativo" : "Inativo"}
+                </Badge>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );
 }
+
