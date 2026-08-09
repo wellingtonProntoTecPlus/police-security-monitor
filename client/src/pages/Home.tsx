@@ -2,11 +2,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Shield, Monitor, Bell, Users, Radio } from "lucide-react";
-import { useLocation } from "wouter";
+import { Redirect } from "wouter";
 
 export default function Home() {
   const { user, isAuthenticated, loading } = useAuth();
-  const [, navigate] = useLocation();
 
   if (loading) {
     return (
@@ -17,8 +16,7 @@ export default function Home() {
   }
 
   if (isAuthenticated) {
-    navigate("/dashboard");
-    return null;
+    return <Redirect to="/dashboard" />;
   }
 
   return (
