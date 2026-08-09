@@ -40,7 +40,7 @@ const menuItems = [
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 240;
+const DEFAULT_WIDTH = 200;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
 
@@ -89,6 +89,7 @@ export default function DashboardLayout({
 
   return (
     <SidebarProvider
+      defaultOpen={false}
       style={
         {
           "--sidebar-width": `${sidebarWidth}px`,

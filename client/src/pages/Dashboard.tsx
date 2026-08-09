@@ -31,6 +31,13 @@ const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
   low: { label: "Baixa", color: "bg-green-600 text-white" },
 };
 
+const PRIORITY_TEXT_COLOR: Record<string, string> = {
+  critical: "text-red-400",
+  high: "text-yellow-400",
+  medium: "text-blue-400",
+  low: "text-green-400",
+};
+
 const PRIORITY_BORDER: Record<string, string> = {
   critical: "border-l-red-500",
   high: "border-l-yellow-500",
@@ -174,7 +181,7 @@ export default function Dashboard() {
         )}
 
         <div className="text-xs text-muted-foreground font-mono mb-0.5">{time}</div>
-        <div className="font-bold text-sm text-foreground">{ev.description || `Evento ${ev.eventCode}`}</div>
+        <div className={`font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
         <div className="text-xs text-primary font-medium">{ev.account} - {ev.clientName}</div>
         <div className="text-[11px] text-muted-foreground">Central: {ev.systemModel}</div>
         <div className="flex items-center gap-2 mt-1">
