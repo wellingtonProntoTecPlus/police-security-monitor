@@ -19,6 +19,7 @@ import {
   alarmSchedules, InsertAlarmSchedule,
   clientProcedures, InsertClientProcedure,
   partnerHolidays, InsertPartnerHoliday,
+  occurrences, InsertOccurrence
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -457,4 +458,32 @@ export async function deletePartnerHoliday(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(partnerHolidays).where(eq(partnerHolidays.id, id));
+}
+
+// ============================================================
+// OCORRÊNCIAS FINALIZADAS
+// ============================================================
+export async function createOccurrence(data: InsertOccurrence) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(occurrences).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number }) {
+  const db = await getDb();
+  if (!db) return [];
+  let query = db.select().from(occurrences).orderBy(desc(occurrences.finalizedAt)).limit(opts?.limit || 100);
+  if (opts?.offset) query = query.offset(opts.offset) as any;
+  if (opts?.account) query = query.where(eq(occurrences.account, opts.account)) as any;
+  if (opts?.clientId) query = query.where(eq(occurrences.clientId, opts.clientId)) as any;
+  if (opts?.partnerCompanyId) query = query.where(eq(occurrences.partnerCompanyId, opts.partnerCompanyId)) as any;
+  return query;
+}
+
+export async function getOccurrenceById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(occurrences).where(eq(occurrences.id, id)).limit(1);
+  return result.length > 0 ? result[0] : null;
 }

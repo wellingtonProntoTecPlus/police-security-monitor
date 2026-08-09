@@ -330,3 +330,40 @@ export const partnerHolidays = mysqlTable("partner_holidays", {
 
 export type PartnerHoliday = typeof partnerHolidays.$inferSelect;
 export type InsertPartnerHoliday = typeof partnerHolidays.$inferInsert;
+
+// ============================================================
+// OCORRÊNCIAS FINALIZADAS (histórico de atendimentos)
+// ============================================================
+export const occurrences = mysqlTable("occurrences", {
+  id: int("id").autoincrement().primaryKey(),
+  // Dados do evento
+  account: varchar("account", { length: 20 }).notNull(),
+  eventCode: varchar("eventCode", { length: 10 }).notNull(),
+  qualifier: varchar("qualifier", { length: 2 }),
+  partition: varchar("partition", { length: 5 }),
+  zoneUser: varchar("zoneUser", { length: 10 }),
+  description: text("description"),
+  priority: varchar("priority", { length: 20 }),
+  brand: varchar("brand", { length: 50 }),
+  // Dados do cliente
+  clientId: int("clientId"),
+  clientName: varchar("clientName", { length: 255 }),
+  systemId: int("systemId"),
+  partnerCompanyId: int("partnerCompanyId"),
+  // Dados do atendimento
+  operatorId: int("operatorId"),
+  operatorName: varchar("operatorName", { length: 255 }),
+  status: mysqlEnum("status", ["finalized", "cancelled", "escalated"]).default("finalized").notNull(),
+  observations: text("observations"),
+  logs: text("logs"), // JSON array de logs do operador
+  attendingTimeMs: int("attendingTimeMs"), // tempo de atendimento em ms
+  sendEmail: boolean("sendEmail").default(false),
+  sendPush: boolean("sendPush").default(false),
+  // Timestamps
+  eventReceivedAt: timestamp("eventReceivedAt"),
+  startedAt: timestamp("startedAt"),
+  finalizedAt: timestamp("finalizedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type Occurrence = typeof occurrences.$inferSelect;
+export type InsertOccurrence = typeof occurrences.$inferInsert;

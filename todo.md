@@ -102,3 +102,16 @@
 - [x] Visualização de câmeras do cliente (botão)
 - [x] Alerta sonoro para eventos críticos
 - [x] Fluxo de status: Aguardando → Em Atendimento → Observação/Despacho → Finalizado
+
+## Player HLS para Câmeras
+- [x] Instalar hls.js no projeto
+- [x] Criar componente HLSPlayer reutilizável
+- [x] Integrar player nas câmeras do dashboard (quadrados exibem stream ao vivo)
+- [x] Modal expandido com player HLS ao clicar na câmera
+
+## Persistência de Ocorrências Finalizadas
+- [x] Criar tabela occurrences no banco (evento, cliente, operador, observações, logs, tempo)
+- [x] API tRPC para salvar ocorrência finalizada
+- [x] API tRPC para listar ocorrências (Relatórios/Finalizações)
+- [x] Conectar botão Finalizar do dashboard à API de persistência
+- [x] Salvar tempo de atendimento, observações e logs da ocorrência

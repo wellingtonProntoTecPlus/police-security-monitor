@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import HLSPlayer from "@/components/HLSPlayer";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 
@@ -26,18 +27,23 @@ interface QueueEvent extends AlarmEvent {
 }
 
 // Modal de câmera expandida
-function CameraModal({ cam, onClose }: { cam: number; onClose: () => void }) {
+function CameraModal({ cam, onClose, url, label }: { cam: number; onClose: () => void; url?: string; label?: string }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={onClose}>
       <div className="relative w-[80vw] h-[70vh] bg-black border border-border rounded-lg flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-3 right-3 text-white hover:text-red-400 z-10">
           <X className="h-6 w-6" />
         </button>
-        <div className="text-center">
-          <Camera className="h-16 w-16 mx-auto text-muted-foreground mb-3" />
-          <span className="text-white text-xl font-bold">Câmera {cam}</span>
-          <p className="text-muted-foreground text-sm mt-2">Stream RTSP será exibido aqui</p>
-        </div>
+        {url ? (
+          <HLSPlayer url={url} label={label || `Câmera ${cam}`} className="w-full h-full" />
+        ) : (
+          <div className="text-center">
+            <Camera className="h-16 w-16 mx-auto text-muted-foreground mb-3" />
+            <span className="text-white text-xl font-bold">{label || `Câmera ${cam}`}</span>
+            <p className="text-muted-foreground text-sm mt-2">Configure a URL HLS para visualizar o stream ao vivo</p>
+            <p className="text-muted-foreground text-xs mt-1">O proxy RTSP→HLS precisa estar ativo no servidor</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -95,6 +101,11 @@ export default function Dashboard() {
   const [camPage, setCamPage] = useState(0);
   const totalCams = 16; // máximo de câmeras por cliente
   const camsPerPage = 4;
+  const [sendEmail, setSendEmail] = useState(false);
+  const [sendPush, setSendPush] = useState(false);
+
+  // Mutations
+  const createOccurrenceMut = trpc.occurrence.create.useMutation();
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -160,14 +171,7 @@ export default function Dashboard() {
   }, [selectedEvent]);
 
   // Finalizar evento
-  const finalizeEvent = useCallback((ev: QueueEvent) => {
-    addLog("Evento FINALIZADO");
-    setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
-    setSelectedEvent(null);
-    setAttendingNotes("");
-    setLogs([]);
-    toast.success("Evento finalizado e salvo!");
-  }, []);
+  // finalizeEvent definido abaixo de selectedClient/selectedSystem
 
   // Agrupar por fila
   const grouped = useMemo(() => {
@@ -209,6 +213,54 @@ export default function Dashboard() {
     if (!selectedSystem) return null;
     return (clientData || []).find((c: any) => c.id === selectedSystem.clientId);
   }, [selectedSystem, clientData]);
+
+  // Buscar câmeras do cliente selecionado
+  const { data: clientCameras } = trpc.camera.list.useQuery(
+    { clientId: selectedClient?.id || 0 },
+    { enabled: !!selectedClient?.id }
+  );
+
+  // Finalizar evento - salvar ocorrência no banco
+  const finalizeEvent = useCallback((ev: QueueEvent) => {
+    addLog("Evento FINALIZADO");
+    const finalLogs = [`[${new Date().toLocaleTimeString("pt-BR")}] Evento FINALIZADO`, ...logs];
+    const attendingTime = Date.now() - attendStartTime;
+    createOccurrenceMut.mutate({
+      account: ev.account,
+      eventCode: ev.eventCode,
+      qualifier: ev.qualifier || undefined,
+      partition: ev.partition || undefined,
+      zoneUser: ev.zoneUser || undefined,
+      description: ev.description || undefined,
+      priority: ev.priority || undefined,
+      brand: ev.brand || ev.systemModel || undefined,
+      clientId: selectedClient?.id || undefined,
+      clientName: ev.clientName || undefined,
+      systemId: selectedSystem?.id || undefined,
+      partnerCompanyId: (selectedClient as any)?.partnerCompanyId || undefined,
+      operatorId: user?.id || undefined,
+      operatorName: user?.name || undefined,
+      observations: attendingNotes || undefined,
+      logs: JSON.stringify(finalLogs),
+      attendingTimeMs: attendingTime,
+      sendEmail: sendEmail,
+      sendPush: sendPush,
+      startedAt: new Date(attendStartTime),
+    }, {
+      onSuccess: () => {
+        setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
+        setSelectedEvent(null);
+        setAttendingNotes("");
+        setLogs([]);
+        setSendEmail(false);
+        setSendPush(false);
+        toast.success("Ocorrência finalizada e salva no banco!");
+      },
+      onError: (err: any) => {
+        toast.error("Erro ao salvar ocorrência: " + err.message);
+      }
+    });
+  }, [logs, attendStartTime, attendingNotes, selectedClient, selectedSystem, user, sendEmail, sendPush]);
 
   // Card do evento
   function EventCard({ ev }: { ev: QueueEvent }) {
@@ -263,7 +315,12 @@ export default function Dashboard() {
       <audio ref={audioRef} preload="auto">
         <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbsGczHjqIrNjVpWQ+IjV8nczUr3hLMi5xi8DJtIRYPC0uf5y/xbOCVzYpZYqvuLmOaEkwMmqIqbK3lnFOMy9shqewtZd1UjUwbYamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2AA==" type="audio/wav" />
       </audio>
-      {expandedCam && <CameraModal cam={expandedCam} onClose={() => setExpandedCam(null)} />}
+      {expandedCam && <CameraModal
+        cam={expandedCam}
+        onClose={() => setExpandedCam(null)}
+        url={clientCameras?.[expandedCam - 1]?.rtspUrl || undefined}
+        label={clientCameras?.[expandedCam - 1]?.name || `Câmera ${expandedCam}`}
+      />}
 
       <div className="flex flex-col h-full overflow-hidden">
         {/* TOP BAR - Botões de Status */}
@@ -356,11 +413,11 @@ export default function Dashboard() {
                     />
                     <div className="flex flex-col gap-1.5">
                       <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" />
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} />
                         <Mail className="h-3 w-3" /> E-mail
                       </label>
                       <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" />
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(e) => setSendPush(e.target.checked)} />
                         <Send className="h-3 w-3" /> Push
                       </label>
                       <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(selectedEvent)}>
@@ -412,14 +469,21 @@ export default function Dashboard() {
                     <div className="flex-1 grid grid-cols-4 gap-3">
                       {Array.from({ length: camsPerPage }, (_, i) => {
                         const camNum = camPage * camsPerPage + i + 1;
+                        const camData = clientCameras?.[camPage * camsPerPage + i];
                         return (
                           <div
                             key={camNum}
                             onClick={() => setExpandedCam(camNum)}
                             className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-square max-h-[160px]"
                           >
-                            <Camera className="h-8 w-8 text-muted-foreground mb-1" />
-                            <span className="text-muted-foreground text-sm font-medium">Câmera {camNum}</span>
+                            {camData?.rtspUrl ? (
+                              <HLSPlayer url={camData.rtspUrl} label={camData.name || `Câmera ${camNum}`} className="w-full h-full" />
+                            ) : (
+                              <>
+                                <Camera className="h-8 w-8 text-muted-foreground mb-1" />
+                                <span className="text-muted-foreground text-sm font-medium">{camData?.name || `Câmera ${camNum}`}</span>
+                              </>
+                            )}
                             <Maximize2 className="h-3.5 w-3.5 text-muted-foreground absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
                         );
