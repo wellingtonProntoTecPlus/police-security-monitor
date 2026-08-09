@@ -3,9 +3,11 @@ import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Shield, Monitor, Bell, Users, Radio } from "lucide-react";
 import { Redirect } from "wouter";
+import { useLocation } from "wouter";
 
 export default function Home() {
   const { user, isAuthenticated, loading } = useAuth();
+  const [, navigate] = useLocation();
 
   if (loading) {
     return (
@@ -19,6 +21,11 @@ export default function Home() {
     return <Redirect to="/dashboard" />;
   }
 
+  // Bypass para VPS sem OAuth - acesso direto ao dashboard
+  const handleDirectAccess = () => {
+    navigate("/dashboard");
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -26,9 +33,14 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <img src="/manus-storage/police-logo_4726d461.png" alt="Police Central" className="h-12 object-contain" />
         </div>
-        <Button onClick={() => startLogin()} variant="default" size="lg" className="font-bold">
-          ENTRAR NO SISTEMA
-        </Button>
+        <div className="flex gap-3">
+          <Button onClick={handleDirectAccess} variant="outline" size="lg" className="font-bold">
+            ACESSO DIRETO
+          </Button>
+          <Button onClick={() => startLogin()} variant="default" size="lg" className="font-bold">
+            ENTRAR NO SISTEMA
+          </Button>
+        </div>
       </header>
 
       {/* Hero */}

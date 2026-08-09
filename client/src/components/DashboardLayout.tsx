@@ -63,7 +63,9 @@ export default function DashboardLayout({
     return <DashboardLayoutSkeleton />
   }
 
-  if (!user) {
+  // Bypass: na VPS (IP direto), permite acesso sem autenticação
+  const isVPS = typeof window !== 'undefined' && !window.location.hostname.includes('manus.space') && !window.location.hostname.includes('manus.computer');
+  if (!user && !isVPS) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
