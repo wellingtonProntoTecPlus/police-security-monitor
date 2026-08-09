@@ -368,7 +368,7 @@ export default function Dashboard() {
           </div>
 
           {/* COLUNA 2: Painel Central */}
-          <div className="flex-1 h-full flex flex-col overflow-hidden">
+          <div className="flex-1 h-full flex flex-col overflow-hidden min-h-0">
             {!selectedEvent ? (
               <div className="flex-1 flex items-center justify-center text-muted-foreground">
                 <div className="text-center">
@@ -574,3 +574,4 @@ export default function Dashboard() {
     </DashboardLayout>
   );
 }
+        {/* Layout fixo na viewport - sem scroll na tela de atendimento */}

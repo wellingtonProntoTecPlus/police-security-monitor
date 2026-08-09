@@ -263,7 +263,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 overflow-auto h-screen">{children}</main>
+        <main className="flex-1 overflow-hidden h-screen">{children}</main>
       </SidebarInset>
     </>
   );

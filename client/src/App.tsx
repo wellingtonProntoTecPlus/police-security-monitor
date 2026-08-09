@@ -22,6 +22,7 @@ function Router() {
       <Route path={"/partners"} component={Partners} />
       <Route path={"/alarm-systems"} component={AlarmSystems} />
       <Route path={"/settings"} component={Settings} />
+      <Route path={"/managing-company"} component={ManagingCompany} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -42,3 +43,4 @@ function App() {
 }
 
 export default App;
+import ManagingCompany from "./pages/ManagingCompany";
