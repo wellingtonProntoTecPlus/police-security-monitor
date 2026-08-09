@@ -51,3 +51,9 @@
 
 ## Testes
 - [x] Teste unitário das rotas tRPC
+
+## Tempo Real
+- [x] Instalar e configurar Socket.IO no servidor
+- [x] Emitir eventos do receptor para o frontend via Socket.IO
+- [x] Conectar o dashboard ao Socket.IO para receber eventos em tempo real
+- [x] Exibir eventos novos instantaneamente no grid do dashboard

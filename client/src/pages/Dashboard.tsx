@@ -2,40 +2,17 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { useSocket, AlarmEvent } from "@/hooks/useSocket";
 import {
-  Bell, Radio, Clock, Users, AlertTriangle, CheckCircle2,
-  Eye, Truck, Filter, Search
+  Bell, Radio, Clock, Users, AlertTriangle,
+  Filter, Search, Wifi, WifiOff
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
-// Cores por prioridade
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: "bg-red-600 text-white",
-  high: "bg-orange-500 text-white",
-  medium: "bg-yellow-500 text-black",
-  low: "bg-green-600 text-white",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  waiting: "AGUARDANDO",
-  attending: "EM ATENDIMENTO",
-  observing: "EM OBSERVAÇÃO",
-  dispatched: "ENVIOU TÁTICO",
-  closed: "ENCERRADO",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  waiting: "text-yellow-400",
-  attending: "text-blue-400",
-  observing: "text-purple-400",
-  dispatched: "text-orange-400",
-  closed: "text-green-400",
-};
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -43,16 +20,26 @@ export default function Dashboard() {
   const [searchAccount, setSearchAccount] = useState("");
   const [filterBrand, setFilterBrand] = useState("all");
 
+  // Socket.IO para eventos em tempo real
+  const { connected, realtimeEvents } = useSocket();
+
   // Atualizar relógio
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Queries
-  const { data: stats } = trpc.dashboard.stats.useQuery(undefined, { refetchInterval: 5000 });
-  const { data: events = [] } = trpc.alarmEvent.list.useQuery({ limit: 50 }, { refetchInterval: 3000 });
-  const { data: incidents = [] } = trpc.incident.list.useQuery(undefined, { refetchInterval: 3000 });
+  // Queries (fallback + stats)
+  const { data: stats } = trpc.dashboard.stats.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: dbEvents = [] } = trpc.alarmEvent.list.useQuery({ limit: 50 }, { refetchInterval: 15000 });
+  const { data: incidents = [] } = trpc.incident.list.useQuery(undefined, { refetchInterval: 5000 });
+
+  // Combinar eventos: tempo real primeiro, depois DB (sem duplicatas)
+  const allEvents = useMemo(() => {
+    const rtIds = new Set(realtimeEvents.filter(e => e.id).map(e => e.id));
+    const dbFiltered = dbEvents.filter((e: any) => !rtIds.has(e.id));
+    return [...realtimeEvents, ...dbFiltered].slice(0, 100);
+  }, [realtimeEvents, dbEvents]);
 
   const hora = currentTime.toLocaleTimeString("pt-BR");
   const data = currentTime.toLocaleDateString("pt-BR");
@@ -66,6 +53,15 @@ export default function Dashboard() {
     return counts;
   }, [incidents]);
 
+  // Filtrar eventos
+  const filteredEvents = useMemo(() => {
+    return allEvents.filter((ev: any) => {
+      if (searchAccount && !ev.account?.includes(searchAccount)) return false;
+      if (filterBrand !== "all" && ev.brand !== filterBrand) return false;
+      return true;
+    });
+  }, [allEvents, searchAccount, filterBrand]);
+
   return (
     <DashboardLayout>
       <div className="flex flex-col h-full gap-3 p-4">
@@ -73,9 +69,25 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-green-400 font-bold text-lg">SISTEMA OPERACIONAL</span>
+              {connected ? (
+                <>
+                  <div className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-green-400 font-bold text-lg">SISTEMA OPERACIONAL</span>
+                  <Wifi className="h-4 w-4 text-green-400 ml-2" />
+                </>
+              ) : (
+                <>
+                  <div className="h-3 w-3 rounded-full bg-red-500" />
+                  <span className="text-red-400 font-bold text-lg">RECONECTANDO...</span>
+                  <WifiOff className="h-4 w-4 text-red-400 ml-2" />
+                </>
+              )}
             </div>
+            {realtimeEvents.length > 0 && (
+              <Badge variant="outline" className="text-xs border-green-500 text-green-400">
+                {realtimeEvents.length} eventos ao vivo
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <span className="text-3xl font-bold font-mono text-foreground tracking-wider">{hora}</span>
@@ -183,9 +195,9 @@ export default function Dashboard() {
               <SelectItem value="VIAWEB">ViaWeb</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm">
-            <Filter className="h-4 w-4 mr-1" /> Filtros
-          </Button>
+          <Badge variant="outline" className="text-xs font-mono">
+            {filteredEvents.length} eventos
+          </Badge>
         </div>
 
         {/* GRID DE EVENTOS */}
@@ -202,44 +214,39 @@ export default function Dashboard() {
             <span>IP</span>
           </div>
           <ScrollArea className="h-[calc(100vh-520px)]">
-            {events.length === 0 ? (
-              <div className="flex items-center justify-center h-32 text-muted-foreground">
-                <Bell className="h-6 w-6 mr-2 opacity-50" />
-                Aguardando eventos...
+            {filteredEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
+                <Bell className="h-6 w-6 opacity-50" />
+                <span>Aguardando eventos...</span>
+                {connected && <span className="text-xs text-green-400">Socket.IO conectado - pronto para receber</span>}
               </div>
             ) : (
-              events
-                .filter((ev: any) => {
-                  if (searchAccount && !ev.account.includes(searchAccount)) return false;
-                  if (filterBrand !== "all" && ev.brand !== filterBrand) return false;
-                  return true;
-                })
-                .map((ev: any) => (
-                  <div
-                    key={ev.id}
-                    className={`grid grid-cols-[80px_70px_100px_60px_1fr_50px_70px_120px] gap-2 px-4 py-2 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center text-sm ${
-                      ev.priority === 'critical' ? 'border-l-4 border-l-red-500' :
-                      ev.priority === 'high' ? 'border-l-4 border-l-orange-500' :
-                      ev.priority === 'medium' ? 'border-l-4 border-l-yellow-500' :
-                      'border-l-4 border-l-green-500'
-                    }`}
-                  >
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {new Date(ev.receivedAt).toLocaleTimeString("pt-BR")}
-                    </span>
-                    <span className="font-mono font-bold text-foreground">{ev.account}</span>
-                    <span className="text-xs text-foreground">{ev.brand}</span>
-                    <Badge variant="outline" className={`text-xs ${
-                      ev.qualifier === 'E' ? 'border-red-500 text-red-400' : 'border-green-500 text-green-400'
-                    }`}>
-                      {ev.qualifier}{ev.eventCode}
-                    </Badge>
-                    <span className="text-foreground truncate">{ev.description || `Evento ${ev.eventCode}`}</span>
-                    <span className="font-mono text-xs text-muted-foreground">{ev.partition}</span>
-                    <span className="font-mono text-xs text-muted-foreground">{ev.zoneUser}</span>
-                    <span className="font-mono text-xs text-muted-foreground">{ev.remoteIp}</span>
-                  </div>
-                ))
+              filteredEvents.map((ev: any, idx: number) => (
+                <div
+                  key={ev.id || `rt-${idx}`}
+                  className={`grid grid-cols-[80px_70px_100px_60px_1fr_50px_70px_120px] gap-2 px-4 py-2 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center text-sm ${
+                    ev.priority === 'critical' ? 'border-l-4 border-l-red-500 bg-red-500/5' :
+                    ev.priority === 'high' ? 'border-l-4 border-l-orange-500 bg-orange-500/5' :
+                    ev.priority === 'medium' ? 'border-l-4 border-l-yellow-500' :
+                    'border-l-4 border-l-green-500'
+                  } ${!ev.id ? 'animate-pulse' : ''}`}
+                >
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {ev.receivedAt ? new Date(ev.receivedAt).toLocaleTimeString("pt-BR") : ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString("pt-BR") : "--:--:--"}
+                  </span>
+                  <span className="font-mono font-bold text-foreground">{ev.account}</span>
+                  <span className="text-xs text-foreground">{ev.brand}</span>
+                  <Badge variant="outline" className={`text-xs ${
+                    ev.qualifier === 'E' ? 'border-red-500 text-red-400' : 'border-green-500 text-green-400'
+                  }`}>
+                    {ev.qualifier}{ev.eventCode}
+                  </Badge>
+                  <span className="text-foreground truncate">{ev.description || `Evento ${ev.eventCode}`}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{ev.partition}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{ev.zoneUser}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{ev.remoteIp}</span>
+                </div>
+              ))
             )}
           </ScrollArea>
         </div>
@@ -247,3 +254,4 @@ export default function Dashboard() {
     </DashboardLayout>
   );
 }
+
