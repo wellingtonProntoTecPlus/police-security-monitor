@@ -5,13 +5,13 @@ import { trpc } from "@/lib/trpc";
 import { useSocket, AlarmEvent } from "@/hooks/useSocket";
 import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X,
-  CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench
+  CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
+  ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
@@ -19,9 +19,10 @@ type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "mainten
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
   queueStatus: QueueStatus;
-  queuedAt: number; // timestamp
+  queuedAt: number;
   clientName?: string;
   systemModel?: string;
+  zoneName?: string;
 }
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
@@ -45,13 +46,33 @@ const PRIORITY_BORDER: Record<string, string> = {
   low: "border-l-green-500",
 };
 
+// Cronômetro
+function Timer({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+  const h = Math.floor(elapsed / 3600000);
+  const m = Math.floor((elapsed % 3600000) / 60000);
+  const s = Math.floor((elapsed % 60000) / 1000);
+  return (
+    <span className="font-mono text-lg font-bold text-green-400 bg-green-500/10 border border-green-500/30 px-3 py-1 rounded">
+      {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
+    </span>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [queues, setQueues] = useState<QueueEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<QueueEvent | null>(null);
   const [attendingNotes, setAttendingNotes] = useState("");
+  const [logs, setLogs] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<"cameras" | "contacts" | "zones">("cameras");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const processedIds = useRef<Set<string>>(new Set());
+  const [attendStartTime, setAttendStartTime] = useState<number>(0);
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -60,7 +81,7 @@ export default function Dashboard() {
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
 
-  // Processar novos eventos em tempo real → adicionar à fila AGUARDANDO
+  // Processar novos eventos em tempo real
   useEffect(() => {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
@@ -68,7 +89,6 @@ export default function Dashboard() {
       const evKey = `${ev.account}-${ev.eventCode}-${ev.timestamp || Date.now()}`;
       if (!processedIds.current.has(evKey)) {
         processedIds.current.add(evKey);
-        // Buscar dados do cliente/sistema
         const system = (systemData || []).find((s: any) => s.account === ev.account);
         const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
         newEvents.push({
@@ -82,7 +102,6 @@ export default function Dashboard() {
     });
     if (newEvents.length > 0) {
       setQueues((prev) => [...newEvents, ...prev]);
-      // Alerta sonoro
       const hasCritical = newEvents.some(e => e.priority === "critical" || e.priority === "high");
       if (hasCritical) { try { audioRef.current?.play(); } catch {} }
     }
@@ -111,19 +130,21 @@ export default function Dashboard() {
   // Mover evento entre filas
   const moveEvent = useCallback((ev: QueueEvent, newStatus: QueueStatus) => {
     setQueues((prev) => prev.map((q) =>
-      q === ev ? { ...q, queueStatus: newStatus } : q
+      q === ev || (q.queuedAt === ev.queuedAt && q.account === ev.account) ? { ...q, queueStatus: newStatus } : q
     ));
-    if (selectedEvent === ev) {
+    if (selectedEvent && selectedEvent.queuedAt === ev.queuedAt && selectedEvent.account === ev.account) {
       setSelectedEvent({ ...ev, queueStatus: newStatus });
     }
   }, [selectedEvent]);
 
-  // Finalizar evento (remover da fila)
+  // Finalizar evento
   const finalizeEvent = useCallback((ev: QueueEvent) => {
-    setQueues((prev) => prev.filter((q) => q !== ev));
+    addLog("Evento FINALIZADO");
+    setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
     setSelectedEvent(null);
     setAttendingNotes("");
-    toast.success("Evento finalizado e salvo no banco!");
+    setLogs([]);
+    toast.success("Evento finalizado e salvo!");
   }, []);
 
   // Agrupar por fila
@@ -133,23 +154,30 @@ export default function Dashboard() {
     return g;
   }, [queues]);
 
-  // Contar eventos do mesmo cliente
   function countSameClient(ev: QueueEvent) {
     return queues.filter(q => q.account === ev.account && q !== ev).length;
   }
 
-  // Selecionar evento → mover para "attending"
+  function addLog(msg: string) {
+    const time = new Date().toLocaleTimeString("pt-BR");
+    setLogs((prev) => [`[${time}] ${msg}`, ...prev]);
+  }
+
   function handleSelectEvent(ev: QueueEvent) {
     if (ev.queueStatus === "waiting") {
       moveEvent(ev, "attending");
       setSelectedEvent({ ...ev, queueStatus: "attending" });
+      addLog("Evento aberto para atendimento");
     } else {
       setSelectedEvent(ev);
     }
+    setAttendStartTime(Date.now());
     setAttendingNotes("");
+    setLogs([]);
+    setActiveTab("cameras");
   }
 
-  // Encontrar cliente pelo account
+  // Encontrar cliente/sistema
   const selectedSystem = useMemo(() => {
     if (!selectedEvent) return null;
     return (systemData || []).find((s: any) => s.account === selectedEvent.account);
@@ -173,13 +201,11 @@ export default function Dashboard() {
           selectedEvent?.queuedAt === ev.queuedAt && selectedEvent?.account === ev.account ? 'bg-primary/15 border-l-primary' : (PRIORITY_BORDER[ev.priority] || PRIORITY_BORDER.medium)
         }`}
       >
-        {/* Badge de contagem */}
         {sameClientCount > 0 && (
           <div className="absolute top-2 right-2 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center">
             <span className="text-[10px] font-bold text-white">{sameClientCount + 1}</span>
           </div>
         )}
-
         <div className="text-xs text-muted-foreground font-mono mb-0.5">{time}</div>
         <div className={`font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
         <div className="text-xs text-primary font-medium">{ev.account} - {ev.clientName}</div>
@@ -195,7 +221,6 @@ export default function Dashboard() {
     );
   }
 
-  // Seção de fila
   function QueueSection({ title, color, events }: { title: string; color: string; events: QueueEvent[] }) {
     return (
       <div className="mb-0.5">
@@ -217,167 +242,225 @@ export default function Dashboard() {
         <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbsGczHjqIrNjVpWQ+IjV8nczUr3hLMi5xi8DJtIRYPC0uf5y/xbOCVzYpZYqvuLmOaEkwMmqIqbK3lnFOMy9shqewtZd1UjUwbYamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2AA==" type="audio/wav" />
       </audio>
 
-      <div className="flex h-full overflow-hidden">
-        {/* COLUNA 1: Filas de Eventos */}
-        <div className="w-[340px] min-w-[340px] h-full border-r border-border bg-card flex flex-col">
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {connected ? (
-                <><div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" /><span className="text-xs text-green-400 font-bold">ONLINE</span></>
-              ) : (
-                <><div className="h-2 w-2 rounded-full bg-red-500" /><span className="text-xs text-red-400 font-bold">OFFLINE</span></>
-              )}
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* TOP BAR - Botões de Status */}
+        <div className="h-12 min-h-12 border-b border-border bg-card flex items-center justify-between px-4">
+          <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={() => toast.info("Ocorrência Manual")}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="border-border text-foreground hover:bg-accent" onClick={() => toast.info("Lista de Desarmados")}>
+              Desarmados
+            </Button>
+            <Button variant="outline" size="sm" className="border-border text-foreground hover:bg-accent" onClick={() => toast.info("Lista de Armados")}>
+              Armados
+            </Button>
+            <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white font-bold">
+              <Wifi className="h-3.5 w-3.5 mr-1" /> Online
+            </Button>
+            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white font-bold">
+              <WifiOff className="h-3.5 w-3.5 mr-1" /> Offline
+            </Button>
+          </div>
+        </div>
+
+        {/* MAIN CONTENT */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* COLUNA 1: Filas */}
+          <div className="w-[300px] min-w-[300px] h-full border-r border-border bg-card flex flex-col">
+            <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {connected ? (
+                  <><div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" /><span className="text-xs text-green-400 font-bold">ONLINE</span></>
+                ) : (
+                  <><div className="h-2 w-2 rounded-full bg-red-500" /><span className="text-xs text-red-400 font-bold">OFFLINE</span></>
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground">Operador: <strong className="text-foreground">{user?.name?.split(' ')[0]}</strong></span>
             </div>
-            <span className="text-xs text-muted-foreground">Operador: <strong className="text-foreground">{user?.name?.split(' ')[0]}</strong></span>
+            <ScrollArea className="flex-1">
+              <QueueSection title="EM ATENDIMENTO" color="text-blue-400" events={grouped.attending} />
+              <QueueSection title="EM OBSERVAÇÃO" color="text-purple-400" events={grouped.observing} />
+              <QueueSection title="EM ATENDIMENTO TÁTICO" color="text-orange-400" events={grouped.tactical} />
+              <QueueSection title="EM MANUTENÇÃO" color="text-yellow-400" events={grouped.maintenance} />
+              <QueueSection title="AGUARDANDO" color="text-red-400" events={grouped.waiting} />
+            </ScrollArea>
           </div>
 
-          <ScrollArea className="flex-1">
-            <QueueSection title="EM ATENDIMENTO" color="text-blue-400" events={grouped.attending} />
-            <QueueSection title="EM OBSERVAÇÃO" color="text-purple-400" events={grouped.observing} />
-            <QueueSection title="EM ATENDIMENTO TÁTICO" color="text-orange-400" events={grouped.tactical} />
-            <QueueSection title="EM MANUTENÇÃO" color="text-yellow-400" events={grouped.maintenance} />
-            <QueueSection title="AGUARDANDO" color="text-red-400" events={grouped.waiting} />
-          </ScrollArea>
-        </div>
-
-        {/* COLUNA 2: Dados do Evento / Cliente */}
-        <div className="flex-1 h-full flex flex-col overflow-hidden">
-          {!selectedEvent ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p className="text-lg">Selecione um evento na fila para atender</p>
+          {/* COLUNA 2: Painel Central */}
+          <div className="flex-1 h-full flex flex-col overflow-hidden">
+            {!selectedEvent ? (
+              <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-lg">Selecione um evento na fila para atender</p>
+                </div>
               </div>
+            ) : (
+              <div className="flex flex-col h-full">
+                {/* HEADER DO EVENTO */}
+                <div className="px-4 py-3 border-b border-border bg-card">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <AlertTriangle className={`h-5 w-5 ${selectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-green-400 font-bold">Conta {selectedEvent.account}</span>
+                          <span className="text-foreground font-bold">{selectedClient?.name || selectedEvent.clientName}</span>
+                          {selectedClient?.fantasyName && <span className="text-cyan-400">- {selectedClient.fantasyName}</span>}
+                        </div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={`font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>
+                            {selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}
+                          </span>
+                          <span className="text-muted-foreground">- Zona {selectedEvent.zoneUser}</span>
+                          {selectedEvent.zoneName && <span className="text-foreground ml-1">{selectedEvent.zoneName}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <Timer startTime={attendStartTime} />
+                  </div>
+                </div>
+
+                {/* OBSERVAÇÕES */}
+                <div className="px-4 py-2 border-b border-border">
+                  <div className="flex items-start gap-3">
+                    <Textarea
+                      className="flex-1 min-h-[60px] max-h-[80px] text-sm resize-none"
+                      placeholder="Observações..."
+                      value={attendingNotes}
+                      onChange={(e) => setAttendingNotes(e.target.value)}
+                    />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" />
+                        <Mail className="h-3 w-3" /> E-mail
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" />
+                        <Send className="h-3 w-3" /> Push
+                      </label>
+                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(selectedEvent)}>
+                        Finalizar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* BARRA DE AÇÕES */}
+                <div className="px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap">
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => { setActiveTab("cameras"); toast.info("Providências"); }}>
+                    <FileText className="h-3.5 w-3.5" /> Providências
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setActiveTab("cameras")}>
+                    <Camera className="h-3.5 w-3.5" /> Câmeras
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}>
+                    <Shield className="h-3.5 w-3.5" /> Polícia
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => { moveEvent(selectedEvent, "observing"); addLog("Movido para Observação"); }}>
+                    <Eye className="h-3.5 w-3.5" /> Observação
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}>
+                    <Truck className="h-3.5 w-3.5" /> Tático
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-yellow-400" onClick={() => { moveEvent(selectedEvent, "maintenance"); addLog("Movido para Manutenção"); }}>
+                    <Wrench className="h-3.5 w-3.5" /> Manutenção
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-green-400" onClick={() => { addLog("Comando DESARMAR enviado"); toast.info("Comando desarmar enviado"); }}>
+                    <Shield className="h-3.5 w-3.5" /> Desarmar
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-cyan-400" onClick={() => { addLog(`Zona ${selectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}>
+                    <Ban className="h-3.5 w-3.5" /> Isolar Zona
+                  </Button>
+                </div>
+
+                {/* CÂMERAS / CONTEÚDO */}
+                <div className="flex-1 px-4 py-3 overflow-hidden flex flex-col">
+                  {/* Carrossel de Câmeras */}
+                  <div className="flex items-center gap-3 flex-1 min-h-0">
+                    <button className="text-muted-foreground hover:text-foreground"><ChevronLeft className="h-6 w-6" /></button>
+                    <div className="flex-1 grid grid-cols-4 gap-3 h-full">
+                      {[1, 2, 3, 4].map((cam) => (
+                        <div key={cam} className="border border-border rounded-lg flex items-center justify-center bg-black/50 min-h-[120px]">
+                          <span className="text-muted-foreground text-sm font-medium">Câmera {cam}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="text-muted-foreground hover:text-foreground"><ChevronRight className="h-6 w-6" /></button>
+                  </div>
+
+                  {/* Abas: Contatos / Setor-Zona */}
+                  <div className="mt-3 flex items-center gap-4 border-t border-border pt-3">
+                    <button
+                      onClick={() => setActiveTab("contacts")}
+                      className={`flex items-center gap-1.5 text-sm font-medium pb-1 border-b-2 transition-colors ${activeTab === 'contacts' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <Phone className="h-3.5 w-3.5" /> Contatos
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("zones")}
+                      className={`flex items-center gap-1.5 text-sm font-medium pb-1 border-b-2 transition-colors ${activeTab === 'zones' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <MapPin className="h-3.5 w-3.5" /> Setor/Zona
+                    </button>
+                  </div>
+
+                  {/* Conteúdo da aba */}
+                  {activeTab === "contacts" && (
+                    <div className="mt-2 space-y-1.5 max-h-[100px] overflow-auto">
+                      {selectedClient?.phone ? (
+                        <div className="flex items-center justify-between bg-secondary/30 rounded px-3 py-1.5">
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-sm font-mono">{selectedClient.phone}</span>
+                          </div>
+                          <Button size="sm" variant="ghost" className="h-6 text-xs"><PhoneCall className="h-3 w-3 mr-1" />Ligar</Button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Nenhum contato cadastrado</p>
+                      )}
+                      {selectedClient?.whatsapp && (
+                        <div className="flex items-center justify-between bg-secondary/30 rounded px-3 py-1.5">
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-3.5 w-3.5 text-green-400" />
+                            <span className="text-sm font-mono text-green-400">{selectedClient.whatsapp}</span>
+                          </div>
+                          <Button size="sm" variant="ghost" className="h-6 text-xs text-green-400">WhatsApp</Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {activeTab === "zones" && (
+                    <div className="mt-2 space-y-1 max-h-[100px] overflow-auto">
+                      <div className="flex items-center gap-2 bg-secondary/30 rounded px-3 py-1.5">
+                        <span className="text-xs font-mono text-red-400 font-bold">Zona {selectedEvent.zoneUser}</span>
+                        <span className="text-xs text-muted-foreground">- Setor em disparo</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* COLUNA 3: Logs da Ocorrência */}
+          <div className="w-[200px] min-w-[200px] h-full border-l border-border bg-card flex flex-col">
+            <div className="px-3 py-2 border-b border-border">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase">Logs da Ocorrência</h3>
             </div>
-          ) : (
-            <ScrollArea className="flex-1">
-              <div className="p-5 space-y-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <AlertTriangle className={`h-6 w-6 ${selectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
-                    <div>
-                      <h2 className="text-lg font-bold text-foreground">{selectedEvent.description || `Evento ${selectedEvent.eventCode}`}</h2>
-                      <p className="text-sm text-muted-foreground">{selectedEvent.account} - {selectedEvent.clientName}</p>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedEvent(null)}><X className="h-4 w-4" /></Button>
+            <ScrollArea className="flex-1 px-3 py-2">
+              {logs.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">Selecione um evento para ver os logs</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {logs.map((log, idx) => (
+                    <div key={idx} className="text-[11px] text-muted-foreground font-mono leading-tight">{log}</div>
+                  ))}
                 </div>
-
-                <Separator />
-
-                {/* Sistema */}
-                <div>
-                  <h3 className="font-bold text-sm text-foreground mb-2 flex items-center gap-2"><Shield className="h-4 w-4 text-primary" /> Sistema</h3>
-                  <div className="grid grid-cols-3 gap-3 bg-secondary/30 rounded-lg p-3">
-                    <div><span className="text-xs text-muted-foreground block">Conta</span><span className="font-mono font-bold text-lg">{selectedEvent.account}</span></div>
-                    <div><span className="text-xs text-muted-foreground block">Central</span><span className="font-bold">{selectedEvent.systemModel}</span></div>
-                    <div><span className="text-xs text-muted-foreground block">IP</span><span className="font-mono text-sm">{selectedEvent.remoteIp}</span></div>
-                    <div><span className="text-xs text-muted-foreground block">Partição</span><span className="font-mono text-lg">{selectedEvent.partition}</span></div>
-                    <div><span className="text-xs text-muted-foreground block">Zona/Setor</span><span className="font-mono font-bold text-lg text-red-400">{selectedEvent.zoneUser}</span></div>
-                    <div><span className="text-xs text-muted-foreground block">Código</span><span className="font-mono">{selectedEvent.qualifier}{selectedEvent.eventCode}</span></div>
-                  </div>
-                </div>
-
-                {/* Cliente */}
-                <div>
-                  <h3 className="font-bold text-sm text-foreground mb-2 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> Cliente</h3>
-                  {selectedClient ? (
-                    <div className="bg-secondary/30 rounded-lg p-3 space-y-1">
-                      <p className="font-bold text-foreground">{selectedClient.fantasyName || selectedClient.name}</p>
-                      {selectedClient.fantasyName && <p className="text-sm text-muted-foreground">{selectedClient.name}</p>}
-                      <p className="text-sm text-muted-foreground">{selectedClient.address}{selectedClient.number ? `, ${selectedClient.number}` : ''}{selectedClient.neighborhood ? ` - ${selectedClient.neighborhood}` : ''}</p>
-                      <p className="text-sm text-muted-foreground">{selectedClient.city}/{selectedClient.state}</p>
-                    </div>
-                  ) : (
-                    <div className="bg-secondary/30 rounded-lg p-3"><p className="text-sm text-yellow-400">Cliente não cadastrado para conta {selectedEvent.account}</p></div>
-                  )}
-                </div>
-
-                {/* Providências */}
-                <div>
-                  <h3 className="font-bold text-sm text-yellow-400 mb-2 flex items-center gap-2"><FileText className="h-4 w-4" /> Providências</h3>
-                  <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-3">
-                    <ol className="text-sm text-foreground space-y-1 list-decimal list-inside">
-                      <li>Ligar para contatos na ordem de cadastro</li>
-                      <li>Verificar câmeras do local</li>
-                      <li>Se necessário, acionar tático</li>
-                      <li>Se necessário, chamar a polícia</li>
-                      <li>Registrar observações e finalizar</li>
-                    </ol>
-                  </div>
-                </div>
-
-                {/* Contatos */}
-                <div>
-                  <h3 className="font-bold text-sm text-foreground mb-2 flex items-center gap-2"><Phone className="h-4 w-4 text-primary" /> Contatos</h3>
-                  {selectedClient?.phone || selectedClient?.whatsapp ? (
-                    <div className="space-y-2">
-                      {selectedClient.phone && (
-                        <div className="flex items-center justify-between bg-secondary/30 rounded-lg px-3 py-2">
-                          <div><span className="text-xs text-muted-foreground">Telefone</span><p className="font-mono font-bold">{selectedClient.phone}</p></div>
-                          <Button size="sm" variant="outline" className="h-8"><PhoneCall className="h-3.5 w-3.5 mr-1" />Ligar</Button>
-                        </div>
-                      )}
-                      {selectedClient.whatsapp && (
-                        <div className="flex items-center justify-between bg-secondary/30 rounded-lg px-3 py-2">
-                          <div><span className="text-xs text-muted-foreground">WhatsApp</span><p className="font-mono font-bold text-green-400">{selectedClient.whatsapp}</p></div>
-                          <Button size="sm" variant="outline" className="h-8 border-green-500 text-green-400">Enviar</Button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Nenhum contato disponível</p>
-                  )}
-                </div>
-
-                {/* Observações */}
-                <div>
-                  <h3 className="font-bold text-sm text-foreground mb-2">Observações</h3>
-                  <Textarea className="min-h-[80px]" placeholder="Registre as ações tomadas..." value={attendingNotes} onChange={(e) => setAttendingNotes(e.target.value)} />
-                </div>
-              </div>
+              )}
             </ScrollArea>
-          )}
-        </div>
-
-        {/* COLUNA 3: Ações */}
-        <div className="w-[200px] min-w-[200px] h-full border-l border-border bg-card flex flex-col">
-          {!selectedEvent ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground text-center px-3">
-              <p className="text-xs">Selecione um evento para iniciar o atendimento</p>
-            </div>
-          ) : (
-            <div className="flex flex-col h-full p-3 gap-2">
-              <h3 className="font-bold text-xs text-muted-foreground text-center uppercase">Ações</h3>
-              <Separator />
-
-              <Button variant="outline" className="w-full justify-start h-9 text-xs" onClick={() => toast.info("Câmeras")}>
-                <Camera className="h-3.5 w-3.5 mr-2" /> Câmeras
-              </Button>
-              <Button variant="outline" className="w-full justify-start h-9 text-xs" onClick={() => { moveEvent(selectedEvent, "observing"); toast.info("Movido para Observação"); }}>
-                <Eye className="h-3.5 w-3.5 mr-2" /> Observação
-              </Button>
-              <Button variant="outline" className="w-full justify-start h-9 text-xs border-orange-500/50 text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); toast.info("Tático despachado"); }}>
-                <Truck className="h-3.5 w-3.5 mr-2" /> Tático
-              </Button>
-              <Button variant="outline" className="w-full justify-start h-9 text-xs border-yellow-500/50 text-yellow-400" onClick={() => { moveEvent(selectedEvent, "maintenance"); toast.info("Movido para Manutenção"); }}>
-                <Wrench className="h-3.5 w-3.5 mr-2" /> Manutenção
-              </Button>
-              <Button variant="outline" className="w-full justify-start h-9 text-xs border-cyan-500/50 text-cyan-400" onClick={() => { if (selectedEvent) { moveEvent(selectedEvent, "waiting"); setSelectedEvent(null); } }}>
-                <Ban className="h-3.5 w-3.5 mr-2" /> Isolar Zona
-              </Button>
-              <Button variant="outline" className="w-full justify-start h-9 text-xs border-red-500/50 text-red-400" onClick={() => { setAttendingNotes(prev => prev + "\n[POLÍCIA] " + new Date().toLocaleTimeString("pt-BR")); toast.info("Polícia acionada"); }}>
-                <Shield className="h-3.5 w-3.5 mr-2" /> Polícia
-              </Button>
-
-              <div className="flex-1" />
-              <Separator />
-              <Button className="w-full h-11 font-bold bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>
-                <CheckCircle2 className="h-4 w-4 mr-2" /> Finalizar
-              </Button>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </DashboardLayout>
