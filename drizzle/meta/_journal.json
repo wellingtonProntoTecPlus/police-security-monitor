@@ -15,6 +15,13 @@
       "when": 1786256350546,
       "tag": "0001_bouncy_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786258922527,
+      "tag": "0002_fixed_jane_foster",
+      "breakpoints": true
     }
   ]
 }

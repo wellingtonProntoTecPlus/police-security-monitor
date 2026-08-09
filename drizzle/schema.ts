@@ -71,12 +71,16 @@ export const clients = mysqlTable("clients", {
   id: int("id").autoincrement().primaryKey(),
   partnerCompanyId: int("partnerCompanyId").notNull(),
   type: mysqlEnum("type", ["pf", "pj"]).notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(), // Razão Social ou Nome Completo
+  fantasyName: varchar("fantasyName", { length: 255 }), // Nome Fantasia
   document: varchar("document", { length: 18 }).notNull(), // CPF ou CNPJ
   phone: varchar("phone", { length: 20 }),
   whatsapp: varchar("whatsapp", { length: 20 }),
   email: varchar("email", { length: 320 }),
-  address: text("address"),
+  address: text("address"), // Logradouro
+  number: varchar("number", { length: 20 }), // Número
+  complement: varchar("complement", { length: 100 }), // Complemento
+  neighborhood: varchar("neighborhood", { length: 100 }), // Bairro
   city: varchar("city", { length: 100 }),
   state: varchar("state", { length: 2 }),
   zipCode: varchar("zipCode", { length: 10 }),

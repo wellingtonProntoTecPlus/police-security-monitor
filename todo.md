@@ -57,3 +57,10 @@
 - [x] Emitir eventos do receptor para o frontend via Socket.IO
 - [x] Conectar o dashboard ao Socket.IO para receber eventos em tempo real
 - [x] Exibir eventos novos instantaneamente no grid do dashboard
+
+## Cadastro Completo do Cliente
+- [x] Atualizar schema do banco com campos: nomefantasia, complemento, bairro, numero
+- [x] Formulário profissional com seções: Empresa Responsável, Dados do Cliente, Endereço, Contatos
+- [x] Busca de CEP automática (ViaCEP)
+- [x] Validação de CPF/CNPJ
+- [x] Máscara de campos (telefone, CEP, CPF/CNPJ)
