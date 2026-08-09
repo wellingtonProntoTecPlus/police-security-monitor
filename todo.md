@@ -125,3 +125,10 @@
 - [x] Campo de Logo (URL) na Empresa Gestora
 - [x] Campos WhatsApp e CEP na Empresa Parceira (schema pronto)
 - [x] Campo de Logo na Empresa Parceira (schema pronto)
+
+## Correções Solicitadas
+- [x] Câmeras com registro de log (ao visualizar câmera, registra no log da ocorrência)
+- [x] CEP com máscara e busca automática em TODOS os cadastros (Gestora, Parceira, Clientes)
+- [x] Calendário de feriados na Empresa Gestora
+- [x] Calendário de feriados na Empresa Parceira
+- [x] Dashboard fixo definitivamente (sem scroll na tela de atendimento)

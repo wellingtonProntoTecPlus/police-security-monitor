@@ -43,6 +43,13 @@
       "when": 1786271440352,
       "tag": "0005_chubby_slapstick",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1786272276776,
+      "tag": "0006_open_lord_tyger",
+      "breakpoints": true
     }
   ]
 }

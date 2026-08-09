@@ -322,7 +322,7 @@ export default function Dashboard() {
         label={clientCameras?.[expandedCam - 1]?.name || `Câmera ${expandedCam}`}
       />}
 
-      <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col h-[calc(100vh-1px)] overflow-hidden">
         {/* TOP BAR - Botões de Status */}
         <div className="h-12 min-h-12 border-b border-border bg-card flex items-center justify-between px-4">
           <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={() => toast.info("Ocorrência Manual")}>
@@ -473,7 +473,7 @@ export default function Dashboard() {
                         return (
                           <div
                             key={camNum}
-                            onClick={() => setExpandedCam(camNum)}
+                            onClick={() => { setExpandedCam(camNum); addLog(`Visualizou Câmera ${camNum}${camData?.name ? ` (${camData.name})` : ''}`); }}
                             className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-[4/3] max-h-[140px]"
                           >
                             {camData?.rtspUrl ? (

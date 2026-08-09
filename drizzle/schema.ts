@@ -371,3 +371,16 @@ export const occurrences = mysqlTable("occurrences", {
 });
 export type Occurrence = typeof occurrences.$inferSelect;
 export type InsertOccurrence = typeof occurrences.$inferInsert;
+// ============================================================
+// FERIADOS DA EMPRESA GESTORA
+// ============================================================
+export const managingHolidays = mysqlTable("managing_holidays", {
+  id: int("id").autoincrement().primaryKey(),
+  managingCompanyId: int("managingCompanyId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  date: varchar("date", { length: 10 }).notNull(),
+  recurring: boolean("recurring").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ManagingHoliday = typeof managingHolidays.$inferSelect;
+export type InsertManagingHoliday = typeof managingHolidays.$inferInsert;

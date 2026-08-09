@@ -19,7 +19,8 @@ import {
   alarmSchedules, InsertAlarmSchedule,
   clientProcedures, InsertClientProcedure,
   partnerHolidays, InsertPartnerHoliday,
-  occurrences, InsertOccurrence
+  occurrences, InsertOccurrence,
+  managingHolidays, InsertManagingHoliday,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -486,4 +487,21 @@ export async function getOccurrenceById(id: number) {
   if (!db) return null;
   const result = await db.select().from(occurrences).where(eq(occurrences.id, id)).limit(1);
   return result.length > 0 ? result[0] : null;
+}
+
+// ===== FERIADOS DA EMPRESA GESTORA =====
+export async function listManagingHolidays(managingCompanyId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(managingHolidays).where(eq(managingHolidays.managingCompanyId, managingCompanyId)).orderBy(managingHolidays.date);
+}
+
+export async function createManagingHoliday(data: InsertManagingHoliday) {
+  const db = await getDb(); if (!db) return;
+  const result = await db.insert(managingHolidays).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function deleteManagingHoliday(id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(managingHolidays).where(eq(managingHolidays.id, id));
 }
