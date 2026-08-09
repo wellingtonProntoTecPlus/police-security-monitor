@@ -92,6 +92,9 @@ export default function Dashboard() {
   const processedIds = useRef<Set<string>>(new Set());
   const [attendStartTime, setAttendStartTime] = useState<number>(0);
   const [expandedCam, setExpandedCam] = useState<number | null>(null);
+  const [camPage, setCamPage] = useState(0);
+  const totalCams = 16; // máximo de câmeras por cliente
+  const camsPerPage = 4;
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -397,19 +400,38 @@ export default function Dashboard() {
 
                 {/* CÂMERAS / CONTEÚDO */}
                 <div className="flex-1 px-4 py-3 overflow-hidden flex flex-col">
-                  {/* Câmeras em grid quadrado - clicáveis */}
-                  <div className="grid grid-cols-4 gap-3 flex-1 min-h-0">
-                    {[1, 2, 3, 4].map((cam) => (
-                      <div
-                        key={cam}
-                        onClick={() => setExpandedCam(cam)}
-                        className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-square"
-                      >
-                        <Camera className="h-8 w-8 text-muted-foreground mb-1" />
-                        <span className="text-muted-foreground text-sm font-medium">Câmera {cam}</span>
-                        <Maximize2 className="h-3.5 w-3.5 text-muted-foreground absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                    ))}
+                  {/* Carrossel de Câmeras - setas para navegar, clique para expandir */}
+                  <div className="flex items-center gap-2 flex-1 min-h-0">
+                    <button
+                      onClick={() => setCamPage(Math.max(0, camPage - 1))}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                      disabled={camPage === 0}
+                    >
+                      <ChevronLeft className="h-7 w-7" />
+                    </button>
+                    <div className="flex-1 grid grid-cols-4 gap-3 h-full">
+                      {Array.from({ length: camsPerPage }, (_, i) => {
+                        const camNum = camPage * camsPerPage + i + 1;
+                        return (
+                          <div
+                            key={camNum}
+                            onClick={() => setExpandedCam(camNum)}
+                            className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group"
+                          >
+                            <Camera className="h-8 w-8 text-muted-foreground mb-1" />
+                            <span className="text-muted-foreground text-sm font-medium">Câmera {camNum}</span>
+                            <Maximize2 className="h-3.5 w-3.5 text-muted-foreground absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button
+                      onClick={() => setCamPage(Math.min(Math.ceil(totalCams / camsPerPage) - 1, camPage + 1))}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                      disabled={camPage >= Math.ceil(totalCams / camsPerPage) - 1}
+                    >
+                      <ChevronRight className="h-7 w-7" />
+                    </button>
                   </div>
 
                   {/* Abas: Contatos / Setor-Zona */}
