@@ -149,3 +149,21 @@
 - [ ] Criar página de Usuários (/users) com hierarquias Admin/Supervisor/Operador
 - [ ] Implementar login próprio com usuário/senha (independente do Manus OAuth)
 - [ ] Adicionar todos os 78 códigos Contact ID no banco local da VPS
+
+## Contact ID - Qualifier E/R e Códigos Universais
+- [x] Adicionar campo qualifier (E/R/both) na tabela contact_id_codes
+- [x] Adicionar campo isUniversal para marcar códigos universais
+- [x] Separar E401 (Desarme) e R401 (Arme) como códigos universais
+- [x] Separar E130 (Alarme) e R130 (Restauração) como códigos universais
+- [x] Cadastrar E602 (Teste Periódico) e E610 (Teste Manual) como universais
+- [x] Corrigir código 701 Compatec: E701 (Desarme por App) e R701 (Arme por App)
+- [x] Códigos universais aparecem em TODAS as abas de fabricantes
+- [x] Coluna Qualifier visível na tabela Contact ID
+- [x] Edição de códigos Contact ID funcional (botão lápis)
+- [x] Receptor busca descrição com qualifier (E/R) para identificar corretamente
+
+## Botões Armados/Desarmados no Dashboard
+- [x] Rota backend getArmDisarmStatus que busca último evento de cada conta
+- [x] Botão "Desarmados" (vermelho) com contador real
+- [x] Botão "Armados" (verde) com contador real
+- [x] Modal com lista de clientes armados/desarmados ao clicar no botão

@@ -248,7 +248,7 @@ async function processEvent(evento: any, remoteIp: string) {
     let description = `Evento ${evento.eventCode}`;
     let priority = 'medium';
     try {
-      const codeInfo = await getContactIdDescription(evento.eventCode);
+      const codeInfo = await getContactIdDescription(evento.eventCode, evento.qualifier);
       if (codeInfo) {
         description = codeInfo.description || description;
         priority = codeInfo.priority || priority;

@@ -103,6 +103,7 @@ export default function Dashboard() {
   const camsPerPage = 4;
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
+  const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
@@ -113,6 +114,7 @@ export default function Dashboard() {
   const { data: dbEvents = [] } = trpc.alarmEvent.list.useQuery({ limit: 50 }, { refetchInterval: 15000 });
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
+  const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
 
   // Processar novos eventos em tempo real
   useEffect(() => {
@@ -329,11 +331,11 @@ export default function Dashboard() {
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
           </Button>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="border-border text-foreground hover:bg-accent" onClick={() => toast.info("Lista de Desarmados")}>
-              Desarmados
+            <Button variant="outline" size="sm" className="border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold" onClick={() => setArmDisarmModal('disarmed')}>
+              <WifiOff className="h-3.5 w-3.5 mr-1" /> Desarmados ({armDisarmData?.disarmed?.length || 0})
             </Button>
-            <Button variant="outline" size="sm" className="border-border text-foreground hover:bg-accent" onClick={() => toast.info("Lista de Armados")}>
-              Armados
+            <Button variant="outline" size="sm" className="border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => setArmDisarmModal('armed')}>
+              <Shield className="h-3.5 w-3.5 mr-1" /> Armados ({armDisarmData?.armed?.length || 0})
             </Button>
             <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white font-bold">
               <Wifi className="h-3.5 w-3.5 mr-1" /> Online
@@ -571,7 +573,43 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Armados/Desarmados */}
+      {armDisarmModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center" onClick={() => setArmDisarmModal(null)}>
+          <div className="bg-card border border-border rounded-lg w-[500px] max-h-[70vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className={`px-4 py-3 border-b border-border flex items-center justify-between ${armDisarmModal === 'armed' ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+              <h3 className={`font-bold ${armDisarmModal === 'armed' ? 'text-green-400' : 'text-red-400'}`}>
+                {armDisarmModal === 'armed' ? `Clientes Armados (${armDisarmData?.armed?.length || 0})` : `Clientes Desarmados (${armDisarmData?.disarmed?.length || 0})`}
+              </h3>
+              <button onClick={() => setArmDisarmModal(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[60vh] p-2">
+              {(armDisarmModal === 'armed' ? armDisarmData?.armed : armDisarmData?.disarmed)?.map((item: any, idx: number) => (
+                <div key={idx} className="flex items-center justify-between px-3 py-2 border-b border-border/50 hover:bg-muted/30">
+                  <div>
+                    <p className="text-sm font-bold text-foreground">{item.clientName}</p>
+                    <p className="text-xs text-muted-foreground">Conta: {item.account}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">
+                      {item.lastEvent ? new Date(item.lastEvent).toLocaleString('pt-BR') : '-'}
+                    </p>
+                    <Badge className={armDisarmModal === 'armed' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                      {armDisarmModal === 'armed' ? 'ARMADO' : 'DESARMADO'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+              {((armDisarmModal === 'armed' ? armDisarmData?.armed : armDisarmData?.disarmed)?.length || 0) === 0 && (
+                <p className="text-center text-muted-foreground py-8">Nenhum cliente encontrado</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
-        {/* Layout fixo na viewport - sem scroll na tela de atendimento */}

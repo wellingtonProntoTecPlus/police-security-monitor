@@ -357,7 +357,9 @@ export const appRouter = router({
     listByFabricante: publicProcedure.input(z.object({ fabricante: z.string() })).query(({ input }) => db.listContactIdByFabricante(input.fabricante)),
     create: publicProcedure.input(z.object({
       code: z.string().min(1),
+      qualifier: z.string().default("E"),
       fabricante: z.string().min(1),
+      isUniversal: z.boolean().default(false),
       description: z.string().min(1),
       tipo: z.string().default("alarme"),
       cor: z.string().default("#EF4444"),
@@ -371,7 +373,9 @@ export const appRouter = router({
     update: publicProcedure.input(z.object({
       id: z.number(),
       code: z.string().min(1),
+      qualifier: z.string().default("E"),
       fabricante: z.string().min(1),
+      isUniversal: z.boolean().default(false),
       description: z.string().min(1),
       tipo: z.string().default("alarme"),
       cor: z.string().default("#EF4444"),
@@ -390,6 +394,7 @@ export const appRouter = router({
   // ============================================================
   dashboard: router({
     stats: operatorProcedure.query(() => db.getDashboardStats()),
+    armDisarmStatus: publicProcedure.query(() => db.getArmDisarmStatus()),
   }),
   alarmPgm: router({
     list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmPgms(input.alarmSystemId)),

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import { Pencil, Trash2, Plus, Globe } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -40,7 +40,9 @@ export default function ContactId() {
   const [editando, setEditando] = useState<any>(null);
   const [form, setForm] = useState({
     codigo: "",
+    qualifier: "E",
     fabricante: "COMPATEC",
+    isUniversal: false,
     descricao: "",
     tipo: "alarme",
     cor: "#EF4444",
@@ -59,7 +61,7 @@ export default function ContactId() {
 
   function abrirNovo() {
     setEditando(null);
-    setForm({ codigo: "", fabricante, descricao: "", tipo: "alarme", cor: "#EF4444", abreTela: true, fechaAutomatico: false, fechaComRestauracao: false, codigoRestauracao: "", tempoEsperaSegundos: 0, prioridade: 1 });
+    setForm({ codigo: "", qualifier: "E", fabricante, isUniversal: false, descricao: "", tipo: "alarme", cor: "#EF4444", abreTela: true, fechaAutomatico: false, fechaComRestauracao: false, codigoRestauracao: "", tempoEsperaSegundos: 0, prioridade: 1 });
     setModalOpen(true);
   }
 
@@ -67,7 +69,9 @@ export default function ContactId() {
     setEditando(ev);
     setForm({
       codigo: ev.code || "",
+      qualifier: ev.qualifier || "E",
       fabricante: ev.fabricante || fabricante,
+      isUniversal: ev.isUniversal || false,
       descricao: ev.description || "",
       tipo: ev.tipo || "alarme",
       cor: ev.cor || "#EF4444",
@@ -84,7 +88,9 @@ export default function ContactId() {
   function salvar() {
     const payload = {
       code: form.codigo,
+      qualifier: form.qualifier,
       fabricante: form.fabricante,
+      isUniversal: form.isUniversal,
       description: form.descricao,
       tipo: form.tipo,
       cor: form.cor,
@@ -101,6 +107,10 @@ export default function ContactId() {
       createMut.mutate(payload);
     }
   }
+
+  // Separar códigos universais dos específicos do fabricante
+  const universalCodes = (eventos || []).filter((ev: any) => ev.isUniversal);
+  const fabricanteCodes = (eventos || []).filter((ev: any) => !ev.isUniversal);
 
   return (
     <DashboardLayout>
@@ -121,27 +131,80 @@ export default function ContactId() {
           </TabsList>
         </Tabs>
 
-        {/* Tabela */}
+        {/* Seção de Códigos Universais */}
+        {universalCodes.length > 0 && (
+          <div className="border border-blue-500/30 rounded-lg overflow-hidden">
+            <div className="bg-blue-500/10 px-4 py-2 flex items-center gap-2">
+              <Globe className="h-4 w-4 text-blue-400" />
+              <span className="text-sm font-bold text-blue-400">Códigos Universais (aparecem em todas as abas)</span>
+            </div>
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr className="text-muted-foreground text-xs font-bold">
+                  <th className="px-4 py-2 text-left">Qualifier</th>
+                  <th className="px-4 py-2 text-left">Código</th>
+                  <th className="px-4 py-2 text-left">Descrição</th>
+                  <th className="px-4 py-2 text-center">Cor</th>
+                  <th className="px-4 py-2 text-center">Tipo</th>
+                  <th className="px-4 py-2 text-center">Prioridade</th>
+                  <th className="px-4 py-2 text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {universalCodes.map((ev: any) => (
+                  <tr key={ev.id} className="border-t border-border hover:bg-muted/30">
+                    <td className="px-4 py-2">
+                      <Badge className={ev.qualifier === 'E' ? 'bg-orange-500/20 text-orange-400' : ev.qualifier === 'R' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}>
+                        {ev.qualifier === 'E' ? 'E (Evento)' : ev.qualifier === 'R' ? 'R (Restauro)' : 'Ambos'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2 font-bold text-foreground">{ev.qualifier}{ev.code}</td>
+                    <td className="px-4 py-2 text-foreground">{ev.description}</td>
+                    <td className="px-4 py-2 text-center">
+                      <div className="w-5 h-5 rounded-full mx-auto" style={{ backgroundColor: ev.cor }} />
+                    </td>
+                    <td className="px-4 py-2 text-center text-muted-foreground capitalize">{ev.tipo}</td>
+                    <td className="px-4 py-2 text-center text-foreground font-bold">{ev.prioridade}</td>
+                    <td className="px-4 py-2 text-center">
+                      <button onClick={() => abrirEditar(ev)} className="text-primary hover:text-primary/80 mr-2"><Pencil className="h-4 w-4" /></button>
+                      <button onClick={() => { if (confirm("Excluir este evento universal?")) deleteMut.mutate({ id: ev.id }); }} className="text-destructive hover:text-destructive/80"><Trash2 className="h-4 w-4" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Tabela de Códigos do Fabricante */}
         <div className="border border-border rounded-lg overflow-hidden">
+          <div className="bg-muted/30 px-4 py-2">
+            <span className="text-sm font-bold text-foreground">Códigos {fabricante}</span>
+          </div>
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr className="text-muted-foreground text-xs font-bold">
+                <th className="px-4 py-3 text-left">Qualifier</th>
                 <th className="px-4 py-3 text-left">Código</th>
                 <th className="px-4 py-3 text-left">Descrição</th>
                 <th className="px-4 py-3 text-center">Cor</th>
                 <th className="px-4 py-3 text-center">Abre Tela</th>
                 <th className="px-4 py-3 text-center">Fecha Auto</th>
                 <th className="px-4 py-3 text-center">Fecha c/ Rest.</th>
-                <th className="px-4 py-3 text-center">Cód. Rest.</th>
                 <th className="px-4 py-3 text-center">Espera (s)</th>
                 <th className="px-4 py-3 text-center">Prioridade</th>
                 <th className="px-4 py-3 text-center">Ações</th>
               </tr>
             </thead>
             <tbody>
-              {eventos?.map((ev: any) => (
+              {fabricanteCodes.map((ev: any) => (
                 <tr key={ev.id} className="border-t border-border hover:bg-muted/30">
-                  <td className="px-4 py-3 font-bold text-foreground">{ev.code}</td>
+                  <td className="px-4 py-3">
+                    <Badge className={ev.qualifier === 'E' ? 'bg-orange-500/20 text-orange-400' : ev.qualifier === 'R' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}>
+                      {ev.qualifier === 'E' ? 'E' : ev.qualifier === 'R' ? 'R' : 'E/R'}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 font-bold text-foreground">{ev.qualifier}{ev.code}</td>
                   <td className="px-4 py-3 text-foreground">{ev.description}</td>
                   <td className="px-4 py-3 text-center">
                     <div className="w-5 h-5 rounded-full mx-auto" style={{ backgroundColor: ev.cor }} />
@@ -155,7 +218,6 @@ export default function ContactId() {
                   <td className="px-4 py-3 text-center">
                     {ev.fechaComRestauracao ? <Badge className="bg-blue-500/20 text-blue-400">SIM</Badge> : "-"}
                   </td>
-                  <td className="px-4 py-3 text-center text-muted-foreground">{ev.codigoRestauracao || "-"}</td>
                   <td className="px-4 py-3 text-center text-muted-foreground">{ev.tempoEsperaSegundos || "-"}</td>
                   <td className="px-4 py-3 text-center text-foreground font-bold">{ev.prioridade}</td>
                   <td className="px-4 py-3 text-center">
@@ -164,30 +226,42 @@ export default function ContactId() {
                   </td>
                 </tr>
               ))}
-              {(!eventos || eventos.length === 0) && (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">Nenhum evento cadastrado para {fabricante}. Clique em "+ Novo Evento" para começar.</td></tr>
+              {fabricanteCodes.length === 0 && (
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">Nenhum evento específico cadastrado para {fabricante}. Clique em "+ Novo Evento" para começar.</td></tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Modal */}
+        {/* Modal de Criação/Edição */}
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editando ? "Editar Evento" : "Novo Evento Contact ID"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <div>
                   <Label>Código (ex: 130, 401)</Label>
                   <Input value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Qualifier</Label>
+                  <Select value={form.qualifier} onValueChange={(v) => setForm({ ...form, qualifier: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="E">E (Evento/Desarme)</SelectItem>
+                      <SelectItem value="R">R (Restauro/Arme)</SelectItem>
+                      <SelectItem value="both">Ambos (E/R)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label>Fabricante</Label>
                   <Select value={form.fabricante} onValueChange={(v) => setForm({ ...form, fabricante: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="UNIVERSAL">UNIVERSAL</SelectItem>
                       {FABRICANTES.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -196,6 +270,11 @@ export default function ContactId() {
                   <Label>Prioridade (1-5)</Label>
                   <Input type="number" min={1} max={5} value={form.prioridade} onChange={(e) => setForm({ ...form, prioridade: Number(e.target.value) })} />
                 </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch checked={form.isUniversal} onCheckedChange={(v) => setForm({ ...form, isUniversal: v, fabricante: v ? 'UNIVERSAL' : fabricante })} />
+                <Label className="text-sm">Código Universal (aparece em todas as abas de fabricantes)</Label>
               </div>
 
               <div>

@@ -4,8 +4,9 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   email VARCHAR(320),
   loginMethod VARCHAR(64),
-  role ENUM('user','admin') NOT NULL DEFAULT 'user',
+  role ENUM('user','admin','supervisor','operator') NOT NULL DEFAULT 'operator',
   partnerId INT,
+  password VARCHAR(255),
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   lastSignedIn TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -133,7 +134,9 @@ CREATE TABLE IF NOT EXISTS cameras (
 CREATE TABLE IF NOT EXISTS contact_id_codes (
   id INT AUTO_INCREMENT PRIMARY KEY,
   code VARCHAR(10) NOT NULL,
+  qualifier ENUM('E','R','both') NOT NULL DEFAULT 'E',
   fabricante VARCHAR(20) NOT NULL DEFAULT 'UNIVERSAL',
+  isUniversal TINYINT(1) NOT NULL DEFAULT 0,
   description VARCHAR(255) NOT NULL,
   tipo VARCHAR(20) DEFAULT 'alarme',
   cor VARCHAR(10) DEFAULT '#EF4444',
@@ -222,3 +225,14 @@ CREATE TABLE IF NOT EXISTS occurrences (
   sentPush BOOLEAN DEFAULT FALSE,
   finalizedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- CÓDIGOS UNIVERSAIS CONTACT ID (aparecem em todas as abas)
+-- ============================================================
+INSERT IGNORE INTO contact_id_codes (code, qualifier, fabricante, isUniversal, description, tipo, cor, abre_tela, fecha_automatico, fecha_com_restauracao, codigo_restauracao, tempo_espera_segundos, prioridade, category, priority) VALUES
+('401', 'E', 'UNIVERSAL', 1, 'Desarme', 'desarme', '#F97316', 0, 1, 0, '', 0, 3, 'arm_disarm', 'low'),
+('401', 'R', 'UNIVERSAL', 1, 'Arme', 'arme', '#10B981', 0, 1, 0, '', 0, 3, 'arm_disarm', 'low'),
+('130', 'E', 'UNIVERSAL', 1, 'Disparo de Alarme - Zona/Setor', 'alarme', '#EF4444', 1, 0, 1, '130', 0, 1, 'alarm', 'critical'),
+('130', 'R', 'UNIVERSAL', 1, 'Restauração de Alarme - Zona/Setor', 'restauracao', '#3B82F6', 0, 0, 0, '', 0, 5, 'restore', 'low'),
+('602', 'E', 'UNIVERSAL', 1, 'Teste Periódico', 'teste', '#6B7280', 0, 1, 0, '', 0, 5, 'test', 'low'),
+('610', 'E', 'UNIVERSAL', 1, 'Teste Manual', 'teste', '#6B7280', 0, 1, 0, '', 0, 5, 'test', 'low');

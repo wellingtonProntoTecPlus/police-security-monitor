@@ -350,9 +350,17 @@ export async function getIncident(id: number) {
 // ============================================================
 // CONTACT ID CODES
 // ============================================================
-export async function getContactIdDescription(code: string) {
+export async function getContactIdDescription(code: string, qualifier?: string) {
   const db = await getDb();
   if (!db) return undefined;
+  // Primeiro tenta buscar com qualifier exato
+  if (qualifier) {
+    const result = await db.select().from(contactIdCodes).where(
+      and(eq(contactIdCodes.code, code), eq(contactIdCodes.qualifier, qualifier as any))
+    ).limit(1);
+    if (result.length > 0) return result[0];
+  }
+  // Fallback: buscar qualquer um com esse código
   const result = await db.select().from(contactIdCodes).where(eq(contactIdCodes.code, code)).limit(1);
   return result[0];
 }
@@ -555,7 +563,11 @@ export async function deleteAlarmSystem(id: number) {
 export async function listContactIdByFabricante(fabricante: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(contactIdCodes).where(eq(contactIdCodes.fabricante, fabricante)).orderBy(contactIdCodes.code);
+  // Retorna códigos do fabricante + códigos universais
+  const result = await db.select().from(contactIdCodes).where(
+    sql`${contactIdCodes.fabricante} = ${fabricante} OR ${contactIdCodes.isUniversal} = 1`
+  ).orderBy(contactIdCodes.code);
+  return result;
 }
 
 export async function createContactId(data: any) {
@@ -563,7 +575,9 @@ export async function createContactId(data: any) {
   if (!db) return;
   await db.insert(contactIdCodes).values({
     code: data.code,
+    qualifier: data.qualifier || 'E',
     fabricante: data.fabricante,
+    isUniversal: data.isUniversal || false,
     description: data.description,
     tipo: data.tipo,
     cor: data.cor,
@@ -582,7 +596,9 @@ export async function updateContactId(id: number, data: any) {
   if (!db) return;
   await db.update(contactIdCodes).set({
     code: data.code,
+    qualifier: data.qualifier || 'E',
     fabricante: data.fabricante,
+    isUniversal: data.isUniversal || false,
     description: data.description,
     tipo: data.tipo,
     cor: data.cor,
@@ -628,4 +644,69 @@ export async function deleteSystemUser(id: number) {
   if (!db) throw new Error("Database not available");
   await db.delete(users).where(eq(users.id, id));
   return { success: true };
+}
+
+// ============================================================
+// ARM/DISARM STATUS (Armados/Desarmados)
+// ============================================================
+export async function getArmDisarmStatus() {
+  const db = await getDb();
+  if (!db) return { armed: [], disarmed: [] };
+  
+  // Buscar o último evento de arme/desarme de cada conta
+  const armDisarmCodes = ['401', '407', '408', '409', '441', '701'];
+  
+  const lastEvents = await db.select().from(alarmEvents)
+    .where(inArray(alarmEvents.eventCode, armDisarmCodes))
+    .orderBy(desc(alarmEvents.receivedAt));
+  
+  // Agrupar por conta: pegar o último evento de cada conta
+  const accountStatus = new Map<string, { account: string; qualifier: string; receivedAt: Date | null; alarmSystemId: number | null }>();
+  for (const ev of lastEvents) {
+    if (!accountStatus.has(ev.account)) {
+      accountStatus.set(ev.account, {
+        account: ev.account,
+        qualifier: ev.qualifier,
+        receivedAt: ev.receivedAt,
+        alarmSystemId: ev.alarmSystemId,
+      });
+    }
+  }
+  
+  const armed: any[] = [];
+  const disarmed: any[] = [];
+
+  for (const [account, status] of Array.from(accountStatus.entries())) {
+    let clientName = `Conta ${account}`;
+    let clientId: number | null = null;
+    let systemId = status.alarmSystemId;
+    
+    if (status.alarmSystemId) {
+      const systemInfo = await db.select().from(alarmSystems).where(eq(alarmSystems.id, status.alarmSystemId)).limit(1);
+      if (systemInfo.length > 0 && systemInfo[0].clientId) {
+        const clientInfo = await db.select().from(clients).where(eq(clients.id, systemInfo[0].clientId)).limit(1);
+        if (clientInfo.length > 0) {
+          clientName = clientInfo[0].name;
+          clientId = clientInfo[0].id;
+        }
+      }
+    }
+    
+    const entry = {
+      account,
+      qualifier: status.qualifier,
+      lastEvent: status.receivedAt,
+      clientName,
+      clientId,
+      systemId,
+    };
+    
+    if (status.qualifier === 'R') {
+      armed.push(entry);
+    } else {
+      disarmed.push(entry);
+    }
+  }
+  
+  return { armed, disarmed };
 }

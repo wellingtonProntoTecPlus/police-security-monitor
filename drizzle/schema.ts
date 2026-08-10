@@ -252,7 +252,9 @@ export type InsertIncident = typeof incidents.$inferInsert;
 export const contactIdCodes = mysqlTable("contact_id_codes", {
   id: int("id").autoincrement().primaryKey(),
   code: varchar("code", { length: 10 }).notNull(),
+  qualifier: mysqlEnum("qualifier", ["E", "R", "both"]).default("E").notNull(),
   fabricante: varchar("fabricante", { length: 20 }).notNull().default("COMPATEC"),
+  isUniversal: boolean("isUniversal").default(false).notNull(),
   description: varchar("description", { length: 255 }).notNull(),
   tipo: varchar("tipo", { length: 20 }).notNull().default("alarme"),
   cor: varchar("cor", { length: 10 }).notNull().default("#EF4444"),
