@@ -424,8 +424,9 @@ export const appRouter = router({
     create: operatorProcedure.input(z.object({
       partnerCompanyId: z.number(),
       name: z.string().min(1),
-      date: z.string().min(8),
-      recurring: z.boolean().optional(),
+      date: z.string().min(4),
+      type: z.enum(["nacional", "municipal"]).optional(),
+      
     })).mutation(({ input }) => db.createPartnerHoliday(input)),
     delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deletePartnerHoliday(input.id)),
   }),
@@ -434,8 +435,9 @@ export const appRouter = router({
     create: adminProcedure.input(z.object({
       managingCompanyId: z.number(),
       name: z.string().min(1),
-      date: z.string().min(8),
-      recurring: z.boolean().optional(),
+      date: z.string().min(4),
+      type: z.enum(["nacional", "municipal"]).optional(),
+      
     })).mutation(({ input }) => db.createManagingHoliday(input)),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteManagingHoliday(input.id)),
   }),

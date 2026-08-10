@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, Save, Loader2, Upload, Calendar, Plus, Trash2 } from "lucide-react";
+import { Building2, Save, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone, maskCnpj } from "@/lib/masks";
 
@@ -17,14 +17,6 @@ export default function ManagingCompany() {
   const company = companies[0]; // Só existe uma gestora
 
   // Feriados
-  const { data: holidays = [], refetch: refetchHolidays } = trpc.managingHoliday.list.useQuery(
-    { managingCompanyId: company?.id || 0 },
-    { enabled: !!company?.id }
-  );
-  const createHolidayMut = trpc.managingHoliday.create.useMutation({ onSuccess: () => { refetchHolidays(); setHolidayName(""); setHolidayDate(""); toast.success("Feriado adicionado!"); } });
-  const deleteHolidayMut = trpc.managingHoliday.delete.useMutation({ onSuccess: () => { refetchHolidays(); toast.success("Feriado removido!"); } });
-  const [holidayName, setHolidayName] = useState("");
-  const [holidayDate, setHolidayDate] = useState("");
 
   const [form, setForm] = useState({
     name: "",
@@ -184,40 +176,6 @@ export default function ManagingCompany() {
         </Card>
 
         {/* Feriados */}
-        {company && (
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Calendar className="h-5 w-5" /> Feriados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2 mb-4">
-                <Input placeholder="Nome do feriado" value={holidayName} onChange={(e) => setHolidayName(e.target.value)} className="flex-1" />
-                <Input type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} className="w-[160px]" />
-                <Button size="sm" onClick={() => {
-                  if (!holidayName || !holidayDate) { toast.error("Preencha nome e data"); return; }
-                  createHolidayMut.mutate({ managingCompanyId: company.id, name: holidayName, date: holidayDate });
-                }}><Plus className="h-4 w-4 mr-1" /> Adicionar</Button>
-              </div>
-              <div className="space-y-2 max-h-[250px] overflow-auto">
-                {holidays.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nenhum feriado cadastrado</p>
-                ) : (
-                  holidays.map((h: any) => (
-                    <div key={h.id} className="flex items-center justify-between bg-secondary/30 rounded px-4 py-2">
-                      <div>
-                        <span className="font-medium">{h.name}</span>
-                        <span className="text-sm text-muted-foreground ml-3">{h.date}</span>
-                      </div>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => deleteHolidayMut.mutate({ id: h.id })}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </DashboardLayout>
   );

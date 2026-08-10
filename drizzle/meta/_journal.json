@@ -71,6 +71,13 @@
       "when": 1786335326922,
       "tag": "0009_same_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1786341195117,
+      "tag": "0010_silky_adam_warlock",
+      "breakpoints": true
     }
   ]
 }

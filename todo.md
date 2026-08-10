@@ -182,3 +182,11 @@
 - [x] Corrigir cadastro Empresa Parceira com erro SQL (campos undefined)
 - [x] Corrigir cadastro Usuários do Sistema (openId obrigatório não gerado)
 - [x] Adicionar máscaras em telefone e WhatsApp em todos os cadastros
+
+## Correções 10/08 - Sessão 2
+- [ ] Remover feriados da Empresa Gestora
+- [ ] Corrigir feriados da Empresa Parceira (nacional=dia/mês, municipal=dia/mês/ano)
+- [ ] Corrigir erro ao finalizar ocorrência na VPS
+- [ ] Som de alerta mais forte/persuasivo
+- [ ] Popup de finalização rápida não abre (corrigir para abrir modal com lista clicável)
+- [ ] Logo da parceira não aparece na lista de empresas parceiras

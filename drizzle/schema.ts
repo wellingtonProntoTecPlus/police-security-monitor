@@ -340,7 +340,7 @@ export const partnerHolidays = mysqlTable("partner_holidays", {
   partnerCompanyId: int("partnerCompanyId").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   date: varchar("date", { length: 10 }).notNull(), // DD/MM/YYYY
-  recurring: boolean("recurring").default(false).notNull(),
+  type: mysqlEnum("type", ["nacional", "municipal"]).default("municipal").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

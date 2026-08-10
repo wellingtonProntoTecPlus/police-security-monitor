@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS partner_holidays (
   partnerCompanyId INT NOT NULL,
   name VARCHAR(255) NOT NULL,
   date VARCHAR(10) NOT NULL,
-  isRecurring TINYINT(1) NOT NULL DEFAULT 1,
+  type ENUM('nacional','municipal') NOT NULL DEFAULT 'municipal',
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS managing_holidays (
   managingCompanyId INT NOT NULL,
   name VARCHAR(255) NOT NULL,
   date VARCHAR(10) NOT NULL,
-  isRecurring TINYINT(1) NOT NULL DEFAULT 1,
+  type ENUM('nacional','municipal') NOT NULL DEFAULT 'municipal',
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -254,7 +254,8 @@ CREATE TABLE IF NOT EXISTS occurrences (
   sendPush TINYINT(1) DEFAULT 0,
   eventReceivedAt TIMESTAMP,
   startedAt TIMESTAMP,
-  finalizedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  finalizedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS incidents (

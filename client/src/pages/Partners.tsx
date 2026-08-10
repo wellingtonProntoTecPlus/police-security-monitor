@@ -51,6 +51,7 @@ export default function Partners() {
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [holidayName, setHolidayName] = useState("");
   const [holidayDate, setHolidayDate] = useState("");
+  const [holidayType, setHolidayType] = useState<"nacional" | "municipal">("municipal");
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
 
   const { data: partners = [], refetch } = trpc.partnerCompany.list.useQuery(undefined);
@@ -293,12 +294,25 @@ export default function Partners() {
                 ) : (
                   <>
                     <div className="space-y-2 mb-4">
-                      <div className="flex gap-2">
-                        <Input placeholder="Nome do feriado" value={holidayName} onChange={(e) => setHolidayName(e.target.value)} className="flex-1" />
-                        <Input type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} className="w-[140px]" />
-                        <Button size="sm" onClick={() => {
+                      <div className="flex gap-2 items-end flex-wrap">
+                        <div className="flex-1 min-w-[150px]">
+                          <label className="text-xs text-muted-foreground">Nome</label>
+                          <Input placeholder="Ex: Natal" value={holidayName} onChange={(e) => setHolidayName(e.target.value)} />
+                        </div>
+                        <div className="w-[120px]">
+                          <label className="text-xs text-muted-foreground">Dia/Mês{holidayType === "municipal" ? "/Ano" : ""}</label>
+                          <Input placeholder={holidayType === "nacional" ? "25/12" : "20/01/2026"} value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
+                        </div>
+                        <div className="w-[120px]">
+                          <label className="text-xs text-muted-foreground">Tipo</label>
+                          <select className="w-full h-9 rounded border border-border bg-background px-2 text-sm" value={holidayType} onChange={(e) => setHolidayType(e.target.value as any)}>
+                            <option value="nacional">Nacional</option>
+                            <option value="municipal">Municipal</option>
+                          </select>
+                        </div>
+                        <Button size="sm" className="h-9" onClick={() => {
                           if (!holidayName || !holidayDate) { toast.error("Preencha nome e data"); return; }
-                          createHolidayMut.mutate({ partnerCompanyId: selectedPartnerId!, name: holidayName, date: holidayDate });
+                          createHolidayMut.mutate({ partnerCompanyId: selectedPartnerId!, name: holidayName, date: holidayDate, type: holidayType });
                         }}><Plus className="h-3.5 w-3.5" /></Button>
                       </div>
                     </div>
@@ -311,6 +325,7 @@ export default function Partners() {
                             <div>
                               <span className="text-sm font-medium">{h.name}</span>
                               <span className="text-xs text-muted-foreground ml-2">{h.date}</span>
+                              <span className={`text-xs ml-2 px-1.5 py-0.5 rounded ${h.type === 'nacional' ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-400'}`}>{h.type || 'municipal'}</span>
                             </div>
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => deleteHolidayMut.mutate({ id: h.id })}>
                               <Trash2 className="h-3 w-3" />

@@ -376,9 +376,7 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <audio ref={audioRef} preload="auto">
-        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbsGczHjqIrNjVpWQ+IjV8nczUr3hLMi5xi8DJtIRYPC0uf5y/xbOCVzYpZYqvuLmOaEkwMmqIqbK3lnFOMy9shqewtZd1UjUwbYamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2AA==" type="audio/wav"/>
-      </audio>
+      <audio ref={audioRef} preload="auto" loop src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" />
 
       {/* Popup de Ocorrências Pendentes (a cada 20 min) */}
       {pendingPopup && (
