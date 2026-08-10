@@ -6,7 +6,8 @@ import { useSocket, AlarmEvent } from "@/hooks/useSocket";
 import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
-  ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2
+  ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -452,6 +453,16 @@ export default function Dashboard() {
                 )}
               </div>
               <span className="text-xs text-muted-foreground">Operador: <strong className="text-foreground">{user?.name?.split(' ')[0]}</strong></span>
+              {user && (
+                <button onClick={() => { window.location.href = "/login"; }} className="ml-2 text-xs text-red-400 hover:text-red-300 flex items-center gap-1" title="Sair">
+                  <LogOut className="w-3 h-3" /> Sair
+                </button>
+              )}
+              {!user && (
+                <a href="/login" className="ml-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                  <LogOut className="w-3 h-3" /> Entrar
+                </a>
+              )}
             </div>
             <ScrollArea className="flex-1">
               <QueueSection title="EM ATENDIMENTO" color="text-blue-400" events={grouped.attending} />
