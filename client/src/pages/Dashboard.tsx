@@ -517,22 +517,9 @@ export default function Dashboard() {
                         Finalizar
                       </Button>
                       {finalizacoes.length > 0 && (
-                        <Select value={selectedFinalization} onValueChange={(v) => {
-                          setSelectedFinalization(v);
-                          const fin = finalizacoes.find((f: any) => f.id.toString() === v);
-                          if (fin) {
-                            setAttendingNotes((prev) => prev ? `${prev}\n${(fin as any).description || (fin as any).title}` : ((fin as any).description || (fin as any).title));
-                          }
-                        }}>
-                          <SelectTrigger className="h-7 text-xs mt-1 w-full">
-                            <SelectValue placeholder="Finalização rápida..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {finalizacoes.map((f: any) => (
-                              <SelectItem key={f.id} value={f.id.toString()}>{f.title}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => setSelectedFinalization("open")}>
+                          Finalização Rápida
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -714,6 +701,41 @@ export default function Dashboard() {
               ))}
               {((armDisarmModal === 'armed' ? armDisarmData?.armed : armDisarmData?.disarmed)?.length || 0) === 0 && (
                 <p className="text-center text-muted-foreground py-8">Nenhum cliente encontrado</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup de Finalizações Rápidas */}
+      {selectedFinalization === "open" && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center" onClick={() => setSelectedFinalization("")}>
+          <div className="bg-card border border-border rounded-lg p-4 w-[450px] max-h-[60vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-foreground text-lg">Finalizações Rápidas</h3>
+              <button onClick={() => setSelectedFinalization("")} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">Clique em uma finalização para inserir nas observações:</p>
+            <div className="space-y-2">
+              {finalizacoes.filter((f: any) => f.isActive).map((f: any) => (
+                <button
+                  key={f.id}
+                  className="w-full text-left px-3 py-2 rounded border border-border hover:bg-primary/10 hover:border-primary/50 transition-colors"
+                  onClick={() => {
+                    setAttendingNotes((prev) => prev ? `${prev}\n${f.description || f.title}` : (f.description || f.title));
+                    setSelectedFinalization("");
+                    addLog(`Finalização: ${f.title}`);
+                    toast.success(`Finalização "${f.title}" inserida`);
+                  }}
+                >
+                  <span className="font-bold text-sm text-foreground">{f.title}</span>
+                  {f.description && <p className="text-xs text-muted-foreground mt-0.5">{f.description}</p>}
+                </button>
+              ))}
+              {finalizacoes.filter((f: any) => f.isActive).length === 0 && (
+                <p className="text-center text-muted-foreground py-4">Nenhuma finalização cadastrada. Acesse o menu "Finalizações" para criar.</p>
               )}
             </div>
           </div>
