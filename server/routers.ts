@@ -4,6 +4,9 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import bcrypt from "bcryptjs";
+import { sdk } from "./_core/sdk";
+import { ONE_YEAR_MS } from "@shared/const";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -24,6 +27,26 @@ export const appRouter = router({
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
+    }),
+    login: publicProcedure.input(z.object({
+      email: z.string().min(1),
+      password: z.string().min(1),
+    })).mutation(async ({ input, ctx }) => {
+      const user = await db.getUserByEmail(input.email);
+      if (!user) throw new Error("Email ou senha inválidos");
+      if (!user.password) throw new Error("Usuário sem senha cadastrada");
+      const valid = await bcrypt.compare(input.password, user.password);
+      if (!valid) throw new Error("Email ou senha inválidos");
+      // Create session token
+      const sessionToken = await sdk.createSessionToken(user.openId, {
+        name: user.name || "",
+        expiresInMs: ONE_YEAR_MS,
+      });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      // Update lastSignedIn
+      await db.updateUserLastSignedIn(user.id);
+      return { success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }),
   }),
 
@@ -477,7 +500,10 @@ export const appRouter = router({
   }),
   systemUser: router({
     list: publicProcedure.query(() => db.listSystemUsers()),
-    create: publicProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.string().default("operator") })).mutation(({ input }) => db.createSystemUser(input)),
+    create: publicProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.string().default("operator") })).mutation(async ({ input }) => {
+      const hashedPassword = await bcrypt.hash(input.password, 10);
+      return db.createSystemUser({ ...input, password: hashedPassword });
+    }),
     delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteSystemUser(input.id)),
   }),
   finalization: router({

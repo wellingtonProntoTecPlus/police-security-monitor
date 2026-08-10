@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   email VARCHAR(320),
   loginMethod VARCHAR(64),
-  role ENUM('user','admin','supervisor','operator') NOT NULL DEFAULT 'operator',
+  role ENUM('user','admin','supervisor','operator','partner') NOT NULL DEFAULT 'operator',
   partnerId INT,
   password VARCHAR(255),
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

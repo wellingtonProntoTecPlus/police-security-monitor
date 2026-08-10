@@ -660,9 +660,22 @@ export async function createSystemUser(data: { name: string; email: string; pass
     loginMethod: "local",
     role: data.role as any,
   };
-  if (data.password) values.password = data.password;
+  values.password = data.password; // Already hashed
   await db.insert(users).values(values as any);
   return { success: true };
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return user || null;
+}
+
+export async function updateUserLastSignedIn(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() } as any).where(eq(users.id, userId));
 }
 
 export async function deleteSystemUser(id: number) {

@@ -16,6 +16,7 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/login"} component={Login} />
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/clients"} component={Clients} />
       <Route path={"/clients/:id"} component={ClientDetail} />
@@ -52,3 +53,4 @@ import ContactId from "./pages/ContactId";
 import Reports from "./pages/Reports";
 import Finalizations from "./pages/Finalizations";
 import UsersPage from "./pages/Users";
+import Login from "./pages/Login";

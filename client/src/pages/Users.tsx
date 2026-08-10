@@ -14,12 +14,14 @@ const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
   supervisor: "Supervisor",
   operator: "Operador",
+  partner: "Parceiro",
 };
 
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-red-600",
   supervisor: "bg-yellow-600",
   operator: "bg-blue-600",
+  partner: "bg-green-600",
 };
 
 export default function UsersPage() {
@@ -85,6 +87,7 @@ export default function UsersPage() {
                     <SelectItem value="admin">Administrador</SelectItem>
                     <SelectItem value="supervisor">Supervisor</SelectItem>
                     <SelectItem value="operator">Operador</SelectItem>
+                    <SelectItem value="partner">Parceiro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -1,9 +1,9 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Shield, Monitor, Bell, Users, Radio } from "lucide-react";
 import { Redirect } from "wouter";
 import { useLocation } from "wouter";
+import { LogIn } from "lucide-react";
 
 export default function Home() {
   const { user, isAuthenticated, loading } = useAuth();
@@ -23,7 +23,7 @@ export default function Home() {
 
   // Bypass para VPS sem OAuth - acesso direto ao dashboard
   const handleDirectAccess = () => {
-    navigate("/dashboard");
+    navigate("/login");
   };
 
   return (
@@ -34,10 +34,8 @@ export default function Home() {
           <img src="/manus-storage/police-logo_4726d461.png" alt="Police Central" className="h-12 object-contain" />
         </div>
         <div className="flex gap-3">
-          <Button onClick={handleDirectAccess} variant="outline" size="lg" className="font-bold">
-            ACESSO DIRETO
-          </Button>
-          <Button onClick={() => startLogin()} variant="default" size="lg" className="font-bold">
+          <Button onClick={handleDirectAccess} variant="default" size="lg" className="font-bold">
+            <LogIn className="w-5 h-5 mr-2" />
             ENTRAR NO SISTEMA
           </Button>
         </div>
