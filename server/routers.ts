@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 
 // ============================================================
