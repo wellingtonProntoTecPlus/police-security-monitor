@@ -104,14 +104,26 @@ export async function getManagingCompany(id: number) {
 export async function createManagingCompany(data: InsertManagingCompany) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(managingCompanies).values(data);
+  // Filtrar campos undefined para evitar erro SQL
+  const cleanData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined && value !== '') cleanData[key] = value;
+  }
+  if (!cleanData.name || !cleanData.cnpj) throw new Error("Nome e CNPJ são obrigatórios");
+  const result = await db.insert(managingCompanies).values(cleanData as InsertManagingCompany);
   return { id: result[0].insertId };
 }
 
 export async function updateManagingCompany(id: number, data: Partial<InsertManagingCompany>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(managingCompanies).set(data).where(eq(managingCompanies.id, id));
+  // Filtrar campos undefined
+  const cleanData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) cleanData[key] = value;
+  }
+  if (Object.keys(cleanData).length === 0) return;
+  await db.update(managingCompanies).set(cleanData).where(eq(managingCompanies.id, id));
 }
 
 // ============================================================
@@ -136,14 +148,26 @@ export async function getPartnerCompany(id: number) {
 export async function createPartnerCompany(data: InsertPartnerCompany) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(partnerCompanies).values(data);
+  // Filtrar campos undefined para evitar erro SQL
+  const cleanData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined && value !== '') cleanData[key] = value;
+  }
+  if (!cleanData.name || !cleanData.cnpj || !cleanData.managingCompanyId) throw new Error("Nome, CNPJ e Empresa Gestora são obrigatórios");
+  const result = await db.insert(partnerCompanies).values(cleanData as InsertPartnerCompany);
   return { id: result[0].insertId };
 }
 
 export async function updatePartnerCompany(id: number, data: Partial<InsertPartnerCompany>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(partnerCompanies).set(data).where(eq(partnerCompanies.id, id));
+  // Filtrar campos undefined
+  const cleanData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) cleanData[key] = value;
+  }
+  if (Object.keys(cleanData).length === 0) return;
+  await db.update(partnerCompanies).set(cleanData).where(eq(partnerCompanies.id, id));
 }
 
 // ============================================================
@@ -629,14 +653,15 @@ export async function createSystemUser(data: { name: string; email: string; pass
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const openId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  await db.insert(users).values({
+  const values: Record<string, any> = {
     openId,
     name: data.name,
     email: data.email,
     loginMethod: "local",
     role: data.role as any,
-    password: data.password,
-  });
+  };
+  if (data.password) values.password = data.password;
+  await db.insert(users).values(values as any);
   return { success: true };
 }
 

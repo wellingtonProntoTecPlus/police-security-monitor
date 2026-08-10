@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import HLSPlayer from "@/components/HLSPlayer";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 
@@ -112,6 +113,8 @@ export default function Dashboard() {
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
+  const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
+  const [selectedFinalization, setSelectedFinalization] = useState<string>("");
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -513,6 +516,24 @@ export default function Dashboard() {
                       <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(selectedEvent)}>
                         Finalizar
                       </Button>
+                      {finalizacoes.length > 0 && (
+                        <Select value={selectedFinalization} onValueChange={(v) => {
+                          setSelectedFinalization(v);
+                          const fin = finalizacoes.find((f: any) => f.id.toString() === v);
+                          if (fin) {
+                            setAttendingNotes((prev) => prev ? `${prev}\n${(fin as any).description || (fin as any).title}` : ((fin as any).description || (fin as any).title));
+                          }
+                        }}>
+                          <SelectTrigger className="h-7 text-xs mt-1 w-full">
+                            <SelectValue placeholder="Finalização rápida..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {finalizacoes.map((f: any) => (
+                              <SelectItem key={f.id} value={f.id.toString()}>{f.title}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </div>
                 </div>

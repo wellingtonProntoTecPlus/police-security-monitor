@@ -7,11 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, Save, Loader2, Upload, Calendar, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { maskPhone, maskCnpj } from "@/lib/masks";
 
 export default function ManagingCompany() {
   const { data: companies = [], refetch } = trpc.managingCompany.list.useQuery(undefined);
-  const createMut = trpc.managingCompany.create.useMutation({ onSuccess: () => { refetch(); toast.success("Empresa salva!"); } });
-  const updateMut = trpc.managingCompany.update.useMutation({ onSuccess: () => { refetch(); toast.success("Empresa atualizada!"); } });
+  const createMut = trpc.managingCompany.create.useMutation({ onSuccess: () => { refetch(); toast.success("Empresa salva!"); }, onError: (err) => toast.error(`Erro ao salvar: ${err.message}`) });
+  const updateMut = trpc.managingCompany.update.useMutation({ onSuccess: () => { refetch(); toast.success("Empresa atualizada!"); }, onError: (err) => toast.error(`Erro ao atualizar: ${err.message}`) });
 
   const company = companies[0]; // Só existe uma gestora
 
@@ -133,7 +134,7 @@ export default function ManagingCompany() {
               </div>
               <div>
                 <Label>CNPJ *</Label>
-                <Input value={form.cnpj} onChange={(e) => setForm(prev => ({ ...prev, cnpj: e.target.value }))} placeholder="00.000.000/0001-00" />
+                <Input value={form.cnpj} onChange={(e) => setForm(prev => ({ ...prev, cnpj: maskCnpj(e.target.value) }))} placeholder="00.000.000/0001-00" />
               </div>
             </div>
 
@@ -141,11 +142,11 @@ export default function ManagingCompany() {
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label>Telefone</Label>
-                <Input value={form.phone} onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))} placeholder="(00) 0000-0000" />
+                <Input value={form.phone} onChange={(e) => setForm(prev => ({ ...prev, phone: maskPhone(e.target.value) }))} placeholder="(00) 0000-0000" />
               </div>
               <div>
                 <Label>WhatsApp</Label>
-                <Input value={form.whatsapp} onChange={(e) => setForm(prev => ({ ...prev, whatsapp: e.target.value }))} placeholder="(00) 00000-0000" />
+                <Input value={form.whatsapp} onChange={(e) => setForm(prev => ({ ...prev, whatsapp: maskPhone(e.target.value) }))} placeholder="(00) 00000-0000" />
               </div>
               <div>
                 <Label>E-mail</Label>

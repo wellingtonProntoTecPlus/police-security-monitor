@@ -177,3 +177,8 @@
 - [x] Finalizações = cadastro de textos/motivos de finalização automática (não é histórico)
 - [x] Remover autenticação obrigatória para funcionar na VPS (já feito parcialmente)
 - [ ] Integrar finalizações automáticas no botão Finalizar do dashboard (selecionar motivo)
+- [x] Integrar finalizações automáticas no botão Finalizar do dashboard (selecionar motivo)
+- [x] Corrigir cadastro Empresa Gestora não salvando
+- [x] Corrigir cadastro Empresa Parceira com erro SQL (campos undefined)
+- [x] Corrigir cadastro Usuários do Sistema (openId obrigatório não gerado)
+- [x] Adicionar máscaras em telefone e WhatsApp em todos os cadastros

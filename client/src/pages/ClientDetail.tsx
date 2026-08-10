@@ -114,8 +114,8 @@ export default function ClientDetail() {
                   <DialogHeader><DialogTitle>Novo Contato</DialogTitle></DialogHeader>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2"><Label>Nome *</Label><Input value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} /></div>
-                    <div><Label>Telefone</Label><Input value={contactForm.phone} onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })} /></div>
-                    <div><Label>WhatsApp</Label><Input value={contactForm.whatsapp} onChange={(e) => setContactForm({ ...contactForm, whatsapp: e.target.value })} /></div>
+                    <div><Label>Telefone</Label><Input value={contactForm.phone} onChange={(e) => setContactForm({ ...contactForm, phone: maskPhone(e.target.value) })} placeholder="(00) 00000-0000" /></div>
+                    <div><Label>WhatsApp</Label><Input value={contactForm.whatsapp} onChange={(e) => setContactForm({ ...contactForm, whatsapp: maskPhone(e.target.value) })} placeholder="(00) 00000-0000" /></div>
                     <div><Label>E-mail</Label><Input value={contactForm.email} onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })} /></div>
                     <div><Label>Função</Label><Input placeholder="Ex: Proprietário" value={contactForm.role} onChange={(e) => setContactForm({ ...contactForm, role: e.target.value })} /></div>
                   </div>
@@ -325,3 +325,4 @@ export default function ClientDetail() {
     </DashboardLayout>
   );
 }
+import { maskPhone } from "@/lib/masks";
