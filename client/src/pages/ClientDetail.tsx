@@ -11,8 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { User, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers } from "lucide-react";
-import { Pencil } from "lucide-react";
+import { User, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ClientDetail() {
@@ -47,6 +46,7 @@ export default function ClientDetail() {
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "" });
   const [systemForm, setSystemForm] = useState({ account: "", brand: "JFL" as any, model: "", receiverPort: 0 });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
+  const [editingCamera, setEditingCamera] = useState<any>(null);
   const [zoneForm, setZoneForm] = useState({ zoneNumber: 1, name: "", type: "perimeter" as any, partition: 1 });
 
   if (!client) {
@@ -352,4 +352,3 @@ export default function ClientDetail() {
   );
 }
 import { maskPhone } from "@/lib/masks";
-  const [editingCamera, setEditingCamera] = useState<any>(null);
