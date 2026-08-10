@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { User, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ClientDetail() {
@@ -34,6 +35,7 @@ export default function ClientDetail() {
   const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema excluído!"); } });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
+  const updateCamera = trpc.camera.update.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera atualizada!"); setEditingCamera(null); } });
   const createZone = trpc.alarmZone.create.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona adicionada!"); } });
   const deleteZone = trpc.alarmZone.delete.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona excluída!"); } });
 
@@ -310,15 +312,39 @@ export default function ClientDetail() {
                           <p className="text-xs text-muted-foreground font-mono truncate">{cam.rtspUrl}</p>
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir esta câmera?")) deleteCamera.mutate({ id: cam.id }); }}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingCamera(cam)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir esta câmera?")) deleteCamera.mutate({ id: cam.id }); }}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
                 {cameras.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhuma câmera cadastrada</p>}
               </div>
             </ScrollArea>
+
+            {/* Modal de Edição de Câmera */}
+            {editingCamera && (
+              <Dialog open={!!editingCamera} onOpenChange={() => setEditingCamera(null)}>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Editar Câmera</DialogTitle></DialogHeader>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Nome *</Label><Input value={editingCamera.name} onChange={(e) => setEditingCamera({ ...editingCamera, name: e.target.value })} /></div>
+                    <div><Label>Localização</Label><Input value={editingCamera.location || ""} onChange={(e) => setEditingCamera({ ...editingCamera, location: e.target.value })} /></div>
+                    <div className="col-span-2"><Label>URL HLS/RTSP *</Label><Input value={editingCamera.rtspUrl} onChange={(e) => setEditingCamera({ ...editingCamera, rtspUrl: e.target.value })} /></div>
+                    <div><Label>Marca</Label><Input value={editingCamera.brand || ""} onChange={(e) => setEditingCamera({ ...editingCamera, brand: e.target.value })} /></div>
+                  </div>
+                  <Button className="mt-3" onClick={() => {
+                    if (!editingCamera.name || !editingCamera.rtspUrl) { toast.error("Nome e URL são obrigatórios"); return; }
+                    updateCamera.mutate({ id: editingCamera.id, name: editingCamera.name, rtspUrl: editingCamera.rtspUrl, brand: editingCamera.brand || "", location: editingCamera.location || "" });
+                  }}>Salvar Alterações</Button>
+                </DialogContent>
+              </Dialog>
+            )}
           </TabsContent>
         </Tabs>
       </div>
@@ -326,3 +352,4 @@ export default function ClientDetail() {
   );
 }
 import { maskPhone } from "@/lib/masks";
+  const [editingCamera, setEditingCamera] = useState<any>(null);
