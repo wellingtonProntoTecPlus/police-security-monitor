@@ -22,6 +22,7 @@ import {
   occurrences, InsertOccurrence,
   managingHolidays, InsertManagingHoliday,
 } from "../drizzle/schema";
+import { finalizations, InsertFinalization } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -709,4 +710,31 @@ export async function getArmDisarmStatus() {
   }
   
   return { armed, disarmed };
+}
+// ============================================================
+// FINALIZATIONS (textos de finalização automática)
+// ============================================================
+export async function listFinalizations() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(finalizations).orderBy(finalizations.title);
+}
+
+export async function createFinalization(data: InsertFinalization) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(finalizations).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function updateFinalization(id: number, data: Partial<InsertFinalization>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(finalizations).set(data).where(eq(finalizations.id, id));
+}
+
+export async function deleteFinalization(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(finalizations).where(eq(finalizations.id, id));
 }

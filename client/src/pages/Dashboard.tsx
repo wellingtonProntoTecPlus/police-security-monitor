@@ -104,6 +104,11 @@ export default function Dashboard() {
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
+  const [alertPlaying, setAlertPlaying] = useState(false);
+  const [pendingPopup, setPendingPopup] = useState(false);
+  const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingPopupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
@@ -130,15 +135,16 @@ export default function Dashboard() {
           ...ev,
           queueStatus: "waiting",
           queuedAt: Date.now(),
-          clientName: client ? (client.fantasyName || client.name) : `Conta ${ev.account}`,
+          clientName: client ? (client.fantasyName || client.name) : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : 'CONTA NÃO CADASTRADA'),
           systemModel: system ? `${system.brand} ${system.model || ''}`.trim() : ev.brand,
+          description: ev.description || 'EVENTO NÃO CADASTRADO',
         });
       }
     });
     if (newEvents.length > 0) {
       setQueues((prev) => [...newEvents, ...prev]);
-      const hasCritical = newEvents.some(e => e.priority === "critical" || e.priority === "high");
-      if (hasCritical) { try { audioRef.current?.play(); } catch {} }
+      // Tocar som por 5 segundos
+      startAlertSound();
     }
   }, [realtimeEvents, clientData, systemData]);
 
@@ -154,13 +160,64 @@ export default function Dashboard() {
           ...ev,
           queueStatus: "waiting" as QueueStatus,
           queuedAt: new Date(ev.receivedAt).getTime(),
-          clientName: client ? (client.fantasyName || client.name) : `Conta ${ev.account}`,
+          clientName: client ? (client.fantasyName || client.name) : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : 'CONTA NÃO CADASTRADA'),
           systemModel: system ? `${system.brand} ${system.model || ''}`.trim() : ev.brand,
+          description: ev.description || 'EVENTO NÃO CADASTRADO',
         };
       });
       setQueues(initial);
     }
   }, [dbEvents, clientData, systemData]);
+
+  // Função para tocar som de alerta por 5 segundos
+  function startAlertSound() {
+    setAlertPlaying(true);
+    try { audioRef.current?.play(); } catch {}
+    if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+    alertTimeoutRef.current = setTimeout(() => {
+      stopAlertSound();
+    }, 5000);
+  }
+
+  function stopAlertSound() {
+    setAlertPlaying(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+      alertTimeoutRef.current = null;
+    }
+  }
+
+  // Popup de pendentes a cada 20 minutos
+  useEffect(() => {
+    pendingIntervalRef.current = setInterval(() => {
+      const waitingCount = queues.filter(q => q.queueStatus === 'waiting').length;
+      if (waitingCount > 0) {
+        setPendingPopup(true);
+        startAlertSound();
+        pendingPopupTimeoutRef.current = setTimeout(() => {
+          setPendingPopup(false);
+          stopAlertSound();
+        }, 10000);
+      }
+    }, 20 * 60 * 1000); // 20 minutos
+    return () => {
+      if (pendingIntervalRef.current) clearInterval(pendingIntervalRef.current);
+      if (pendingPopupTimeoutRef.current) clearTimeout(pendingPopupTimeoutRef.current);
+    };
+  }, [queues]);
+
+  function closePendingPopup() {
+    setPendingPopup(false);
+    stopAlertSound();
+    if (pendingPopupTimeoutRef.current) {
+      clearTimeout(pendingPopupTimeoutRef.current);
+      pendingPopupTimeoutRef.current = null;
+    }
+  }
 
   // Mover evento entre filas
   const moveEvent = useCallback((ev: QueueEvent, newStatus: QueueStatus) => {
@@ -192,6 +249,8 @@ export default function Dashboard() {
   }
 
   function handleSelectEvent(ev: QueueEvent) {
+    // Parar som de alerta ao clicar no evento
+    stopAlertSound();
     if (ev.queueStatus === "waiting") {
       moveEvent(ev, "attending");
       setSelectedEvent({ ...ev, queueStatus: "attending" });
@@ -315,8 +374,37 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       <audio ref={audioRef} preload="auto">
-        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbsGczHjqIrNjVpWQ+IjV8nczUr3hLMi5xi8DJtIRYPC0uf5y/xbOCVzYpZYqvuLmOaEkwMmqIqbK3lnFOMy9shqewtZd1UjUwbYamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2AA==" type="audio/wav" />
+        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbsGczHjqIrNjVpWQ+IjV8nczUr3hLMi5xi8DJtIRYPC0uf5y/xbOCVzYpZYqvuLmOaEkwMmqIqbK3lnFOMy9shqewtZd1UjUwbYamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2MG6Gpq+1mHdUNjBuhqavtZh3VDYwboamr7WYd1Q2AA==" type="audio/wav"/>
       </audio>
+
+      {/* Popup de Ocorrências Pendentes (a cada 20 min) */}
+      {pendingPopup && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center animate-pulse" onClick={closePendingPopup}>
+          <div className="bg-red-900/95 border-2 border-red-500 rounded-lg p-6 w-[500px] max-h-[60vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-red-300 flex items-center gap-2">
+                <Bell className="h-6 w-6 animate-bounce" /> OCORRÊNCIAS PENDENTES ({queues.filter(q => q.queueStatus === 'waiting').length})
+              </h3>
+              <button onClick={closePendingPopup} className="text-white hover:text-red-300">
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {queues.filter(q => q.queueStatus === 'waiting').map((ev, idx) => (
+                <div key={idx} className="bg-black/40 border border-red-500/30 rounded px-3 py-2 cursor-pointer hover:bg-red-800/30" onClick={() => { closePendingPopup(); handleSelectEvent(ev); }}>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-white">{ev.description || 'EVENTO NÃO CADASTRADO'}</span>
+                    <span className="text-xs text-red-300">{new Date(ev.queuedAt).toLocaleTimeString('pt-BR')}</span>
+                  </div>
+                  <div className="text-xs text-red-200">{ev.account} - {ev.clientName}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-red-300 text-sm mt-4">Clique para fechar ou atender um evento</p>
+          </div>
+        </div>
+      )}
+
       {expandedCam && <CameraModal
         cam={expandedCam}
         onClose={() => setExpandedCam(null)}

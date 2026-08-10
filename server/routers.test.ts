@@ -81,24 +81,29 @@ describe("appRouter", () => {
   });
 
   describe("contactIdCode.list", () => {
-    it("requires authentication", async () => {
+    it("allows public access (no auth required for VPS)", async () => {
       const ctx = createUnauthContext();
       const caller = appRouter.createCaller(ctx);
-      await expect(caller.contactIdCode.list()).rejects.toThrow();
+      // Should not throw - routes are public now
+      const result = await caller.contactIdCode.list();
+      expect(Array.isArray(result)).toBe(true);
     });
   });
 
   describe("dashboard.stats", () => {
-    it("requires operator role", async () => {
+    it("allows public access (no auth required for VPS)", async () => {
       const ctx = createUnauthContext();
       const caller = appRouter.createCaller(ctx);
-      await expect(caller.dashboard.stats()).rejects.toThrow();
+      const result = await caller.dashboard.stats();
+      expect(result).toHaveProperty("activeConnections");
+      expect(result).toHaveProperty("pendingEvents");
+      expect(result).toHaveProperty("eventsPerMin");
+      expect(result).toHaveProperty("totalClients");
     });
 
     it("allows operator access", async () => {
       const ctx = createOperatorContext();
       const caller = appRouter.createCaller(ctx);
-      // This will attempt DB access - in test env it may fail gracefully
       try {
         const result = await caller.dashboard.stats();
         expect(result).toHaveProperty("activeConnections");
@@ -112,12 +117,12 @@ describe("appRouter", () => {
     });
   });
 
-  describe("incident.list", () => {
-    it("requires operator role", async () => {
+  describe("finalization", () => {
+    it("allows listing finalizations", async () => {
       const ctx = createUnauthContext();
       const caller = appRouter.createCaller(ctx);
-      await expect(caller.incident.list()).rejects.toThrow();
+      const result = await caller.finalization.list();
+      expect(Array.isArray(result)).toBe(true);
     });
   });
 });
-

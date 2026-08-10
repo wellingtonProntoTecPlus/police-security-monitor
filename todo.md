@@ -167,3 +167,13 @@
 - [x] Botão "Desarmados" (vermelho) com contador real
 - [x] Botão "Armados" (verde) com contador real
 - [x] Modal com lista de clientes armados/desarmados ao clicar no botão
+
+## Correções e Melhorias Solicitadas (10/08)
+- [x] Áudio de alerta: som por 5 segundos ao chegar evento, para ao clicar no evento
+- [x] Popup de pendentes: a cada 20 minutos, lista de ocorrências pendentes pisca no centro da tela por 10s com som
+- [x] Corrigir erro de validação de email na Empresa Parceira (campo deve ser opcional)
+- [x] "CONTA NÃO CADASTRADA" no dashboard quando conta não existe no sistema
+- [x] "EVENTO NÃO CADASTRADO" quando código do evento não está na tabela Contact ID
+- [x] Finalizações = cadastro de textos/motivos de finalização automática (não é histórico)
+- [x] Remover autenticação obrigatória para funcionar na VPS (já feito parcialmente)
+- [ ] Integrar finalizações automáticas no botão Finalizar do dashboard (selecionar motivo)

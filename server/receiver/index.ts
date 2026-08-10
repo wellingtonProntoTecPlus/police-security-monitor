@@ -252,15 +252,22 @@ async function processEvent(evento: any, remoteIp: string) {
       if (codeInfo) {
         description = codeInfo.description || description;
         priority = codeInfo.priority || priority;
+      } else {
+        description = `EVENTO NÃO CADASTRADO (${evento.qualifier || ''}${evento.eventCode})`;
       }
     } catch (e: any) {
-      console.warn(`[RECIP] Não encontrou código ${evento.eventCode}: ${e.message}`);
+      description = `EVENTO NÃO CADASTRADO (${evento.qualifier || ''}${evento.eventCode})`;
+      console.warn(`[RECIP] Código não cadastrado ${evento.eventCode}: ${e.message}`);
     }
 
     // Buscar sistema de alarme pela conta
     let system: any = null;
+    let clientName = `CONTA NÃO CADASTRADA (${evento.account})`;
     try {
       system = await getAlarmSystemByAccount(evento.account);
+      if (system) {
+        clientName = `Conta ${evento.account}`;
+      }
     } catch (e: any) {
       console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);
     }
@@ -293,6 +300,7 @@ async function processEvent(evento: any, remoteIp: string) {
         ...evento,
         description,
         priority,
+        clientName: system ? undefined : clientName,
         clientId: system?.clientId,
         alarmSystemId: system?.id,
         remoteIp: remoteIp.replace('::ffff:', ''),

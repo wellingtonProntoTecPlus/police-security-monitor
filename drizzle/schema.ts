@@ -396,3 +396,17 @@ export const managingHolidays = mysqlTable("managing_holidays", {
 });
 export type ManagingHoliday = typeof managingHolidays.$inferSelect;
 export type InsertManagingHoliday = typeof managingHolidays.$inferInsert;
+
+// ============================================================
+// FINALIZAÇÕES AUTOMÁTICAS (textos de finalização rápida)
+// ============================================================
+export const finalizations = mysqlTable("finalizations", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 50 }).notNull().default("outros"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type Finalization = typeof finalizations.$inferSelect;
+export type InsertFinalization = typeof finalizations.$inferInsert;
