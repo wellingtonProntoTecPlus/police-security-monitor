@@ -286,6 +286,10 @@ export default function Dashboard() {
 
   // Finalizar evento - salvar ocorrência no banco
   const finalizeEvent = useCallback((ev: QueueEvent) => {
+    if (!attendingNotes.trim()) {
+      toast.error("Preencha a descrição da finalização antes de finalizar!");
+      return;
+    }
     addLog("Evento FINALIZADO");
     const finalLogs = [`[${new Date().toLocaleTimeString("pt-BR")}] Evento FINALIZADO`, ...logs];
     const attendingTime = Date.now() - attendStartTime;
@@ -454,8 +458,14 @@ export default function Dashboard() {
               <QueueSection title="EM OBSERVAÇÃO" color="text-purple-400" events={grouped.observing} />
               <QueueSection title="EM ATENDIMENTO TÁTICO" color="text-orange-400" events={grouped.tactical} />
               <QueueSection title="EM MANUTENÇÃO" color="text-yellow-400" events={grouped.maintenance} />
-              <QueueSection title="AGUARDANDO" color="text-red-400" events={grouped.waiting} />
             </ScrollArea>
+            <div className="border-t border-border flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="px-3 py-1.5 text-xs font-bold text-red-400">AGUARDANDO ({grouped.waiting.length})</div>
+              <div className="flex-1 overflow-y-auto px-2 pb-2">
+                {grouped.waiting.map((ev) => <EventCard key={`${ev.account}-${ev.queuedAt}`} ev={ev} />)}
+                {grouped.waiting.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Nenhuma ocorrência</p>}
+              </div>
+            </div>
           </div>
 
           {/* COLUNA 2: Painel Central */}

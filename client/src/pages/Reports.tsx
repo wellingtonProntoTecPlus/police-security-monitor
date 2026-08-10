@@ -14,7 +14,7 @@ export default function Reports() {
   const [accountFilter, setAccountFilter] = useState("");
 
   const { data: occurrences = [] } = trpc.occurrence.list.useQuery({
-    limit: 100,
+    limit: 200,
     offset: 0,
   });
 
@@ -25,12 +25,21 @@ export default function Reports() {
     return true;
   });
 
+  function formatTime(ms: number | null | undefined) {
+    if (!ms) return "-";
+    const totalSec = Math.floor(ms / 1000);
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return `${min}min ${sec}s`;
+  }
+
   return (<DashboardLayout>
     <div className="p-6 space-y-6 overflow-auto h-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <FileText className="w-6 h-6" /> Relatórios
+          <FileText className="w-6 h-6" /> Relatórios de Ocorrências
         </h1>
+        <Badge variant="outline">{filtered.length} registros</Badge>
       </div>
 
       <Card>
@@ -61,7 +70,7 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Ocorrências ({filtered.length})</CardTitle>
+            <CardTitle className="text-lg">Ocorrências Finalizadas ({filtered.length})</CardTitle>
             <Button variant="outline" size="sm"><Download className="w-4 h-4 mr-2" /> Exportar</Button>
           </div>
         </CardHeader>
@@ -72,24 +81,28 @@ export default function Reports() {
                 <tr>
                   <th className="p-2 text-left">Data/Hora</th>
                   <th className="p-2 text-left">Conta</th>
+                  <th className="p-2 text-left">Cliente</th>
                   <th className="p-2 text-left">Evento</th>
                   <th className="p-2 text-left">Descrição</th>
+                  <th className="p-2 text-left">Observações</th>
                   <th className="p-2 text-left">Tempo</th>
                   <th className="p-2 text-left">Operador</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">Nenhuma ocorrência encontrada</td></tr>
+                  <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhuma ocorrência encontrada</td></tr>
                 ) : (
                   filtered.map((o: any) => (
                     <tr key={o.id} className="border-b hover:bg-muted/50">
-                      <td className="p-2">{new Date(o.finalizedAt).toLocaleString("pt-BR")}</td>
+                      <td className="p-2 whitespace-nowrap">{new Date(o.finalizedAt).toLocaleString("pt-BR")}</td>
                       <td className="p-2 font-mono">{o.account}</td>
-                      <td className="p-2"><Badge variant="outline">{o.eventCode}</Badge></td>
-                      <td className="p-2">{o.eventDescription}</td>
-                      <td className="p-2">{o.attendTime ? `${Math.floor(o.attendTime / 60)}min ${o.attendTime % 60}s` : "-"}</td>
-                      <td className="p-2">{o.operatorId || "-"}</td>
+                      <td className="p-2">{o.clientName || "-"}</td>
+                      <td className="p-2"><Badge variant="outline">{o.qualifier || ""}{o.eventCode}</Badge></td>
+                      <td className="p-2">{o.description || "-"}</td>
+                      <td className="p-2 max-w-[200px] truncate">{o.observations || "-"}</td>
+                      <td className="p-2 whitespace-nowrap">{formatTime(o.attendingTimeMs)}</td>
+                      <td className="p-2 font-medium">{o.operatorName || "-"}</td>
                     </tr>
                   ))
                 )}

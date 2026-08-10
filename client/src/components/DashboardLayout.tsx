@@ -234,7 +234,14 @@ function DashboardLayoutContent({
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
+                  <span>Sair</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => { logout(); window.location.href = "/"; }}
+                  className="cursor-pointer"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Trocar Usuário</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
