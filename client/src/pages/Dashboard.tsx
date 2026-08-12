@@ -133,8 +133,6 @@ export default function Dashboard() {
   const [alertPlaying, setAlertPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioActivationNeeded, setAudioActivationNeeded] = useState(true);
-  const [audioDeactivateOpen, setAudioDeactivateOpen] = useState(false);
-  const [audioDeactivatePassword, setAudioDeactivatePassword] = useState("");
   const [pendingPopup, setPendingPopup] = useState(false);
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sirenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -291,8 +289,8 @@ export default function Dashboard() {
     }
   }
 
-  async function disableAlertAudio() {
-    if (!audioDeactivatePassword) {
+  async function disableAlertAudio(password: string) {
+    if (!password) {
       toast.error("Informe sua senha para desativar o áudio.");
       return;
     }
@@ -301,16 +299,21 @@ export default function Dashboard() {
         throw new Error("Não foi possível identificar o e-mail do usuário logado.");
       }
       // Reutiliza o mesmo fluxo que autorizou a sessão atual, garantindo a mesma senha aceita no login.
-      await passwordConfirmationMut.mutateAsync({ email: user.email, password: audioDeactivatePassword });
+      await passwordConfirmationMut.mutateAsync({ email: user.email, password });
       stopAlertSound();
       setAudioEnabled(false);
       setAudioActivationNeeded(true);
-      setAudioDeactivatePassword("");
-      setAudioDeactivateOpen(false);
       toast.success("Alertas sonoros desativados para esta sessão.");
     } catch (error: any) {
       toast.error(error?.message || "Senha inválida. O áudio continua ativo.");
     }
+  }
+
+  function requestAudioDeactivation() {
+    // A confirmação nativa elimina a camada reativa que causava React #185 na VPS.
+    const password = window.prompt("Para desativar os alertas sonoros, informe a senha do usuário logado:");
+    if (password === null) return;
+    void disableAlertAudio(password);
   }
 
   async function endCurrentSession() {
@@ -685,7 +688,7 @@ export default function Dashboard() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => audioEnabled ? setAudioDeactivateOpen(true) : enableAlertAudio()}
+              onClick={() => audioEnabled ? requestAudioDeactivation() : enableAlertAudio()}
               className={audioEnabled
                 ? "border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10"
                 : audioActivationNeeded
@@ -1013,39 +1016,6 @@ export default function Dashboard() {
                   <Plus className="h-4 w-4 mr-1" /> {createManualEventMut.isPending ? "Criando..." : "Criar ocorrência"}
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirmação para desativar áudio */}
-      {audioDeactivateOpen && (
-        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center" onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }}>
-          <div className="bg-card border border-cyan-500/40 rounded-lg w-[420px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between gap-4 mb-3">
-              <div>
-                <h3 className="font-bold text-lg text-foreground">Desativar alertas sonoros</h3>
-                <p className="text-xs text-muted-foreground mt-1">Confirme a senha do usuário logado para interromper o áudio.</p>
-              </div>
-              <button onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }} className="text-muted-foreground hover:text-foreground" aria-label="Fechar confirmação"><X className="h-5 w-5" /></button>
-            </div>
-            <label className="block text-xs font-medium text-muted-foreground">
-              Senha do usuário {user?.name || "logado"}
-              <input
-                type="password"
-                autoFocus
-                value={audioDeactivatePassword}
-                onChange={(event) => setAudioDeactivatePassword(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") void disableAlertAudio(); }}
-                className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-cyan-400"
-                placeholder="Digite sua senha"
-              />
-            </label>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }}>Cancelar</Button>
-              <Button className="bg-cyan-700 hover:bg-cyan-800" disabled={passwordConfirmationMut.isPending} onClick={() => void disableAlertAudio()}>
-                {passwordConfirmationMut.isPending ? "Validando..." : "Confirmar desativação"}
-              </Button>
             </div>
           </div>
         </div>

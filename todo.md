@@ -278,3 +278,6 @@
 - [x] Validar por teste de interface a abertura da Ocorrência Manual sem ciclo React
 - [x] Documentar a causa raiz e a prevenção do ciclo React no modal manual
 - [ ] Validar na VPS a abertura e salvamento da Ocorrência Manual após a correção
+- [x] Corrigir o erro React ao abrir o modal de desativação de áudio
+- [x] Substituir o modal reativo de áudio por confirmação nativa com senha
+- [x] Validar por teste de interface a confirmação de senha ao desativar o áudio
