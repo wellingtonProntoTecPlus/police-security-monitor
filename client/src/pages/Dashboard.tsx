@@ -324,7 +324,9 @@ export default function Dashboard() {
   }
 
   function openManualOccurrence() {
-    // Reinicia o formulário e abre acima de qualquer janela operacional já exibida.
+    // O modal anterior montava opções a partir da consulta reativa de sistemas. Com dados
+    // chegando ou sendo atualizados na VPS, esse acoplamento re-renderizava o subtree até
+    // provocar React #185. O formulário abre isolado e recebe a Conta Contact ID como texto.
     setManualAccount("");
     setManualDescription("");
     setManualPriority("medium");
@@ -979,14 +981,16 @@ export default function Dashboard() {
             </div>
             <div className="space-y-3">
               <label className="block text-xs font-medium text-muted-foreground">
-                Conta / Cliente
-                <select value={manualAccount} onChange={(event) => setManualAccount(event.target.value)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground">
-                  <option value="">Conta do Sistema (0000)</option>
-                  {(systemData || []).map((system: any) => {
-                    const client = (clientData || []).find((item: any) => item.id === system.clientId);
-                    return <option key={system.id} value={system.account}>{system.account} — {client?.fantasyName || client?.name || system.brand}</option>;
-                  })}
-                </select>
+                Conta Contact ID
+                <input
+                  type="text"
+                  value={manualAccount}
+                  onChange={(event) => setManualAccount(event.target.value.toUpperCase())}
+                  className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground"
+                  placeholder="Deixe em branco para a Conta do Sistema (0000)"
+                  maxLength={10}
+                />
+                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Informe a conta do cliente; em branco, a ocorrência será registrada na Conta do Sistema 0000.</span>
               </label>
               <label className="block text-xs font-medium text-muted-foreground">
                 Prioridade
@@ -997,12 +1001,17 @@ export default function Dashboard() {
                   <option value="low">Baixa</option>
                 </select>
               </label>
-              <Textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Descreva a ocorrência manual..." className="min-h-[100px]" />
+              <textarea
+                value={manualDescription}
+                onChange={(event) => setManualDescription(event.target.value)}
+                placeholder="Descreva a ocorrência manual..."
+                className="min-h-[100px] w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-yellow-400"
+              />
               <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setManualOccurrenceOpen(false)}>Cancelar</Button>
-                <Button className="bg-yellow-600 hover:bg-yellow-700" disabled={createManualEventMut.isPending} onClick={createManualOccurrence}>
+                <button type="button" className="h-9 rounded-md border border-border px-3 text-sm text-foreground hover:bg-muted" onClick={() => setManualOccurrenceOpen(false)}>Cancelar</button>
+                <button type="button" className="h-9 rounded-md bg-yellow-600 px-3 text-sm font-medium text-white hover:bg-yellow-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={createManualEventMut.isPending} onClick={createManualOccurrence}>
                   <Plus className="h-4 w-4 mr-1" /> {createManualEventMut.isPending ? "Criando..." : "Criar ocorrência"}
-                </Button>
+                </button>
               </div>
             </div>
           </div>

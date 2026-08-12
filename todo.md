@@ -274,3 +274,7 @@
 - [x] Documentar no código a prevenção adotada para a abertura confiável da Ocorrência Manual
 - [x] Corrigir a validação de senha que está rejeitando o usuário ao desativar o áudio
 - [x] Corrigir o erro React #185 no dashboard após a atualização da VPS
+- [x] Corrigir o erro React que ocorre ao clicar em Ocorrência Manual na VPS
+- [x] Validar por teste de interface a abertura da Ocorrência Manual sem ciclo React
+- [x] Documentar a causa raiz e a prevenção do ciclo React no modal manual
+- [ ] Validar na VPS a abertura e salvamento da Ocorrência Manual após a correção
