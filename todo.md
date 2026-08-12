@@ -331,3 +331,7 @@
 - [x] Corrigir a criação do card de manutenção quando a manutenção já está ativa
 - [x] Ativar o controle de áudio ao abrir o dashboard
 - [x] Exigir senha e motivo obrigatório para desativar o áudio
+
+## Card Imediato de Manutenção
+- [x] Criar o card de manutenção diretamente na confirmação da programação
+- [x] Atualizar a fila local para mostrar o card sem depender de recarregamento

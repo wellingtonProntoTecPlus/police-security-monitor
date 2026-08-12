@@ -368,12 +368,12 @@ export const appRouter = router({
         endAt: input.endAt,
         notes: `Sistema em manutenção de ${input.startAt.toLocaleString("pt-BR")} até ${input.endAt.toLocaleString("pt-BR")}${input.notes ? ` — ${input.notes}` : ""}`,
       });
-      await db.ensureMaintenanceIncident({
+      const maintenanceIncident = await db.ensureMaintenanceIncident({
         systemId: input.systemId,
         endAt: input.endAt,
         notes: `Sistema em manutenção de ${input.startAt.toLocaleString("pt-BR")} até ${input.endAt.toLocaleString("pt-BR")}${input.notes ? ` — ${input.notes}` : ""}`,
       });
-      return { success: true } as const;
+      return { success: true, incidentId: maintenanceIncident.id } as const;
     }),
     endMaintenance: operatorProcedure.input(z.object({ systemId: z.number() })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.systemId);

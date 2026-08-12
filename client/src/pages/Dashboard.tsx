@@ -558,16 +558,33 @@ export default function Dashboard() {
       return;
     }
     try {
-      await startMaintenanceMut.mutateAsync({
+      const maintenanceResult = await startMaintenanceMut.mutateAsync({
         systemId: selectedSystem.id,
         incidentId: selectedEvent?.incidentId,
         startAt,
         endAt,
         notes: maintenanceNotes || undefined,
       });
-      setQueues((previous) => previous.map((event) => event.account === selectedEvent?.account
-        ? { ...event, queueStatus: "maintenance" }
-        : event));
+      setQueues((previous) => {
+        const matching = previous.filter((event) => event.account === selectedSystem.account || (event as any).alarmSystemId === selectedSystem.id);
+        if (matching.length > 0) {
+          return previous.map((event) => event.account === selectedSystem.account || (event as any).alarmSystemId === selectedSystem.id
+            ? { ...event, queueStatus: "maintenance" }
+            : event);
+        }
+        const source = selectedEvent;
+        if (!source) return previous;
+        return [...previous, {
+          ...source,
+          incidentId: maintenanceResult.incidentId,
+          account: selectedSystem.account,
+          clientName: selectedClient ? (selectedClient.fantasyName || selectedClient.name) : source.clientName,
+          systemModel: `${selectedSystem.brand} ${selectedSystem.model || ""}`.trim(),
+          description: "Sistema em manutenção",
+          queueStatus: "maintenance",
+          queuedAt: Date.now(),
+        }];
+      });
       setSelectedEvent((previous) => previous ? { ...previous, queueStatus: "maintenance" } : previous);
       setMaintenanceOpen(false);
       await Promise.all([utils.incident.openQueue.invalidate(), utils.alarmSystem.list.invalidate()]);
