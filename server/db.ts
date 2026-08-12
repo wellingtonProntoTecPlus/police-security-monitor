@@ -252,6 +252,20 @@ export async function getAlarmSystemByAccount(account: string) {
   return result[0];
 }
 
+export async function getAlarmSystemByManualAccount(account: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const normalizedAccount = normalizePanelIdentifier(account);
+  const systems = await db.select().from(alarmSystems);
+  return systems.find((system) => normalizePanelIdentifier(system.account) === normalizedAccount)
+    || systems.find((system) => {
+      const systemAccount = normalizePanelIdentifier(system.account);
+      return normalizedAccount.length >= 4
+        && systemAccount.length >= 4
+        && normalizedAccount.slice(-4) === systemAccount.slice(-4);
+    });
+}
+
 export async function getAlarmSystemByReceivedAccount(account: string, brand?: string, receiverPort?: number) {
   const db = await getDb();
   if (!db) return undefined;

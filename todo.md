@@ -310,3 +310,8 @@
 - [x] Substituir controles amontoados do operador por avatar visível e menu de perfil
 - [x] Exibir informações do operador e permitir alteração de senha pelo menu de perfil
 - [x] Transformar Trocar Usuário em espera de próximo operador na tela de login
+
+## Ocorrência Manual por Conta
+- [x] Buscar e mostrar o cliente e sistema ao informar a Conta Contact ID
+- [x] Corrigir a gravação de evento e incidente ao criar ocorrência manual
+- [x] Cobrir em testes a ocorrência manual associada a uma conta cadastrada

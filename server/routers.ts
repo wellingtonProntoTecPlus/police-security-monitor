@@ -473,27 +473,40 @@ export const appRouter = router({
       priority: z.enum(["critical", "high", "medium", "low"]),
       receiverPort: z.number().optional(),
     })).mutation(async ({ input }) => {
-      const event = await db.createAlarmEvent({
-        account: input.account,
-        alarmSystemId: input.alarmSystemId || null,
-        brand: input.brand,
-        qualifier: "E",
-        eventCode: "MANUAL",
-        description: input.description,
-        priority: input.priority,
-        receiverPort: input.receiverPort || null,
-        remoteIp: "MANUAL",
-        rawData: "Ocorrência criada manualmente pelo operador",
+      const system = await db.getAlarmSystemByManualAccount(input.account);
+      const client = system ? await db.getClient(system.clientId) : undefined;
+      const resolvedAccount = system?.account || input.account;
+      const saved = await db.createAlarmEventWithOpenIncident({
+        event: {
+          account: resolvedAccount,
+          alarmSystemId: system?.id || null,
+          brand: system?.brand || input.brand,
+          qualifier: "E",
+          eventCode: "MANUAL",
+          description: input.description,
+          priority: input.priority,
+          receiverPort: system?.receiverPort || input.receiverPort || null,
+          remoteIp: "MANUAL",
+          rawData: "Ocorrência criada manualmente pelo operador",
+        },
+        incident: {
+          alarmSystemId: system?.id || null,
+          clientId: client?.id || null,
+          status: "waiting",
+          priority: input.priority,
+          notes: "Ocorrência manual criada pelo operador",
+        },
       });
-      const incident = await db.createIncident({
-        eventId: event.id,
-        alarmSystemId: input.alarmSystemId || null,
-        clientId: input.clientId || null,
-        status: "waiting",
-        priority: input.priority,
-        notes: "Ocorrência manual criada pelo operador",
-      });
-      return { ...event, incidentId: incident.id, incidentStatus: "waiting" as const };
+      return {
+        id: saved.eventId,
+        incidentId: saved.incidentId,
+        account: resolvedAccount,
+        alarmSystemId: system?.id || null,
+        clientId: client?.id || null,
+        clientName: client?.fantasyName || client?.name || null,
+        brand: system?.brand || input.brand,
+        incidentStatus: "waiting" as const,
+      };
     }),
   }),
 

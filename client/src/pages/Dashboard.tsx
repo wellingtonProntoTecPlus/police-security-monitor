@@ -181,6 +181,21 @@ export default function Dashboard() {
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
   const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
 
+  const manualAccountMatch = useMemo(() => {
+    const normalize = (value?: string | null) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const account = normalize(manualAccount);
+    if (!account) return { system: null, client: null };
+    const systems = systemData || [];
+    const system = systems.find((item: any) => normalize(item.account) === account)
+      || systems.find((item: any) => {
+        const systemAccount = normalize(item.account);
+        return account.length >= 4 && systemAccount.length >= 4 && account.slice(-4) === systemAccount.slice(-4);
+      })
+      || null;
+    const client = system ? (clientData || []).find((item: any) => item.id === system.clientId) || null : null;
+    return { system, client };
+  }, [manualAccount, systemData, clientData]);
+
   const onlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "online"), [connectionSystems]);
   const offlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "offline"), [connectionSystems]);
 
@@ -678,8 +693,7 @@ export default function Dashboard() {
       toast.error("Informe a descrição da ocorrência manual.");
       return;
     }
-    const system = (systemData || []).find((item: any) => item.account === manualAccount);
-    const client = system ? (clientData || []).find((item: any) => item.id === system.clientId) : null;
+    const { system, client } = manualAccountMatch;
     const now = Date.now();
     try {
       const saved = await createManualEventMut.mutateAsync({
@@ -694,8 +708,8 @@ export default function Dashboard() {
       const event: QueueEvent = {
       id: saved.id || now,
       incidentId: saved.incidentId,
-      account: manualAccount || "0000",
-      brand: system?.brand || "MANUAL",
+      account: saved.account || manualAccount || "0000",
+      brand: saved.brand || system?.brand || "MANUAL",
       qualifier: "E",
       eventCode: "MANUAL",
       partition: "",
@@ -705,9 +719,9 @@ export default function Dashboard() {
       remoteIp: "",
       receiverPort: system?.receiverPort || 0,
       timestamp: new Date(now).toISOString(),
-      alarmSystemId: system?.id,
-      clientId: client?.id,
-      clientName: client ? (client.fantasyName || client.name) : (manualAccount ? `CONTA NÃO CADASTRADA (${manualAccount})` : "CONTA DO SISTEMA (0000)"),
+      alarmSystemId: saved.alarmSystemId || system?.id || undefined,
+      clientId: saved.clientId || client?.id || undefined,
+      clientName: saved.clientName || (client ? (client.fantasyName || client.name) : (manualAccount ? `CONTA NÃO CADASTRADA (${manualAccount})` : "CONTA DO SISTEMA (0000)")),
       systemModel: system ? `${system.brand} ${system.model || ""}`.trim() : "OCORRÊNCIA MANUAL",
       queueStatus: "waiting",
       queuedAt: now,
@@ -1194,6 +1208,18 @@ export default function Dashboard() {
                 />
                 <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Informe a conta do cliente; em branco, a ocorrência será registrada na Conta do Sistema 0000.</span>
               </label>
+              {manualAccount.trim() && (
+                manualAccountMatch.system ? (
+                  <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2">
+                    <p className="text-sm font-semibold text-green-300">{manualAccountMatch.client?.fantasyName || manualAccountMatch.client?.name || "Cliente identificado"}</p>
+                    <p className="mt-0.5 text-xs text-green-100/80">Conta {manualAccountMatch.system.account} · {manualAccountMatch.system.brand} {manualAccountMatch.system.model || ""}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                    Conta não cadastrada: a ocorrência será vinculada à Conta do Sistema 0000.
+                  </div>
+                )
+              )}
               <label className="block text-xs font-medium text-muted-foreground">
                 Prioridade
                 <select value={manualPriority} onChange={(event) => setManualPriority(event.target.value as typeof manualPriority)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground">

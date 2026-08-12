@@ -24,9 +24,12 @@ function createOperatorContext(): TrpcContext {
 describe("alarmEvent.createManual", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("salva evento e incidente, retornando o identificador persistido diretamente", async () => {
-    vi.spyOn(db, "createAlarmEvent").mockResolvedValue({ id: 901 } as any);
-    vi.spyOn(db, "createIncident").mockResolvedValue({ id: 456 } as any);
+  it("resolve a conta cadastrada e salva evento e incidente em uma única operação", async () => {
+    vi.spyOn(db, "getAlarmSystemByManualAccount").mockResolvedValue({
+      id: 12, clientId: 34, account: "PS0001", brand: "Compatec", receiverPort: 9112,
+    } as any);
+    vi.spyOn(db, "getClient").mockResolvedValue({ id: 34, name: "Cliente de Teste", fantasyName: "Cliente Teste" } as any);
+    vi.spyOn(db, "createAlarmEventWithOpenIncident").mockResolvedValue({ eventId: 901, incidentId: 456 });
 
     const caller = appRouter.createCaller(createOperatorContext());
     const result = await caller.alarmEvent.createManual({
@@ -39,20 +42,10 @@ describe("alarmEvent.createManual", () => {
       receiverPort: 9112,
     });
 
-    expect(db.createAlarmEvent).toHaveBeenCalledWith(expect.objectContaining({
-      account: "PS0001",
-      qualifier: "E",
-      eventCode: "MANUAL",
-      receiverPort: 9112,
-      remoteIp: "MANUAL",
+    expect(db.createAlarmEventWithOpenIncident).toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({ account: "PS0001", qualifier: "E", eventCode: "MANUAL", receiverPort: 9112, remoteIp: "MANUAL" }),
+      incident: expect.objectContaining({ alarmSystemId: 12, clientId: 34, status: "waiting", priority: "high" }),
     }));
-    expect(db.createIncident).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: 901,
-      alarmSystemId: 12,
-      clientId: 34,
-      status: "waiting",
-      priority: "high",
-    }));
-    expect(result).toMatchObject({ id: 901, incidentId: 456, incidentStatus: "waiting" });
+    expect(result).toMatchObject({ id: 901, incidentId: 456, account: "PS0001", clientName: "Cliente Teste", incidentStatus: "waiting" });
   });
 });
