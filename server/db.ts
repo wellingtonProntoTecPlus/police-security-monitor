@@ -282,7 +282,16 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
   return { ...found, isOnline: true, lastCommunication: now };
 }
 
-export function isSystemInMaintenance(system: Pick<typeof alarmSystems.$inferSelect, "maintenanceStartAt" | "maintenanceEndAt"> | null | undefined, referenceTime = new Date()) {
+/**
+ * As datas de manutenção são informadas no dashboard no horário de Brasília e
+ * a VPS registra DATETIME sem fuso. A referência operacional mantém a mesma
+ * convenção para não encerrar uma manutenção três horas antes no servidor UTC.
+ */
+export function getMaintenanceOperationalNow() {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000);
+}
+
+export function isSystemInMaintenance(system: Pick<typeof alarmSystems.$inferSelect, "maintenanceStartAt" | "maintenanceEndAt"> | null | undefined, referenceTime = getMaintenanceOperationalNow()) {
   if (!system?.maintenanceStartAt || !system.maintenanceEndAt) return false;
   return system.maintenanceStartAt.getTime() <= referenceTime.getTime()
     && system.maintenanceEndAt.getTime() > referenceTime.getTime();
@@ -533,7 +542,7 @@ export async function listIncidents(status?: string) {
 export async function listOpenQueueEvents() {
   const db = await getDb();
   if (!db) return [];
-  const now = new Date();
+  const now = getMaintenanceOperationalNow();
 
   const expiredMaintenances = await db.select({ id: alarmSystems.id })
     .from(alarmSystems)

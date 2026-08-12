@@ -324,7 +324,7 @@
 ## Visibilidade de Filas Operacionais
 - [x] Manter a ocorrência que iniciou a manutenção visível na fila Em Manutenção
 - [ ] Manter ocorrências em observação visíveis na fila Em Observação até o prazo ou ação do operador
-- [ ] Garantir que eventos novos finalizados por manutenção não substituam a ocorrência de manutenção na fila
+- [x] Garantir que eventos novos finalizados por manutenção não substituam a ocorrência de manutenção na fila
 - [x] Criar um card de manutenção persistente quando o sistema não tiver incidente aberto
 
 ## Áudio Operacional Justificado
@@ -338,5 +338,19 @@
 
 ## Diagnóstico de Manutenção sem Card
 - [x] Inspecionar os registros de sistema e incidentes ativos para a Conta 0001
-- [ ] Corrigir a condição que impede o card persistido de aparecer na fila
+- [x] Corrigir a condição que impede o card persistido de aparecer na fila
 - [x] Compatibilizar a criação do card com os nomes de colunas existentes na VPS
+
+## Verificação da Migração da VPS
+- [x] Confirmar que a coluna eventId existe na tabela incidents da VPS
+- [x] Confirmar que o processo police-central foi reiniciado após a migração
+
+## Incidente de Manutenção da Conta 0001
+- [x] Consultar o evento e o incidente persistidos vinculados à Conta 0001
+
+## Recuperação Retroativa de Manutenção
+- [x] Criar card operacional para sistemas já em manutenção sem incidente aberto
+- [x] Executar a recuperação de manutenção ativa antes de devolver as filas abertas
+
+## Horário de Manutenção na VPS
+- [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
