@@ -455,7 +455,20 @@ export default function Dashboard() {
   // Encontrar cliente/sistema
   const selectedSystem = useMemo(() => {
     if (!selectedEvent) return null;
-    return (systemData || []).find((s: any) => s.account === selectedEvent.account);
+    const systems = systemData || [];
+    const normalizeAccount = (value?: string | null) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const eventAccount = normalizeAccount(selectedEvent.account);
+    const eventBrand = normalizeAccount(selectedEvent.brand);
+    return systems.find((system: any) => system.id === selectedEvent.alarmSystemId)
+      || systems.find((system: any) => normalizeAccount(system.account) === eventAccount)
+      || systems.find((system: any) => {
+        const systemAccount = normalizeAccount(system.account);
+        const accountsMatchBySuffix = eventAccount.length >= 4
+          && systemAccount.length >= 4
+          && systemAccount.slice(-4) === eventAccount.slice(-4);
+        return accountsMatchBySuffix && (!eventBrand || normalizeAccount(system.brand) === eventBrand);
+      })
+      || null;
   }, [selectedEvent, systemData]);
 
   const selectedClient = useMemo(() => {
@@ -502,7 +515,7 @@ export default function Dashboard() {
   }
 
   function openMaintenance() {
-    if (!selectedSystem || !selectedEvent?.incidentId) {
+    if (!selectedSystem) {
       toast.error("Selecione uma ocorrência vinculada a um sistema cadastrado.");
       return;
     }
@@ -513,7 +526,7 @@ export default function Dashboard() {
   }
 
   async function confirmMaintenance() {
-    if (!selectedSystem || !selectedEvent?.incidentId) return;
+    if (!selectedSystem) return;
     const startAt = new Date(maintenanceStartAt);
     const endAt = new Date(maintenanceEndAt);
     if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt <= startAt) {
@@ -523,12 +536,12 @@ export default function Dashboard() {
     try {
       await startMaintenanceMut.mutateAsync({
         systemId: selectedSystem.id,
-        incidentId: selectedEvent.incidentId,
+        incidentId: selectedEvent?.incidentId,
         startAt,
         endAt,
         notes: maintenanceNotes || undefined,
       });
-      setQueues((previous) => previous.map((event) => event.account === selectedEvent.account
+      setQueues((previous) => previous.map((event) => event.account === selectedEvent?.account
         ? { ...event, queueStatus: "maintenance" }
         : event));
       setSelectedEvent((previous) => previous ? { ...previous, queueStatus: "maintenance" } : previous);

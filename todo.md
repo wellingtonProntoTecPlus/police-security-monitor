@@ -296,3 +296,4 @@
 - [x] Criar observação temporizada por ocorrência com data e hora final
 - [x] Retornar a ocorrência da observação para o atendimento quando o prazo terminar
 - [x] Adicionar testes automatizados para manutenção, observação e reconstrução de filas
+- [x] Abrir o calendário de manutenção usando a conta do evento mesmo quando o vínculo de sistema não vier no incidente
