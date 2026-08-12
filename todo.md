@@ -220,3 +220,4 @@
 ## Correção de Acesso
 - [ ] Corrigir login que valida credenciais mas não mantém a sessão no sistema
 - [ ] Criar e validar token de sessão local sem depender do SDK OAuth do Manus
+- [ ] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS

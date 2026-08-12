@@ -3,6 +3,7 @@ import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 import * as db from "../db";
 import { verifyLocalSessionToken } from "./localSession";
+import { COOKIE_NAME } from "@shared/const";
 
 function getCookie(req: CreateExpressContextOptions["req"], name: string) {
   const cookieHeader = req.headers.cookie;
@@ -36,7 +37,7 @@ export async function createContext(
   }
 
   if (!user) {
-    const session = verifyLocalSessionToken(getCookie(opts.req, "session"));
+    const session = verifyLocalSessionToken(getCookie(opts.req, COOKIE_NAME));
     if (session) user = await db.getUserById(session.userId) ?? null;
   }
 
