@@ -19,7 +19,6 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -38,6 +37,13 @@ const menuItems = [
   { icon: Users, label: "Usuários", path: "/users" },
   { icon: Settings, label: "Configurações", path: "/settings" },
 ];
+
+const ROLE_MENU_ITEMS: Record<string, string[]> = {
+  admin: menuItems.map((item) => item.path),
+  supervisor: ["/dashboard", "/partners", "/clients", "/reports", "/contact-id", "/finalizations"],
+  operator: ["/dashboard", "/clients", "/finalizations"],
+  partner: ["/clients", "/reports"],
+};
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 200;
@@ -63,26 +69,24 @@ export default function DashboardLayout({
     return <DashboardLayoutSkeleton />
   }
 
-  // Bypass: na VPS (IP direto), permite acesso sem autenticação
-  const isVPS = typeof window !== 'undefined' && !window.location.hostname.includes('manus.space') && !window.location.hostname.includes('manus.computer');
-  if (!user && !isVPS) {
+  if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
           <div className="flex flex-col items-center gap-6">
             <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
+              Entre para continuar
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
+              O acesso ao Police Central exige login com e-mail e senha.
             </p>
           </div>
           <Button
-            onClick={() => startLogin()}
+            onClick={() => { window.location.href = "/login"; }}
             size="lg"
             className="w-full shadow-lg hover:shadow-xl transition-all"
           >
-            Sign in
+            Entrar no sistema
           </Button>
         </div>
       </div>
@@ -122,6 +126,7 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+  const visibleMenuItems = user ? menuItems.filter((item) => (ROLE_MENU_ITEMS[user.role] || ROLE_MENU_ITEMS.operator).includes(item.path)) : menuItems;
 
   useEffect(() => {
     if (isCollapsed) {
@@ -188,7 +193,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
+              {visibleMenuItems.map(item => {
                 const isActive = location === item.path;
                 return (
                   <SidebarMenuItem key={item.path}>

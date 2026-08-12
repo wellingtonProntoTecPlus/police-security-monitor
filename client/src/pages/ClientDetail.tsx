@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { User, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { maskPhone } from "@/lib/masks";
 
 export default function ClientDetail() {
   const [, params] = useRoute("/clients/:id");
@@ -30,19 +31,25 @@ export default function ClientDetail() {
   // Mutations
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
   const deleteContact = trpc.clientContact.delete.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato excluído!"); } });
+  const updateContact = trpc.clientContact.update.useMutation({ onSuccess: () => { refetchContacts(); setEditingContact(null); toast.success("Contato atualizado!"); } });
   const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema cadastrado!"); } });
   const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema excluído!"); } });
+  const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
   const updateCamera = trpc.camera.update.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera atualizada!"); setEditingCamera(null); } });
   const createZone = trpc.alarmZone.create.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona adicionada!"); } });
   const deleteZone = trpc.alarmZone.delete.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona excluída!"); } });
+  const updateZone = trpc.alarmZone.update.useMutation({ onSuccess: () => { refetchZones(); setEditingZone(null); toast.success("Zona atualizada!"); } });
 
   // Form states
   const [showContactForm, setShowContactForm] = useState(false);
   const [showSystemForm, setShowSystemForm] = useState(false);
   const [showCameraForm, setShowCameraForm] = useState(false);
   const [showZoneForm, setShowZoneForm] = useState(false);
+  const [editingContact, setEditingContact] = useState<any>(null);
+  const [editingSystem, setEditingSystem] = useState<any>(null);
+  const [editingZone, setEditingZone] = useState<any>(null);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "" });
   const [systemForm, setSystemForm] = useState({ account: "", brand: "JFL" as any, model: "", receiverPort: 0 });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
@@ -141,9 +148,14 @@ export default function ClientDetail() {
                         {contact.phone && <span><Phone className="h-3 w-3 inline mr-1" />{contact.phone}</span>}
                         {contact.whatsapp && <span className="text-green-400">WA: {contact.whatsapp}</span>}
                         {contact.email && <span><Mail className="h-3 w-3 inline mr-1" />{contact.email}</span>}
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir este contato?")) deleteContact.mutate({ id: contact.id }); }}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingContact({ ...contact })} title="Editar contato">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir este contato?")) deleteContact.mutate({ id: contact.id }); }} title="Excluir contato">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -151,6 +163,24 @@ export default function ClientDetail() {
                 {contacts.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum contato cadastrado</p>}
               </div>
             </ScrollArea>
+            {editingContact && (
+              <Dialog open={!!editingContact} onOpenChange={() => setEditingContact(null)}>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Editar Contato</DialogTitle></DialogHeader>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2"><Label>Nome *</Label><Input value={editingContact.name || ""} onChange={(e) => setEditingContact({ ...editingContact, name: e.target.value })} /></div>
+                    <div><Label>Telefone</Label><Input value={editingContact.phone || ""} onChange={(e) => setEditingContact({ ...editingContact, phone: maskPhone(e.target.value) })} /></div>
+                    <div><Label>WhatsApp</Label><Input value={editingContact.whatsapp || ""} onChange={(e) => setEditingContact({ ...editingContact, whatsapp: maskPhone(e.target.value) })} /></div>
+                    <div><Label>E-mail</Label><Input value={editingContact.email || ""} onChange={(e) => setEditingContact({ ...editingContact, email: e.target.value })} /></div>
+                    <div><Label>Função</Label><Input value={editingContact.role || ""} onChange={(e) => setEditingContact({ ...editingContact, role: e.target.value })} /></div>
+                  </div>
+                  <Button className="mt-3" onClick={() => {
+                    if (!editingContact.name?.trim()) { toast.error("Nome é obrigatório"); return; }
+                    updateContact.mutate({ id: editingContact.id, name: editingContact.name, phone: editingContact.phone || "", whatsapp: editingContact.whatsapp || "", email: editingContact.email || "", role: editingContact.role || "" });
+                  }}>Salvar Alterações</Button>
+                </DialogContent>
+              </Dialog>
+            )}
           </TabsContent>
 
           {/* SISTEMAS DE ALARME */}
@@ -202,6 +232,9 @@ export default function ClientDetail() {
                           {system.isOnline ? "Online" : "Offline"}
                         </Badge>
                         <span className="text-xs text-muted-foreground">Porta {system.receiverPort}</span>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingSystem({ ...system })} title="Editar sistema">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir este sistema?")) deleteSystem.mutate({ id: system.id }); }}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -212,6 +245,23 @@ export default function ClientDetail() {
                 {systems.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum sistema cadastrado</p>}
               </div>
             </ScrollArea>
+            {editingSystem && (
+              <Dialog open={!!editingSystem} onOpenChange={() => setEditingSystem(null)}>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Editar Sistema de Alarme</DialogTitle></DialogHeader>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Conta *</Label><Input value={editingSystem.account || ""} onChange={(e) => setEditingSystem({ ...editingSystem, account: e.target.value })} /></div>
+                    <div><Label>Marca</Label><Select value={editingSystem.brand} onValueChange={(brand) => setEditingSystem({ ...editingSystem, brand })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="JFL">JFL</SelectItem><SelectItem value="INTELBRAS">Intelbras</SelectItem><SelectItem value="VETTI">Vetti</SelectItem><SelectItem value="COMPATEC">Compatec</SelectItem><SelectItem value="RADIOENGE">Radioenge</SelectItem><SelectItem value="VIAWEB">ViaWeb</SelectItem></SelectContent></Select></div>
+                    <div><Label>Modelo</Label><Input value={editingSystem.model || ""} onChange={(e) => setEditingSystem({ ...editingSystem, model: e.target.value })} /></div>
+                    <div><Label>Porta Receptor</Label><Input type="number" value={editingSystem.receiverPort || ""} onChange={(e) => setEditingSystem({ ...editingSystem, receiverPort: Number(e.target.value) })} /></div>
+                  </div>
+                  <Button className="mt-3" onClick={() => {
+                    if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
+                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", receiverPort: Number(editingSystem.receiverPort) || 0 });
+                  }}>Salvar Alterações</Button>
+                </DialogContent>
+              </Dialog>
+            )}
           </TabsContent>
 
           {/* ZONAS / SETORES */}
@@ -252,7 +302,7 @@ export default function ClientDetail() {
                 </div>
                 <ScrollArea className="h-[400px]">
                   <div className="bg-card border border-border rounded-lg overflow-hidden">
-                    <div className="grid grid-cols-[60px_1fr_120px_80px_60px] gap-4 px-4 py-2 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+                    <div className="grid grid-cols-[60px_1fr_120px_80px_76px] gap-4 px-4 py-2 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
                       <span>Zona</span>
                       <span>Nome</span>
                       <span>Tipo</span>
@@ -263,19 +313,37 @@ export default function ClientDetail() {
                       <p className="text-muted-foreground text-center py-8">Nenhuma zona cadastrada</p>
                     ) : (
                       zones.map((zone: any) => (
-                        <div key={zone.id} className="grid grid-cols-[60px_1fr_120px_80px_60px] gap-4 px-4 py-2 border-b border-border/50 items-center">
+                        <div key={zone.id} className="grid grid-cols-[60px_1fr_120px_80px_76px] gap-4 px-4 py-2 border-b border-border/50 items-center">
                           <span className="font-mono font-bold text-primary">{String(zone.zoneNumber).padStart(3, '0')}</span>
                           <span className="text-foreground">{zone.name}</span>
                           <Badge variant="outline" className="text-xs justify-center">{zone.type || "—"}</Badge>
                           <span className="text-sm text-muted-foreground text-center">{zone.partition || "—"}</span>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir esta zona?")) deleteZone.mutate({ id: zone.id }); }}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingZone({ ...zone })} title="Editar zona"><Pencil className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir esta zona?")) deleteZone.mutate({ id: zone.id }); }} title="Excluir zona"><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
                         </div>
                       ))
                     )}
                   </div>
                 </ScrollArea>
+                {editingZone && (
+                  <Dialog open={!!editingZone} onOpenChange={() => setEditingZone(null)}>
+                    <DialogContent>
+                      <DialogHeader><DialogTitle>Editar Zona / Setor</DialogTitle></DialogHeader>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Nº da Zona *</Label><Input type="number" value={editingZone.zoneNumber || ""} onChange={(e) => setEditingZone({ ...editingZone, zoneNumber: Number(e.target.value) })} /></div>
+                        <div><Label>Nome *</Label><Input value={editingZone.name || ""} onChange={(e) => setEditingZone({ ...editingZone, name: e.target.value })} /></div>
+                        <div><Label>Tipo</Label><Select value={editingZone.type || "perimeter"} onValueChange={(type) => setEditingZone({ ...editingZone, type })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="perimeter">Perímetro</SelectItem><SelectItem value="internal">Interna</SelectItem><SelectItem value="24h">24 Horas</SelectItem><SelectItem value="fire">Incêndio</SelectItem><SelectItem value="panic">Pânico</SelectItem><SelectItem value="medical">Médico</SelectItem></SelectContent></Select></div>
+                        <div><Label>Partição</Label><Input type="number" min={1} max={8} value={editingZone.partition || 1} onChange={(e) => setEditingZone({ ...editingZone, partition: Number(e.target.value) })} /></div>
+                      </div>
+                      <Button className="mt-3" onClick={() => {
+                        if (!editingZone.name?.trim()) { toast.error("Nome é obrigatório"); return; }
+                        updateZone.mutate({ id: editingZone.id, zoneNumber: Number(editingZone.zoneNumber), name: editingZone.name, type: editingZone.type, partition: Number(editingZone.partition) || 1 });
+                      }}>Salvar Alterações</Button>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </>
             )}
           </TabsContent>
@@ -351,4 +419,3 @@ export default function ClientDetail() {
     </DashboardLayout>
   );
 }
-import { maskPhone } from "@/lib/masks";

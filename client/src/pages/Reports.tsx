@@ -12,18 +12,29 @@ export default function Reports() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
+  const [appliedFilters, setAppliedFilters] = useState({ dateFrom: "", dateTo: "", account: "" });
 
   const { data: occurrences = [] } = trpc.occurrence.list.useQuery({
     limit: 200,
     offset: 0,
+    ...appliedFilters,
   });
 
-  const filtered = occurrences.filter((o: any) => {
-    if (accountFilter && !o.account?.includes(accountFilter)) return false;
-    if (dateFrom && new Date(o.finalizedAt) < new Date(dateFrom)) return false;
-    if (dateTo && new Date(o.finalizedAt) > new Date(dateTo + "T23:59:59")) return false;
-    return true;
-  });
+  const filtered = occurrences;
+
+  function handleSearch() {
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      return;
+    }
+    setAppliedFilters({ dateFrom, dateTo, account: accountFilter });
+  }
+
+  function clearFilters() {
+    setDateFrom("");
+    setDateTo("");
+    setAccountFilter("");
+    setAppliedFilters({ dateFrom: "", dateTo: "", account: "" });
+  }
 
   function formatTime(ms: number | null | undefined) {
     if (!ms) return "-";
@@ -47,7 +58,7 @@ export default function Reports() {
           <CardTitle className="text-lg">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
             <div>
               <label className="text-sm text-muted-foreground">Data Início</label>
               <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -61,7 +72,10 @@ export default function Reports() {
               <Input placeholder="Nº da conta" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} />
             </div>
             <div className="flex items-end">
-              <Button className="w-full"><Search className="w-4 h-4 mr-2" /> Buscar</Button>
+              <Button className="w-full" onClick={handleSearch}><Search className="w-4 h-4 mr-2" /> Buscar</Button>
+            </div>
+            <div className="flex items-end">
+              <Button variant="outline" className="w-full" onClick={clearFilters}>Limpar</Button>
             </div>
           </div>
         </CardContent>

@@ -190,3 +190,18 @@
 - [ ] Som de alerta mais forte/persuasivo
 - [ ] Popup de finalização rápida não abre (corrigir para abrir modal com lista clicável)
 - [ ] Logo da parceira não aparece na lista de empresas parceiras
+
+## Revisão de Cadastros, Relatórios e Hierarquias
+- [x] Validar e corrigir a edição de Empresas Parceiras
+- [x] Permitir editar e excluir feriados municipais da Empresa Parceira
+- [x] Corrigir a edição e validar a exclusão de Clientes
+- [x] Implementar edição e validar exclusão de Contatos do Cliente
+- [x] Implementar edição e validar exclusão de Sistemas de Alarme
+- [x] Implementar edição e validar exclusão de Zonas e Setores
+- [x] Implementar edição e validar exclusão de Câmeras
+- [x] Adicionar filtros de período por calendário nos Relatórios
+- [x] Adicionar busca por número de conta nos Relatórios
+- [x] Implementar edição e validar exclusão de Usuários do Sistema
+- [x] Aplicar efetivamente as regras das hierarquias Admin, Supervisor, Operador e Parceiro
+- [x] Aplicar autenticação e escopo por Parceiro nas rotas de detalhes: empresa, contatos, sistemas, câmeras e zonas
+- [x] Diferenciar permissões de Supervisor e Operador nas rotas de gestão e validar os quatro perfis com testes

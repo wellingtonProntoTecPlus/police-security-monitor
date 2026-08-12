@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
@@ -53,6 +54,8 @@ export default function Partners() {
   const [holidayDate, setHolidayDate] = useState("");
   const [holidayType, setHolidayType] = useState<"nacional" | "municipal">("municipal");
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
+  const [editingPartner, setEditingPartner] = useState<any>(null);
+  const [editingHoliday, setEditingHoliday] = useState<any>(null);
 
   const { data: partners = [], refetch } = trpc.partnerCompany.list.useQuery(undefined);
   const { data: holidays = [], refetch: refetchHolidays } = trpc.partnerHoliday.list.useQuery(
@@ -68,7 +71,18 @@ export default function Partners() {
     },
     onError: (err) => toast.error(err.message),
   });
+  const updateMutation = trpc.partnerCompany.update.useMutation({
+    onSuccess: () => {
+      toast.success("Empresa parceira atualizada!");
+      setView("list");
+      setEditingPartner(null);
+      setForm({ ...INITIAL_FORM });
+      refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
   const createHolidayMut = trpc.partnerHoliday.create.useMutation({ onSuccess: () => { refetchHolidays(); setHolidayName(""); setHolidayDate(""); toast.success("Feriado adicionado!"); } });
+  const updateHolidayMut = trpc.partnerHoliday.update.useMutation({ onSuccess: () => { refetchHolidays(); setEditingHoliday(null); toast.success("Feriado atualizado!"); } });
   const deleteHolidayMut = trpc.partnerHoliday.delete.useMutation({ onSuccess: () => { refetchHolidays(); toast.success("Feriado removido!"); } });
 
   const deletePartnerMut = trpc.partnerCompany.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Parceira excluída!"); }, onError: (err: any) => toast.error("Erro: " + err.message) });
@@ -94,13 +108,38 @@ export default function Partners() {
   function handleSubmit() {
     if (!form.name.trim()) { toast.error("Informe a Razão Social"); return; }
     if (!form.cnpj.trim()) { toast.error("Informe o CNPJ"); return; }
-    createMutation.mutate({
+    const values = {
       ...form,
       cnpj: form.cnpj.replace(/\D/g, ""),
       phone: form.phone.replace(/\D/g, ""),
       whatsapp: form.whatsapp.replace(/\D/g, ""),
       zipCode: form.zipCode.replace(/\D/g, ""),
-    });
+    };
+    if (editingPartner) updateMutation.mutate({ id: editingPartner.id, ...values });
+    else createMutation.mutate(values);
+  }
+
+  function openPartnerForm(partner?: any) {
+    if (partner) {
+      setEditingPartner(partner);
+      setForm({
+        managingCompanyId: partner.managingCompanyId || 1,
+        name: partner.name || "",
+        cnpj: maskCnpj(partner.cnpj || ""),
+        phone: maskPhone(partner.phone || ""),
+        whatsapp: maskPhone(partner.whatsapp || ""),
+        email: partner.email || "",
+        zipCode: maskCep(partner.zipCode || ""),
+        address: partner.address || "",
+        city: partner.city || "",
+        state: partner.state || "",
+        logoUrl: partner.logoUrl || "",
+      });
+    } else {
+      setEditingPartner(null);
+      setForm({ ...INITIAL_FORM });
+    }
+    setView("create");
   }
 
   // ===== VIEW: FORMULÁRIO =====
@@ -110,10 +149,10 @@ export default function Partners() {
         <div className="h-full overflow-auto">
           <div className="p-6 max-w-[1200px] mx-auto">
             <div className="flex items-center gap-4 mb-6">
-              <Button variant="ghost" size="sm" onClick={() => setView("list")}>
+              <Button variant="ghost" size="sm" onClick={() => { setView("list"); setEditingPartner(null); setForm({ ...INITIAL_FORM }); }}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
               </Button>
-              <h1 className="text-xl font-bold text-foreground">Cadastrar Empresa Parceira</h1>
+              <h1 className="text-xl font-bold text-foreground">{editingPartner ? "Editar Empresa Parceira" : "Cadastrar Empresa Parceira"}</h1>
             </div>
 
             <div className="grid grid-cols-12 gap-6">
@@ -212,9 +251,9 @@ export default function Partners() {
                   </CardContent>
                 </Card>
 
-                <Button onClick={handleSubmit} disabled={createMutation.isPending} className="w-full h-12 text-base font-bold">
+                <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="w-full h-12 text-base font-bold">
                   <Save className="h-5 w-5 mr-2" />
-                  {createMutation.isPending ? "Salvando..." : "Cadastrar Parceira"}
+                  {createMutation.isPending || updateMutation.isPending ? "Salvando..." : editingPartner ? "Salvar Alterações" : "Cadastrar Parceira"}
                 </Button>
               </div>
             </div>
@@ -230,7 +269,7 @@ export default function Partners() {
       <div className="h-full overflow-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Empresas Parceiras</h1>
-          <Button onClick={() => setView("create")}>
+          <Button onClick={() => openPartnerForm()}>
             <Plus className="h-4 w-4 mr-2" /> Nova Parceira
           </Button>
         </div>
@@ -243,7 +282,7 @@ export default function Partners() {
         <div className="grid grid-cols-12 gap-6">
           <div className="col-span-8">
             <div className="bg-card border border-border rounded-lg overflow-hidden">
-              <div className="grid grid-cols-[1fr_160px_180px_200px_100px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+              <div className="grid grid-cols-[1fr_160px_140px_140px_100px_84px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
                 <span>Razão Social</span>
                 <span>CNPJ</span>
                 <span>Telefone</span>
@@ -255,9 +294,9 @@ export default function Partners() {
                 <div className="text-center py-12 text-muted-foreground">Nenhuma empresa parceira encontrada</div>
               ) : (
                 filteredPartners.map((partner: any) => (
-                  <div key={partner.id} onClick={() => setSelectedPartnerId(partner.id)} className={`grid grid-cols-[1fr_160px_180px_200px_100px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center cursor-pointer ${selectedPartnerId === partner.id ? 'bg-primary/10' : ''}`}>
+                  <div key={partner.id} onClick={() => setSelectedPartnerId(partner.id)} className={`grid grid-cols-[1fr_160px_140px_140px_100px_84px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center cursor-pointer ${selectedPartnerId === partner.id ? 'bg-primary/10' : ''}`}>
                     <div className="flex items-center gap-2 min-w-0">
-                      <Building2 className="h-4 w-4 text-primary shrink-0" />
+                      {partner.logoUrl ? <img src={partner.logoUrl} alt="" className="h-7 w-7 rounded object-contain border border-border shrink-0" /> : <Building2 className="h-4 w-4 text-primary shrink-0" />}
                       <span className="font-medium text-foreground truncate">{partner.name}</span>
                     </div>
                     <span className="font-mono text-xs text-muted-foreground">{partner.cnpj}</span>
@@ -267,6 +306,9 @@ export default function Partners() {
                     {partner.isActive ? "Ativa" : "Inativa"}
                   </Badge>
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300" onClick={() => openPartnerForm(partner)} title="Editar parceira">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
                       if (confirm("Excluir esta parceira permanentemente?")) {
                         deletePartnerMut.mutate({ id: partner.id });
@@ -327,9 +369,10 @@ export default function Partners() {
                               <span className="text-xs text-muted-foreground ml-2">{h.date}</span>
                               <span className={`text-xs ml-2 px-1.5 py-0.5 rounded ${h.type === 'nacional' ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-400'}`}>{h.type || 'municipal'}</span>
                             </div>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => deleteHolidayMut.mutate({ id: h.id })}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400" onClick={() => setEditingHoliday({ ...h })} title="Editar feriado"><Pencil className="h-3 w-3" /></Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => { if (confirm("Excluir este feriado?")) deleteHolidayMut.mutate({ id: h.id }); }} title="Excluir feriado"><Trash2 className="h-3 w-3" /></Button>
+                            </div>
                           </div>
                         ))
                       )}
@@ -340,6 +383,22 @@ export default function Partners() {
             </Card>
           </div>
         </div>
+        {editingHoliday && (
+          <Dialog open={!!editingHoliday} onOpenChange={() => setEditingHoliday(null)}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Editar Feriado</DialogTitle></DialogHeader>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2"><Label>Nome *</Label><Input value={editingHoliday.name || ""} onChange={(e) => setEditingHoliday({ ...editingHoliday, name: e.target.value })} /></div>
+                <div><Label>Tipo</Label><select className="w-full h-9 rounded border border-border bg-background px-2 text-sm" value={editingHoliday.type || "municipal"} onChange={(e) => setEditingHoliday({ ...editingHoliday, type: e.target.value })}><option value="nacional">Nacional</option><option value="municipal">Municipal</option></select></div>
+                <div><Label>Dia/Mês{editingHoliday.type === "municipal" ? "/Ano" : ""}</Label><Input placeholder={editingHoliday.type === "nacional" ? "25/12" : "20/01/2026"} value={editingHoliday.date || ""} onChange={(e) => setEditingHoliday({ ...editingHoliday, date: e.target.value })} /></div>
+              </div>
+              <Button className="mt-3" onClick={() => {
+                if (!editingHoliday.name?.trim() || !editingHoliday.date?.trim()) { toast.error("Preencha nome e data"); return; }
+                updateHolidayMut.mutate({ id: editingHoliday.id, name: editingHoliday.name, date: editingHoliday.date, type: editingHoliday.type || "municipal" });
+              }}>Salvar Alterações</Button>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </DashboardLayout>
   );

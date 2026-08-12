@@ -14,9 +14,9 @@ export default function Login() {
   const [, navigate] = useLocation();
 
   const loginMut = trpc.auth.login.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success("Login realizado com sucesso!");
-      window.location.href = "/dashboard";
+      window.location.href = result.user.role === "partner" ? "/clients" : "/dashboard";
     },
     onError: (err) => {
       toast.error(err.message || "Email ou senha inválidos");

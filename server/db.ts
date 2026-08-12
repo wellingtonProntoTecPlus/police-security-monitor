@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, like, inArray, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -494,6 +494,12 @@ export async function deletePartnerHoliday(id: number) {
   await db.delete(partnerHolidays).where(eq(partnerHolidays.id, id));
 }
 
+export async function updatePartnerHoliday(id: number, data: Partial<InsertPartnerHoliday>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(partnerHolidays).set(data).where(eq(partnerHolidays.id, id));
+}
+
 // ============================================================
 // OCORRÊNCIAS FINALIZADAS
 // ============================================================
@@ -504,14 +510,19 @@ export async function createOccurrence(data: InsertOccurrence) {
   return { id: result[0].insertId };
 }
 
-export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number }) {
+export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string }) {
   const db = await getDb();
   if (!db) return [];
-  let query = db.select().from(occurrences).orderBy(desc(occurrences.finalizedAt)).limit(opts?.limit || 100);
+  const conditions = [];
+  if (opts?.account?.trim()) conditions.push(like(occurrences.account, `%${opts.account.trim()}%`));
+  if (opts?.clientId) conditions.push(eq(occurrences.clientId, opts.clientId));
+  if (opts?.partnerCompanyId) conditions.push(eq(occurrences.partnerCompanyId, opts.partnerCompanyId));
+  if (opts?.dateFrom) conditions.push(gte(occurrences.finalizedAt, new Date(`${opts.dateFrom}T00:00:00`)));
+  if (opts?.dateTo) conditions.push(lte(occurrences.finalizedAt, new Date(`${opts.dateTo}T23:59:59.999`)));
+  let query = db.select().from(occurrences);
+  if (conditions.length) query = query.where(and(...conditions)) as any;
+  query = query.orderBy(desc(occurrences.finalizedAt)).limit(opts?.limit || 100) as any;
   if (opts?.offset) query = query.offset(opts.offset) as any;
-  if (opts?.account) query = query.where(eq(occurrences.account, opts.account)) as any;
-  if (opts?.clientId) query = query.where(eq(occurrences.clientId, opts.clientId)) as any;
-  if (opts?.partnerCompanyId) query = query.where(eq(occurrences.partnerCompanyId, opts.partnerCompanyId)) as any;
   return query;
 }
 
@@ -649,7 +660,7 @@ export async function listSystemUsers() {
   return db.select().from(users).orderBy(desc(users.createdAt));
 }
 
-export async function createSystemUser(data: { name: string; email: string; password: string; role: string }) {
+export async function createSystemUser(data: { name: string; email: string; password: string; role: string; partnerId?: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const openId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -659,6 +670,7 @@ export async function createSystemUser(data: { name: string; email: string; pass
     email: data.email,
     loginMethod: "local",
     role: data.role as any,
+    ...(data.partnerId ? { partnerId: data.partnerId } : {}),
   };
   values.password = data.password; // Already hashed
   await db.insert(users).values(values as any);
@@ -676,6 +688,15 @@ export async function updateUserLastSignedIn(userId: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ lastSignedIn: new Date() } as any).where(eq(users.id, userId));
+}
+
+export async function updateSystemUser(id: number, data: { name?: string; email?: string; password?: string; role?: string; partnerId?: number | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const values = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined && value !== ""));
+  if (Object.keys(values).length === 0) return { success: true };
+  await db.update(users).set(values as any).where(eq(users.id, id));
+  return { success: true };
 }
 
 export async function deleteSystemUser(id: number) {

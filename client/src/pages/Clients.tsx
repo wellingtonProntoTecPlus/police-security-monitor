@@ -101,6 +101,7 @@ export default function Clients() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
+  const [editingClient, setEditingClient] = useState<any>(null);
   const [loadingCep, setLoadingCep] = useState(false);
 
   const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(undefined);
@@ -117,6 +118,16 @@ export default function Clients() {
   const deleteMut = trpc.monitoredClient.delete.useMutation({
     onSuccess: () => { toast.success("Cliente excluído!"); refetch(); },
     onError: (err) => toast.error("Erro ao excluir: " + err.message),
+  });
+  const updateMutation = trpc.monitoredClient.update.useMutation({
+    onSuccess: () => {
+      toast.success("Cliente atualizado com sucesso!");
+      setView("list");
+      setEditingClient(null);
+      setForm({ ...INITIAL_FORM });
+      refetch();
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   // Busca CEP via ViaCEP
@@ -159,13 +170,43 @@ export default function Clients() {
     const cleanDoc = form.document.replace(/\D/g, "");
     if (form.type === "pf" && !validateCpf(cleanDoc)) { toast.error("CPF inválido! Verifique os dígitos."); return; }
     if (form.type === "pj" && !validateCnpj(cleanDoc)) { toast.error("CNPJ inválido! Verifique os dígitos."); return; }
-    createMutation.mutate({
+    const values = {
       ...form,
       document: form.document.replace(/\D/g, ""),
       phone: form.phone.replace(/\D/g, ""),
       whatsapp: form.whatsapp.replace(/\D/g, ""),
       zipCode: form.zipCode.replace(/\D/g, ""),
-    });
+    };
+    if (editingClient) updateMutation.mutate({ id: editingClient.id, ...values });
+    else createMutation.mutate(values);
+  }
+
+  function openClientForm(client?: any) {
+    if (client) {
+      setEditingClient(client);
+      setForm({
+        partnerCompanyId: client.partnerCompanyId || 0,
+        type: client.type || "pj",
+        name: client.name || "",
+        fantasyName: client.fantasyName || "",
+        document: maskCpfCnpj(client.document || "", client.type || "pj"),
+        phone: maskPhone(client.phone || ""),
+        whatsapp: maskPhone(client.whatsapp || ""),
+        email: client.email || "",
+        address: client.address || "",
+        number: client.number || "",
+        complement: client.complement || "",
+        neighborhood: client.neighborhood || "",
+        city: client.city || "",
+        state: client.state || "",
+        zipCode: maskCep(client.zipCode || ""),
+        notes: client.notes || "",
+      });
+    } else {
+      setEditingClient(null);
+      setForm({ ...INITIAL_FORM });
+    }
+    setView("create");
   }
 
   // ===== VIEW: FORMULÁRIO DE CADASTRO =====
@@ -176,10 +217,10 @@ export default function Clients() {
           <div className="p-6 max-w-[1400px] mx-auto">
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
-              <Button variant="ghost" size="sm" onClick={() => setView("list")}>
+              <Button variant="ghost" size="sm" onClick={() => { setView("list"); setEditingClient(null); setForm({ ...INITIAL_FORM }); }}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
               </Button>
-              <h1 className="text-xl font-bold text-foreground">Cadastrar Novo Cliente</h1>
+              <h1 className="text-xl font-bold text-foreground">{editingClient ? "Editar Cliente" : "Cadastrar Novo Cliente"}</h1>
             </div>
 
             {/* Formulário em grid desktop */}
@@ -193,7 +234,7 @@ export default function Clients() {
                       <Building2 className="h-5 w-5 text-primary" />
                       <h3 className="font-bold text-foreground">Empresa Responsável</h3>
                     </div>
-                    <Select onValueChange={(v) => setForm({ ...form, partnerCompanyId: Number(v) })}>
+                    <Select value={form.partnerCompanyId ? String(form.partnerCompanyId) : undefined} onValueChange={(v) => setForm({ ...form, partnerCompanyId: Number(v) })}>
                       <SelectTrigger><SelectValue placeholder="Selecione a empresa parceira responsável por este cliente..." /></SelectTrigger>
                       <SelectContent>
                         {partners.map((p: any) => (
@@ -357,9 +398,9 @@ export default function Clients() {
                 </Card>
 
                 {/* Botão Salvar */}
-                <Button onClick={handleSubmit} disabled={createMutation.isPending} className="w-full h-12 text-base font-bold">
+                <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="w-full h-12 text-base font-bold">
                   <Save className="h-5 w-5 mr-2" />
-                  {createMutation.isPending ? "Salvando..." : "Cadastrar Cliente"}
+                  {createMutation.isPending || updateMutation.isPending ? "Salvando..." : editingClient ? "Salvar Alterações" : "Cadastrar Cliente"}
                 </Button>
               </div>
             </div>
@@ -375,7 +416,7 @@ export default function Clients() {
       <div className="h-full overflow-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Clientes Monitorados</h1>
-          <Button onClick={() => setView("create")}>
+          <Button onClick={() => openClientForm()}>
             <Plus className="h-4 w-4 mr-2" /> Novo Cliente
           </Button>
         </div>
@@ -423,7 +464,7 @@ export default function Clients() {
                   {client.isActive ? "Ativo" : "Inativo"}
                 </Badge>
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/clients/${client.id}`)}>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => openClientForm(client)} title="Editar cliente">
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {

@@ -48,6 +48,43 @@ function createOperatorContext(): TrpcContext {
   };
 }
 
+function createSupervisorContext(): TrpcContext {
+  return {
+    user: {
+      id: 3,
+      openId: "supervisor-user",
+      email: "supervisor@police.com",
+      name: "Supervisor",
+      loginMethod: "local",
+      role: "supervisor",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: () => {} } as unknown as TrpcContext["res"],
+  };
+}
+
+function createPartnerContext(): TrpcContext {
+  return {
+    user: {
+      id: 4,
+      openId: "partner-user",
+      email: "partner@police.com",
+      name: "Parceiro",
+      loginMethod: "local",
+      role: "partner",
+      partnerId: 99,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: () => {} } as unknown as TrpcContext["res"],
+  };
+}
+
 function createUnauthContext(): TrpcContext {
   return {
     user: null,
@@ -81,24 +118,18 @@ describe("appRouter", () => {
   });
 
   describe("contactIdCode.list", () => {
-    it("allows public access (no auth required for VPS)", async () => {
+    it("exige autenticação", async () => {
       const ctx = createUnauthContext();
       const caller = appRouter.createCaller(ctx);
-      // Should not throw - routes are public now
-      const result = await caller.contactIdCode.list();
-      expect(Array.isArray(result)).toBe(true);
+      await expect(caller.contactIdCode.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
   });
 
   describe("dashboard.stats", () => {
-    it("allows public access (no auth required for VPS)", async () => {
+    it("bloqueia acesso sem login", async () => {
       const ctx = createUnauthContext();
       const caller = appRouter.createCaller(ctx);
-      const result = await caller.dashboard.stats();
-      expect(result).toHaveProperty("activeConnections");
-      expect(result).toHaveProperty("pendingEvents");
-      expect(result).toHaveProperty("eventsPerMin");
-      expect(result).toHaveProperty("totalClients");
+      await expect(caller.dashboard.stats()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
 
     it("allows operator access", async () => {
@@ -118,11 +149,38 @@ describe("appRouter", () => {
   });
 
   describe("finalization", () => {
-    it("allows listing finalizations", async () => {
+    it("exige autenticação para listar finalizações", async () => {
       const ctx = createUnauthContext();
       const caller = appRouter.createCaller(ctx);
-      const result = await caller.finalization.list();
-      expect(Array.isArray(result)).toBe(true);
+      await expect(caller.finalization.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("hierarquias", () => {
+    it("permite que Administrador consulte os usuários", async () => {
+      const caller = appRouter.createCaller(createAdminContext());
+      await expect(caller.systemUser.list()).resolves.toEqual(expect.any(Array));
+    });
+
+    it("bloqueia operadores na gestão de usuários", async () => {
+      const caller = appRouter.createCaller(createOperatorContext());
+      await expect(caller.systemUser.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("permite Supervisor consultar finalizações, mas não gerenciar usuários", async () => {
+      const caller = appRouter.createCaller(createSupervisorContext());
+      await expect(caller.finalization.list()).resolves.toEqual(expect.any(Array));
+      await expect(caller.systemUser.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("bloqueia Parceiro no dashboard operacional", async () => {
+      const caller = appRouter.createCaller(createPartnerContext());
+      await expect(caller.dashboard.stats()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("bloqueia acesso sem login aos módulos operacionais protegidos", async () => {
+      const caller = appRouter.createCaller(createUnauthContext());
+      await expect(caller.monitoredClient.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
   });
 });

@@ -2,18 +2,52 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { adminProcedure as coreAdminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import bcrypt from "bcryptjs";
+import { TRPCError } from "@trpc/server";
 import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 
 // ============================================================
 // ADMIN PROCEDURE
 // ============================================================
-const adminProcedure = publicProcedure;
+const adminProcedure = coreAdminProcedure;
 
-const operatorProcedure = publicProcedure;
+const supervisorProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!ctx.user || !["admin", "supervisor"].includes(ctx.user.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso permitido apenas para Administrador ou Supervisor" });
+  }
+  return next({ ctx });
+});
+
+const operatorProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!ctx.user || !["admin", "supervisor", "operator"].includes(ctx.user.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Seu usuário não possui permissão operacional" });
+  }
+  return next({ ctx });
+});
+
+async function assertPartnerCompanyScope(ctx: any, partnerCompanyId: number) {
+  if (ctx.user?.role === "partner" && ctx.user.partnerId !== partnerCompanyId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Empresa parceira não permitida para este usuário" });
+  }
+}
+
+async function assertPartnerClientScope(ctx: any, clientId: number) {
+  if (ctx.user?.role !== "partner") return;
+  const client = await db.getClient(clientId);
+  if (!client || client.partnerCompanyId !== ctx.user.partnerId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence à sua empresa parceira" });
+  }
+}
+
+async function assertPartnerSystemScope(ctx: any, alarmSystemId: number) {
+  if (ctx.user?.role !== "partner") return;
+  const system = await db.getAlarmSystem(alarmSystemId);
+  if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+  await assertPartnerClientScope(ctx, system.clientId);
+}
 
 // ============================================================
 // APP ROUTER
@@ -54,8 +88,8 @@ export const appRouter = router({
   // MANAGING COMPANIES
   // ============================================================
   managingCompany: router({
-    list: publicProcedure.query(() => db.listManagingCompanies()),
-    get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getManagingCompany(input.id)),
+    list: adminProcedure.query(() => db.listManagingCompanies()),
+    get: adminProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getManagingCompany(input.id)),
     create: adminProcedure.input(z.object({
       name: z.string().min(1),
       cnpj: z.string().min(14),
@@ -93,8 +127,17 @@ export const appRouter = router({
   // PARTNER COMPANIES
   // ============================================================
   partnerCompany: router({
-    list: publicProcedure.input(z.object({ managingCompanyId: z.number().optional() }).optional()).query(({ input }) => db.listPartnerCompanies(input?.managingCompanyId)),
-    get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getPartnerCompany(input.id)),
+    list: protectedProcedure.input(z.object({ managingCompanyId: z.number().optional() }).optional()).query(({ input, ctx }) => {
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        return db.getPartnerCompany(ctx.user.partnerId).then(partner => partner ? [partner] : []);
+      }
+      return db.listPartnerCompanies(input?.managingCompanyId);
+    }),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerCompanyScope(ctx, input.id);
+      return db.getPartnerCompany(input.id);
+    }),
     create: adminProcedure.input(z.object({
       managingCompanyId: z.number(),
       name: z.string().min(1),
@@ -115,6 +158,7 @@ export const appRouter = router({
       name: z.string().min(1).optional(),
       cnpj: z.string().optional(),
       phone: z.string().optional(),
+      whatsapp: z.string().optional(),
       email: z.string().optional(),
       address: z.string().optional(),
       city: z.string().optional(),
@@ -132,8 +176,20 @@ export const appRouter = router({
   // CLIENTS
   // ============================================================
   monitoredClient: router({
-    list: publicProcedure.input(z.object({ partnerCompanyId: z.number().optional() }).optional()).query(({ input }) => db.listClients(input?.partnerCompanyId)),
-    get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getClient(input.id)),
+    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number().optional() }).optional()).query(({ input, ctx }) => {
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        return db.listClients(ctx.user.partnerId);
+      }
+      return db.listClients(input?.partnerCompanyId);
+    }),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+      const client = await db.getClient(input.id);
+      if (ctx.user.role === "partner" && client?.partnerCompanyId !== ctx.user.partnerId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence à sua empresa parceira" });
+      }
+      return client;
+    }),
     create: operatorProcedure.input(z.object({
       partnerCompanyId: z.number(),
       type: z.enum(["pf", "pj"]),
@@ -156,6 +212,8 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createClient(input)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
+      partnerCompanyId: z.number().optional(),
+      type: z.enum(["pf", "pj"]).optional(),
       name: z.string().min(1).optional(),
       fantasyName: z.string().optional(),
       document: z.string().optional(),
@@ -184,7 +242,10 @@ export const appRouter = router({
   // CLIENT CONTACTS
   // ============================================================
   clientContact: router({
-    list: publicProcedure.input(z.object({ clientId: z.number() })).query(({ input }) => db.listClientContacts(input.clientId)),
+    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerClientScope(ctx, input.clientId);
+      return db.listClientContacts(input.clientId);
+    }),
     create: operatorProcedure.input(z.object({
       clientId: z.number(),
       name: z.string().min(1),
@@ -214,9 +275,20 @@ export const appRouter = router({
   // ALARM SYSTEMS
   // ============================================================
   alarmSystem: router({
-    list: publicProcedure.input(z.object({ clientId: z.number().optional() }).optional()).query(({ input }) => db.listAlarmSystems(input?.clientId)),
-    get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getAlarmSystem(input.id)),
-    getByAccount: publicProcedure.input(z.object({ account: z.string() })).query(({ input }) => db.getAlarmSystemByAccount(input.account)),
+    list: protectedProcedure.input(z.object({ clientId: z.number().optional() }).optional()).query(async ({ input, ctx }) => {
+      if (ctx.user.role === "partner" && !input?.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o cliente para consultar sistemas" });
+      if (input?.clientId) await assertPartnerClientScope(ctx, input.clientId);
+      return db.listAlarmSystems(input?.clientId);
+    }),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.id);
+      return db.getAlarmSystem(input.id);
+    }),
+    getByAccount: protectedProcedure.input(z.object({ account: z.string() })).query(async ({ input, ctx }) => {
+      const system = await db.getAlarmSystemByAccount(input.account);
+      if (system) await assertPartnerSystemScope(ctx, system.id);
+      return system;
+    }),
     create: operatorProcedure.input(z.object({
       clientId: z.number(),
       account: z.string().min(4),
@@ -258,7 +330,10 @@ export const appRouter = router({
   // ALARM ZONES
   // ============================================================
   alarmZone: router({
-    list: publicProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmZones(input.alarmSystemId)),
+    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listAlarmZones(input.alarmSystemId);
+    }),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       zoneNumber: z.number(),
@@ -280,7 +355,10 @@ export const appRouter = router({
   // ALARM USERS
   // ============================================================
   alarmUser: router({
-    list: publicProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmUsers(input.alarmSystemId)),
+    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listAlarmUsers(input.alarmSystemId);
+    }),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       userNumber: z.number(),
@@ -300,7 +378,10 @@ export const appRouter = router({
   // CAMERAS
   // ============================================================
   camera: router({
-    list: publicProcedure.input(z.object({ clientId: z.number() })).query(({ input }) => db.listCameras(input.clientId)),
+    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerClientScope(ctx, input.clientId);
+      return db.listCameras(input.clientId);
+    }),
     create: operatorProcedure.input(z.object({
       clientId: z.number(),
       name: z.string().min(1),
@@ -363,12 +444,12 @@ export const appRouter = router({
   // CONTACT ID CODES
   // ============================================================
   contactIdCode: router({
-    list: publicProcedure.query(() => db.listContactIdCodes()),
-    get: publicProcedure.input(z.object({ code: z.string() })).query(({ input }) => db.getContactIdDescription(input.code)),
+    list: supervisorProcedure.query(() => db.listContactIdCodes()),
+    get: operatorProcedure.input(z.object({ code: z.string() })).query(({ input }) => db.getContactIdDescription(input.code)),
   }),
   contactId: router({
-    listByFabricante: publicProcedure.input(z.object({ fabricante: z.string() })).query(({ input }) => db.listContactIdByFabricante(input.fabricante)),
-    create: publicProcedure.input(z.object({
+    listByFabricante: supervisorProcedure.input(z.object({ fabricante: z.string() })).query(({ input }) => db.listContactIdByFabricante(input.fabricante)),
+    create: supervisorProcedure.input(z.object({
       code: z.string().min(1),
       qualifier: z.string().default("E"),
       fabricante: z.string().min(1),
@@ -383,7 +464,7 @@ export const appRouter = router({
       tempoEsperaSegundos: z.number().default(0),
       prioridade: z.number().default(1),
     })).mutation(({ input }) => db.createContactId(input)),
-    update: publicProcedure.input(z.object({
+    update: supervisorProcedure.input(z.object({
       id: z.number(),
       code: z.string().min(1),
       qualifier: z.string().default("E"),
@@ -399,7 +480,7 @@ export const appRouter = router({
       tempoEsperaSegundos: z.number().default(0),
       prioridade: z.number().default(1),
     })).mutation(({ input }) => db.updateContactId(input.id, input)),
-    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteContactId(input.id)),
+    delete: supervisorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteContactId(input.id)),
   }),
 
   // ============================================================
@@ -407,10 +488,13 @@ export const appRouter = router({
   // ============================================================
   dashboard: router({
     stats: operatorProcedure.query(() => db.getDashboardStats()),
-    armDisarmStatus: publicProcedure.query(() => db.getArmDisarmStatus()),
+    armDisarmStatus: operatorProcedure.query(() => db.getArmDisarmStatus()),
   }),
   alarmPgm: router({
-    list: publicProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmPgms(input.alarmSystemId)),
+    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listAlarmPgms(input.alarmSystemId);
+    }),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       pgmNumber: z.number().min(1).max(16),
@@ -419,7 +503,10 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createAlarmPgm(input)),
   }),
   alarmSchedule: router({
-    list: publicProcedure.input(z.object({ alarmSystemId: z.number() })).query(({ input }) => db.listAlarmSchedules(input.alarmSystemId)),
+    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listAlarmSchedules(input.alarmSystemId);
+    }),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       partition: z.number().min(1).max(8).optional(),
@@ -434,7 +521,10 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createAlarmSchedule(input)),
   }),
   clientProcedure: router({
-    list: publicProcedure.input(z.object({ clientId: z.number() })).query(({ input }) => db.listClientProcedures(input.clientId)),
+    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerClientScope(ctx, input.clientId);
+      return db.listClientProcedures(input.clientId);
+    }),
     create: operatorProcedure.input(z.object({
       clientId: z.number(),
       title: z.string().min(1),
@@ -443,7 +533,10 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createClientProcedure(input)),
   }),
   partnerHoliday: router({
-    list: publicProcedure.input(z.object({ partnerCompanyId: z.number() })).query(({ input }) => db.listPartnerHolidays(input.partnerCompanyId)),
+    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerCompanyScope(ctx, input.partnerCompanyId);
+      return db.listPartnerHolidays(input.partnerCompanyId);
+    }),
     create: operatorProcedure.input(z.object({
       partnerCompanyId: z.number(),
       name: z.string().min(1),
@@ -451,10 +544,19 @@ export const appRouter = router({
       type: z.enum(["nacional", "municipal"]).optional(),
       
     })).mutation(({ input }) => db.createPartnerHoliday(input)),
+    update: operatorProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      date: z.string().min(4).optional(),
+      type: z.enum(["nacional", "municipal"]).optional(),
+    })).mutation(({ input }) => {
+      const { id, ...data } = input;
+      return db.updatePartnerHoliday(id, data);
+    }),
     delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deletePartnerHoliday(input.id)),
   }),
   managingHoliday: router({
-    list: publicProcedure.input(z.object({ managingCompanyId: z.number() })).query(({ input }) => db.listManagingHolidays(input.managingCompanyId)),
+    list: adminProcedure.input(z.object({ managingCompanyId: z.number() })).query(({ input }) => db.listManagingHolidays(input.managingCompanyId)),
     create: adminProcedure.input(z.object({
       managingCompanyId: z.number(),
       name: z.string().min(1),
@@ -465,15 +567,29 @@ export const appRouter = router({
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteManagingHoliday(input.id)),
   }),
   occurrence: router({
-    list: publicProcedure.input(z.object({
+    list: protectedProcedure.input(z.object({
       limit: z.number().optional(),
       offset: z.number().optional(),
       account: z.string().optional(),
       clientId: z.number().optional(),
       partnerCompanyId: z.number().optional(),
-    }).optional()).query(({ input }) => db.listOccurrences(input || {})),
-    getById: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getOccurrenceById(input.id)),
-    create: publicProcedure.input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(({ input, ctx }) => {
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        return db.listOccurrences({ ...(input || {}), partnerCompanyId: ctx.user.partnerId });
+      }
+      return db.listOccurrences(input || {});
+    }),
+    getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+      const occurrence = await db.getOccurrenceById(input.id);
+      if (ctx.user.role === "partner" && occurrence?.partnerCompanyId !== ctx.user.partnerId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Ocorrência não pertence à sua empresa parceira" });
+      }
+      return occurrence;
+    }),
+    create: operatorProcedure.input(z.object({
       account: z.string(),
       eventCode: z.string(),
       qualifier: z.string().optional(),
@@ -499,29 +615,42 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createOccurrence(input)),
   }),
   systemUser: router({
-    list: publicProcedure.query(() => db.listSystemUsers()),
-    create: publicProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.string().default("operator") })).mutation(async ({ input }) => {
+    list: adminProcedure.query(() => db.listSystemUsers()),
+    create: adminProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.enum(["admin", "supervisor", "operator", "partner"]).default("operator"), partnerId: z.number().optional() })).mutation(async ({ input }) => {
+      if (input.role === "partner" && !input.partnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a empresa parceira deste usuário" });
       const hashedPassword = await bcrypt.hash(input.password, 10);
       return db.createSystemUser({ ...input, password: hashedPassword });
     }),
-    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteSystemUser(input.id)),
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      email: z.string().email().optional(),
+      password: z.string().min(6).optional(),
+      role: z.enum(["admin", "supervisor", "operator", "partner"]).optional(),
+      partnerId: z.number().nullable().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, password, ...data } = input;
+      if (data.role === "partner" && !data.partnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a empresa parceira deste usuário" });
+      return db.updateSystemUser(id, { ...data, ...(password ? { password: await bcrypt.hash(password, 10) } : {}) });
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteSystemUser(input.id)),
   }),
   finalization: router({
-    list: publicProcedure.query(() => db.listFinalizations()),
-    create: publicProcedure.input(z.object({
+    list: operatorProcedure.query(() => db.listFinalizations()),
+    create: supervisorProcedure.input(z.object({
       title: z.string().min(1),
       description: z.string().optional(),
       category: z.string().default("outros"),
       isActive: z.boolean().default(true),
     })).mutation(({ input }) => db.createFinalization(input)),
-    update: publicProcedure.input(z.object({
+    update: supervisorProcedure.input(z.object({
       id: z.number(),
       title: z.string().min(1),
       description: z.string().optional(),
       category: z.string().default("outros"),
       isActive: z.boolean().default(true),
     })).mutation(({ input }) => db.updateFinalization(input.id, input)),
-    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteFinalization(input.id)),
+    delete: supervisorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteFinalization(input.id)),
   }),
 });
 
