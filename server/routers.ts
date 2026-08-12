@@ -336,6 +336,35 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateAlarmSystem(id, data);
     }),
+    startMaintenance: operatorProcedure.input(z.object({
+      systemId: z.number(),
+      incidentId: z.number().optional(),
+      startAt: z.date(),
+      endAt: z.date(),
+      notes: z.string().max(2000).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.systemId);
+      if (input.endAt <= input.startAt) throw new TRPCError({ code: "BAD_REQUEST", message: "O fim deve ser posterior ao início da manutenção" });
+      await db.scheduleSystemMaintenance({
+        systemId: input.systemId,
+        startAt: input.startAt,
+        endAt: input.endAt,
+        notes: input.notes,
+        operatorId: ctx.user.id,
+      });
+      await db.putSystemIncidentsInMaintenance({
+        systemId: input.systemId,
+        endAt: input.endAt,
+        notes: `Sistema em manutenção de ${input.startAt.toLocaleString("pt-BR")} até ${input.endAt.toLocaleString("pt-BR")}${input.notes ? ` — ${input.notes}` : ""}`,
+      });
+      return { success: true } as const;
+    }),
+    endMaintenance: operatorProcedure.input(z.object({ systemId: z.number() })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.systemId);
+      await db.endSystemMaintenance(input.systemId);
+      await db.releaseMaintenanceIncidents(input.systemId, "Sistema retirado da manutenção pelo operador. Ocorrência retornada para atendimento.");
+      return { success: true } as const;
+    }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmSystem(input.id)),
   }),
 
@@ -483,6 +512,11 @@ export const appRouter = router({
       if (data.status === 'closed') (data as any).closedAt = new Date();
       return db.updateIncident(id, data);
     }),
+    observe: operatorProcedure.input(z.object({
+      incidentId: z.number(),
+      until: z.date(),
+      notes: z.string().max(2000).optional(),
+    })).mutation(({ input }) => db.putIncidentInObservation(input)),
   }),
 
   // ============================================================

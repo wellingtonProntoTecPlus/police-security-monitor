@@ -281,3 +281,18 @@
 - [x] Corrigir o erro React ao abrir o modal de desativação de áudio
 - [x] Substituir o modal reativo de áudio por confirmação nativa com senha
 - [x] Validar por teste de interface a confirmação de senha ao desativar o áudio
+- [x] Corrigir a VPS que continua servindo o pacote JavaScript antigo após atualização
+- [x] Identificar e corrigir o diretório de execução do processo PM2 police-central
+- [x] Corrigir o ciclo React acionado automaticamente pela atualização do dashboard após o login
+- [x] Forçar a recompilação do pacote dist da VPS usando a revisão atual do repositório
+- [x] Atualizar o repositório da VPS antes de gerar o novo pacote dist
+- [x] Enviar ao GitHub a revisão corrigida usada pelo ambiente de desenvolvimento
+
+## Manutenção e Observação Operacionais
+- [x] Preservar ocorrências em Manutenção ao trocar de usuário ou recarregar o dashboard
+- [x] Criar manutenção programada por sistema com data e hora inicial e final
+- [x] Finalizar automaticamente eventos de sistemas em manutenção com a descrição exigida
+- [x] Permitir retirada manual antecipada do sistema de manutenção
+- [x] Criar observação temporizada por ocorrência com data e hora final
+- [x] Retornar a ocorrência da observação para o atendimento quando o prazo terminar
+- [x] Adicionar testes automatizados para manutenção, observação e reconstrução de filas

@@ -24,6 +24,7 @@ interface QueueEvent extends AlarmEvent {
   incidentId?: number;
   queueStatus: QueueStatus;
   queuedAt: number;
+  observationUntil?: string | Date | null;
   clientName?: string;
   systemModel?: string;
   zoneName?: string;
@@ -75,6 +76,11 @@ const PRIORITY_BORDER: Record<string, string> = {
 
 const EMPTY_QUEUE: any[] = [];
 const EMPTY_CONNECTION_SYSTEMS: any[] = [];
+
+function dateTimeLocalValue(date: Date) {
+  const timezoneOffset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
+}
 
 function incidentStatusToQueueStatus(status?: string): QueueStatus {
   if (status === "attending") return "attending";
@@ -139,16 +145,27 @@ export default function Dashboard() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const pendingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pendingPopupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const queueHydratedRef = useRef(false);
+  const persistedQueueSignatureRef = useRef("");
+  const [observationOpen, setObservationOpen] = useState(false);
+  const [observationUntil, setObservationUntil] = useState(() => dateTimeLocalValue(new Date(Date.now() + 30 * 60_000)));
+  const [observationNotes, setObservationNotes] = useState("");
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
+  const [maintenanceStartAt, setMaintenanceStartAt] = useState(() => dateTimeLocalValue(new Date()));
+  const [maintenanceEndAt, setMaintenanceEndAt] = useState(() => dateTimeLocalValue(new Date(Date.now() + 60 * 60_000)));
+  const [maintenanceNotes, setMaintenanceNotes] = useState("");
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
   const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
   const updateIncidentMut = trpc.incident.update.useMutation();
+  const observeIncidentMut = trpc.incident.observe.useMutation();
+  const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
+  const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
   const passwordConfirmationMut = trpc.auth.login.useMutation();
   const logoutMut = trpc.auth.logout.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
+  const utils = trpc.useUtils();
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -201,9 +218,12 @@ export default function Dashboard() {
     }
   }, [realtimeEvents, clientData, systemData]);
 
-  // Reconstruir filas pelo status persistido dos incidentes após recarregar a página.
+  // Reconstrói a fila por dados persistidos também após troca de usuário e prazos expirados.
+  // A assinatura impede atualização circular sem ocultar mudanças reais de status.
   useEffect(() => {
-    if (!isPersistedQueueLoading && persistedQueueData && !queueHydratedRef.current) {
+    if (!isPersistedQueueLoading && persistedQueueData) {
+      const signature = persistedQueue.map((ev: any) => `${ev.incidentId}:${ev.incidentStatus}:${ev.observationUntil || ""}:${ev.receivedAt}`).join("|");
+      if (signature === persistedQueueSignatureRef.current) return;
       const initial: QueueEvent[] = persistedQueue.map((ev: any) => {
         const system = (systemData || []).find((s: any) => s.account === ev.account);
         const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
@@ -213,13 +233,17 @@ export default function Dashboard() {
           ...ev,
           queueStatus: incidentStatusToQueueStatus(ev.incidentStatus),
           queuedAt: new Date(ev.receivedAt).getTime(),
+          observationUntil: ev.observationUntil || null,
           clientName: client ? (client.fantasyName || client.name) : (ev.account === "0000" ? "CONTA DO SISTEMA (0000)" : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : "CONTA DO SISTEMA (0000)")),
           systemModel: system ? `${system.brand} ${system.model || ''}`.trim() : ev.brand,
           description: ev.description || 'EVENTO NÃO CADASTRADO',
         };
       });
-      queueHydratedRef.current = true;
-      setQueues(initial);
+      persistedQueueSignatureRef.current = signature;
+      setQueues((previous) => {
+        const onlyRealtimeEvents = previous.filter((event) => !event.incidentId);
+        return [...onlyRealtimeEvents, ...initial];
+      });
     }
   }, [persistedQueueData, isPersistedQueueLoading, clientData, systemData]);
 
@@ -439,6 +463,98 @@ export default function Dashboard() {
     return (clientData || []).find((c: any) => c.id === selectedSystem.clientId);
   }, [selectedSystem, clientData]);
 
+  const selectedSystemInMaintenance = useMemo(() => {
+    if (!selectedSystem?.maintenanceStartAt || !selectedSystem.maintenanceEndAt) return false;
+    const now = Date.now();
+    return new Date(selectedSystem.maintenanceStartAt).getTime() <= now
+      && new Date(selectedSystem.maintenanceEndAt).getTime() > now;
+  }, [selectedSystem]);
+
+  function openObservation() {
+    if (!selectedEvent?.incidentId) {
+      toast.error("Esta ocorrência ainda não possui um identificador para observação.");
+      return;
+    }
+    setObservationUntil(dateTimeLocalValue(new Date(Date.now() + 30 * 60_000)));
+    setObservationNotes("");
+    setObservationOpen(true);
+  }
+
+  async function confirmObservation() {
+    if (!selectedEvent?.incidentId) return;
+    const until = new Date(observationUntil);
+    if (Number.isNaN(until.getTime()) || until <= new Date()) {
+      toast.error("Informe uma data e hora futura para a observação.");
+      return;
+    }
+    try {
+      await observeIncidentMut.mutateAsync({ incidentId: selectedEvent.incidentId, until, notes: observationNotes || undefined });
+      setQueues((previous) => previous.map((event) => event.incidentId === selectedEvent.incidentId
+        ? { ...event, queueStatus: "observing", observationUntil: until }
+        : event));
+      setSelectedEvent((previous) => previous ? { ...previous, queueStatus: "observing", observationUntil: until } : previous);
+      setObservationOpen(false);
+      await utils.incident.openQueue.invalidate();
+      toast.success("Ocorrência enviada para observação até o horário informado.");
+    } catch (error: any) {
+      toast.error(error?.message || "Não foi possível iniciar a observação.");
+    }
+  }
+
+  function openMaintenance() {
+    if (!selectedSystem || !selectedEvent?.incidentId) {
+      toast.error("Selecione uma ocorrência vinculada a um sistema cadastrado.");
+      return;
+    }
+    setMaintenanceStartAt(dateTimeLocalValue(new Date()));
+    setMaintenanceEndAt(dateTimeLocalValue(new Date(Date.now() + 60 * 60_000)));
+    setMaintenanceNotes("");
+    setMaintenanceOpen(true);
+  }
+
+  async function confirmMaintenance() {
+    if (!selectedSystem || !selectedEvent?.incidentId) return;
+    const startAt = new Date(maintenanceStartAt);
+    const endAt = new Date(maintenanceEndAt);
+    if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt <= startAt) {
+      toast.error("Informe um período de manutenção válido.");
+      return;
+    }
+    try {
+      await startMaintenanceMut.mutateAsync({
+        systemId: selectedSystem.id,
+        incidentId: selectedEvent.incidentId,
+        startAt,
+        endAt,
+        notes: maintenanceNotes || undefined,
+      });
+      setQueues((previous) => previous.map((event) => event.account === selectedEvent.account
+        ? { ...event, queueStatus: "maintenance" }
+        : event));
+      setSelectedEvent((previous) => previous ? { ...previous, queueStatus: "maintenance" } : previous);
+      setMaintenanceOpen(false);
+      await Promise.all([utils.incident.openQueue.invalidate(), utils.alarmSystem.list.invalidate()]);
+      toast.success("Sistema colocado em manutenção. Os novos eventos serão finalizados automaticamente no período informado.");
+    } catch (error: any) {
+      toast.error(error?.message || "Não foi possível programar a manutenção.");
+    }
+  }
+
+  async function releaseMaintenance() {
+    if (!selectedSystem) return;
+    try {
+      await endMaintenanceMut.mutateAsync({ systemId: selectedSystem.id });
+      setQueues((previous) => previous.map((event) => event.account === selectedEvent?.account && event.queueStatus === "maintenance"
+        ? { ...event, queueStatus: "attending" }
+        : event));
+      setSelectedEvent((previous) => previous?.queueStatus === "maintenance" ? { ...previous, queueStatus: "attending" } : previous);
+      await Promise.all([utils.incident.openQueue.invalidate(), utils.alarmSystem.list.invalidate()]);
+      toast.success("Sistema retirado da manutenção. Os próximos eventos voltarão a exigir atendimento.");
+    } catch (error: any) {
+      toast.error(error?.message || "Não foi possível retirar a manutenção.");
+    }
+  }
+
   // Buscar câmeras do cliente selecionado
   const { data: clientCameras } = trpc.camera.list.useQuery(
     { clientId: selectedClient?.id || 0 },
@@ -617,6 +733,9 @@ export default function Dashboard() {
           <span className="font-mono text-xs text-muted-foreground">{ev.qualifier === 'E' ? '' : 'R'}{ev.eventCode}</span>
           <Badge className={`text-[10px] px-1.5 py-0 ${pri.color}`}>{pri.label}</Badge>
         </div>
+        {ev.observationUntil && ev.queueStatus === "observing" && (
+          <div className="text-[10px] text-purple-300 mt-1">Observação até {new Date(ev.observationUntil).toLocaleString("pt-BR")}</div>
+        )}
         {sameClientCount > 0 && (
           <div className="text-[10px] text-cyan-400 mt-1">+ {sameClientCount} eventos do mesmo cliente</div>
         )}
@@ -837,14 +956,20 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}>
                     <Shield className="h-3.5 w-3.5" /> Polícia
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => { moveEvent(selectedEvent, "observing"); addLog("Movido para Observação"); }}>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={openObservation}>
                     <Eye className="h-3.5 w-3.5" /> Observação
                   </Button>
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}>
                     <Truck className="h-3.5 w-3.5" /> Tático
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-yellow-400" onClick={() => { moveEvent(selectedEvent, "maintenance"); addLog("Movido para Manutenção"); }}>
-                    <Wrench className="h-3.5 w-3.5" /> Manutenção
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-8 text-xs gap-1.5 ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`}
+                    onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()}
+                    disabled={endMaintenanceMut.isPending}
+                  >
+                    <Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}
                   </Button>
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-green-400" onClick={() => { addLog("Comando DESARMAR enviado"); toast.info("Comando desarmar enviado"); }}>
                     <Shield className="h-3.5 w-3.5" /> Desarmar
@@ -970,6 +1095,66 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Observação temporizada: a ocorrência volta ao atendimento ao chegar no prazo. */}
+      {observationOpen && selectedEvent && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center" onClick={() => setObservationOpen(false)}>
+          <div className="bg-card border border-purple-500/40 rounded-lg w-[470px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-lg text-purple-200">Colocar em Observação</h3>
+                <p className="text-xs text-muted-foreground">Apenas esta ocorrência ficará em observação; os demais eventos do sistema continuam chegando normalmente.</p>
+              </div>
+              <button onClick={() => setObservationOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            </div>
+            <label className="block text-xs font-medium text-muted-foreground">
+              Data e hora para retornar ao atendimento
+              <input type="datetime-local" value={observationUntil} onChange={(event) => setObservationUntil(event.target.value)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground" />
+            </label>
+            <label className="block text-xs font-medium text-muted-foreground mt-3">
+              Observação para o operador
+              <textarea value={observationNotes} onChange={(event) => setObservationNotes(event.target.value)} placeholder="Ex.: Falta de energia; acompanhar por 30 minutos." className="mt-1 min-h-[88px] w-full rounded border border-border bg-background px-2 py-2 text-sm text-foreground" />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setObservationOpen(false)}>Cancelar</Button>
+              <Button className="bg-purple-600 hover:bg-purple-700" disabled={observeIncidentMut.isPending} onClick={() => void confirmObservation()}>{observeIncidentMut.isPending ? "Salvando..." : "Confirmar observação"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manutenção é aplicada ao sistema inteiro e não somente ao evento selecionado. */}
+      {maintenanceOpen && selectedEvent && selectedSystem && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center" onClick={() => setMaintenanceOpen(false)}>
+          <div className="bg-card border border-yellow-500/40 rounded-lg w-[500px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-lg text-yellow-200">Programar Manutenção do Sistema</h3>
+                <p className="text-xs text-muted-foreground">Conta {selectedSystem.account}. No período informado, todos os eventos deste sistema serão finalizados automaticamente como “Sistema em manutenção”.</p>
+              </div>
+              <button onClick={() => setMaintenanceOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-medium text-muted-foreground">
+                Início
+                <input type="datetime-local" value={maintenanceStartAt} onChange={(event) => setMaintenanceStartAt(event.target.value)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground" />
+              </label>
+              <label className="block text-xs font-medium text-muted-foreground">
+                Fim
+                <input type="datetime-local" value={maintenanceEndAt} onChange={(event) => setMaintenanceEndAt(event.target.value)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground" />
+              </label>
+            </div>
+            <label className="block text-xs font-medium text-muted-foreground mt-3">
+              Motivo ou referência técnica
+              <textarea value={maintenanceNotes} onChange={(event) => setMaintenanceNotes(event.target.value)} placeholder="Ex.: Técnico João em campo revisando a central." className="mt-1 min-h-[76px] w-full rounded border border-border bg-background px-2 py-2 text-sm text-foreground" />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setMaintenanceOpen(false)}>Cancelar</Button>
+              <Button className="bg-yellow-600 hover:bg-yellow-700 text-black" disabled={startMaintenanceMut.isPending} onClick={() => void confirmMaintenance()}>{startMaintenanceMut.isPending ? "Salvando..." : "Iniciar manutenção"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ocorrência Manual */}
       {manualOccurrenceOpen && (

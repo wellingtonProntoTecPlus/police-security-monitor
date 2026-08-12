@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription } from '../db';
+import { createAlarmEvent, createIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { resolveSystemAccount } from './systemAccount';
 
@@ -288,9 +288,13 @@ async function processEvent(evento: any, remoteIp: string) {
     }
 
     const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
-    const shouldOpenAttendance = automaticAction !== "report_only";
-    const shouldCloseWithRestoration = automaticAction === "track_for_restoration";
-    const automaticFinalizationMessage = "Finalizada automaticamente";
+    const systemInMaintenance = isSystemInMaintenance(system);
+    const maintenanceMessage = "Sistema em manutenção";
+    if (systemInMaintenance) {
+      description = `${maintenanceMessage} — ${description}`;
+    }
+    const shouldOpenAttendance = automaticAction !== "report_only" && !systemInMaintenance;
+    const automaticFinalizationMessage = systemInMaintenance ? maintenanceMessage : "Finalizada automaticamente";
 
     // Salvar evento no banco
     let savedEvent: any = { id: Date.now() };

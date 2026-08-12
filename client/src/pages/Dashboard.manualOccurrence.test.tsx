@@ -24,20 +24,45 @@ vi.mock("@/lib/trpc", () => ({
     alarmEvent: { createManual: { useMutation: () => manualMutation } },
     incident: {
       update: { useMutation: () => standardMutation },
-      openQueue: { useQuery: () => ({ data: [], isLoading: false }) },
+      observe: { useMutation: () => standardMutation },
+      openQueue: {
+        useQuery: () => ({
+          data: [{
+            id: 701,
+            incidentId: 91,
+            incidentStatus: "waiting",
+            account: "0001",
+            brand: "COMPATEC",
+            qualifier: "E",
+            eventCode: "130",
+            description: "Disparo de alarme",
+            priority: "critical",
+            receivedAt: new Date("2026-08-12T12:00:00.000Z"),
+          }],
+          isLoading: false,
+        }),
+      },
     },
     finalization: { list: { useQuery: () => ({ data: [] }) } },
     auth: {
       login: { useMutation: () => standardMutation },
       logout: { useMutation: () => standardMutation },
     },
-    monitoredClient: { list: { useQuery: () => ({ data: [] }) } },
-    alarmSystem: { list: { useQuery: () => ({ data: [] }) } },
+    monitoredClient: { list: { useQuery: () => ({ data: [{ id: 4, name: "Cliente de Teste" }] }) } },
+    alarmSystem: {
+      list: { useQuery: () => ({ data: [{ id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X" }] }) },
+      startMaintenance: { useMutation: () => standardMutation },
+      endMaintenance: { useMutation: () => standardMutation },
+    },
     dashboard: {
       armDisarmStatus: { useQuery: () => ({ data: { armed: [], disarmed: [] } }) },
       connectionStatus: { useQuery: () => ({ data: [] }) },
     },
     camera: { list: { useQuery: () => ({ data: [] }) } },
+    useUtils: () => ({
+      incident: { openQueue: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+    }),
   },
 }));
 
@@ -121,5 +146,16 @@ describe("Dashboard — Ocorrência Manual", () => {
         password: "SenhaConfirmada123",
       });
     });
+  });
+
+  it("abre o calendário de manutenção para o sistema da ocorrência selecionada", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.click(screen.getByRole("button", { name: "Manutenção" }));
+
+    expect(screen.getByRole("heading", { name: "Programar Manutenção do Sistema" })).toBeTruthy();
+    expect(screen.getAllByLabelText(/início|fim/i)).toHaveLength(2);
   });
 });

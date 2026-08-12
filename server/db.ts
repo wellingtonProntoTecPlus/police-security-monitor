@@ -267,6 +267,35 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
   return { ...found, isOnline: true, lastCommunication: now };
 }
 
+export function isSystemInMaintenance(system: Pick<typeof alarmSystems.$inferSelect, "maintenanceStartAt" | "maintenanceEndAt"> | null | undefined, referenceTime = new Date()) {
+  if (!system?.maintenanceStartAt || !system.maintenanceEndAt) return false;
+  return system.maintenanceStartAt.getTime() <= referenceTime.getTime()
+    && system.maintenanceEndAt.getTime() > referenceTime.getTime();
+}
+
+export async function scheduleSystemMaintenance(input: { systemId: number; startAt: Date; endAt: Date; notes?: string; operatorId?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  if (input.endAt <= input.startAt) throw new Error("O fim da manutenção deve ser posterior ao início");
+  await db.update(alarmSystems).set({
+    maintenanceStartAt: input.startAt,
+    maintenanceEndAt: input.endAt,
+    maintenanceNotes: input.notes || null,
+    maintenanceOperatorId: input.operatorId || null,
+  }).where(eq(alarmSystems.id, input.systemId));
+}
+
+export async function endSystemMaintenance(systemId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(alarmSystems).set({
+    maintenanceStartAt: null,
+    maintenanceEndAt: null,
+    maintenanceNotes: null,
+    maintenanceOperatorId: null,
+  }).where(eq(alarmSystems.id, systemId));
+}
+
 export async function listSystemsConnectionStatus() {
   const systems = await listAlarmSystems();
   const cutoff = new Date(Date.now() - 10 * 60 * 1000);
@@ -469,13 +498,85 @@ export async function listIncidents(status?: string) {
 export async function listOpenQueueEvents() {
   const db = await getDb();
   if (!db) return [];
+  const now = new Date();
+
+  const expiredMaintenances = await db.select({ id: alarmSystems.id })
+    .from(alarmSystems)
+    .where(lte(alarmSystems.maintenanceEndAt, now));
+  const expiredMaintenanceIds = expiredMaintenances.map((system) => system.id);
+  if (expiredMaintenanceIds.length > 0) {
+    await db.update(alarmSystems).set({
+      maintenanceStartAt: null,
+      maintenanceEndAt: null,
+      maintenanceNotes: null,
+      maintenanceOperatorId: null,
+    }).where(inArray(alarmSystems.id, expiredMaintenanceIds));
+    await db.update(incidents).set({
+      status: "attending",
+      notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPeríodo de manutenção encerrado. Ocorrência retornada para atendimento.')`,
+    }).where(and(eq(incidents.status, "maintenance"), inArray(incidents.alarmSystemId, expiredMaintenanceIds)));
+  }
+
+  await db.update(incidents).set({
+    status: "attending",
+    observationUntil: null,
+    notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPrazo de observação encerrado. Ocorrência retornada para atendimento.')`,
+  }).where(and(eq(incidents.status, "observing"), lte(incidents.observationUntil, now)));
+
   const rows = await db
     .select({ incident: incidents, event: alarmEvents })
     .from(incidents)
     .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
     .where(inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]))
     .orderBy(desc(alarmEvents.receivedAt));
-  return rows.map(({ incident, event }) => ({ ...event, incidentId: incident.id, incidentStatus: incident.status }));
+  return rows.map(({ incident, event }) => ({
+    ...event,
+    incidentId: incident.id,
+    incidentStatus: incident.status,
+    observationUntil: incident.observationUntil,
+  }));
+}
+
+export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  if (input.until <= new Date()) throw new Error("Informe uma data e hora futura para a observação");
+  await db.update(incidents).set({
+    status: "observing",
+    observationUntil: input.until,
+    notes: input.notes || "Ocorrência colocada em observação",
+  }).where(eq(incidents.id, input.incidentId));
+}
+
+export async function putIncidentInMaintenance(input: { incidentId: number; endAt: Date; notes?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(incidents).set({
+    status: "maintenance",
+    notes: input.notes || `Sistema em manutenção até ${input.endAt.toLocaleString("pt-BR")}`,
+  }).where(eq(incidents.id, input.incidentId));
+}
+
+export async function putSystemIncidentsInMaintenance(input: { systemId: number; endAt: Date; notes?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(incidents).set({
+    status: "maintenance",
+    observationUntil: null,
+    notes: input.notes || `Sistema em manutenção até ${input.endAt.toLocaleString("pt-BR")}`,
+  }).where(and(
+    eq(incidents.alarmSystemId, input.systemId),
+    inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+  ));
+}
+
+export async function releaseMaintenanceIncidents(systemId: number, message: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(incidents).set({
+    status: "attending",
+    notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${message}`})`,
+  }).where(and(eq(incidents.status, "maintenance"), eq(incidents.alarmSystemId, systemId)));
 }
 
 export async function updateIncident(id: number, data: Partial<InsertIncident>) {

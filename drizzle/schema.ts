@@ -145,6 +145,10 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   isActive: boolean("isActive").default(true).notNull(),
   isOnline: boolean("isOnline").default(false).notNull(),
   lastCommunication: timestamp("lastCommunication"),
+  maintenanceStartAt: timestamp("maintenanceStartAt"),
+  maintenanceEndAt: timestamp("maintenanceEndAt"),
+  maintenanceNotes: text("maintenanceNotes"),
+  maintenanceOperatorId: int("maintenanceOperatorId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -257,6 +261,7 @@ export const incidents = mysqlTable("incidents", {
   notes: text("notes"),
   resolution: text("resolution"),
   dispatchedAt: timestamp("dispatchedAt"),
+  observationUntil: timestamp("observationUntil"),
   closedAt: timestamp("closedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
