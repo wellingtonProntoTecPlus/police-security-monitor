@@ -234,7 +234,7 @@ export default function ClientDetail() {
                     </div>
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} placeholder="A1B2C3" value={systemForm.macAddress} onChange={(e) => setSystemForm({ ...systemForm, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} placeholder="123456" value={systemForm.imeiGprs} onChange={(e) => setSystemForm({ ...systemForm, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
-                    <div><Label>ID ISEP</Label><Input value="Gerado ao salvar" disabled /></div>
+                    {systemForm.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value="Gerado ao salvar" disabled /></div>}
                     <div>
                       <Label>Porta receptora</Label>
                       <Select value={String(systemForm.receiverPort)} onValueChange={(value) => setSystemForm({ ...systemForm, receiverPort: Number(value) })}>
@@ -243,7 +243,7 @@ export default function ClientDetail() {
                       </Select>
                     </div>
                   </div>
-                  <p className="mt-3 text-xs text-muted-foreground">O ID ISEP é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e só deve ser programado no campo específico ISEP/identificador da central, quando a fabricante disponibilizar esse campo.</p>
+                  {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
                   <Button className="mt-3" onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     createSystem.mutate({ clientId, ...systemForm });
@@ -263,7 +263,7 @@ export default function ClientDetail() {
                         <div>
                           <p className="font-bold text-foreground font-mono">Conta: {system.account}</p>
                           <p className="text-sm text-muted-foreground">{system.brand} - {system.model || "Modelo não informado"}</p>
-                          <p className="text-xs text-muted-foreground font-mono">ISEP: {system.isepId || "Gerado ao salvar edição"} · MAC: {system.macAddress || "—"} · IMEI: {system.imeiGprs || "—"}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{system.brand === "VIAWEB" ? `ISEP: ${system.isepId || "Gerado ao salvar edição"} · ` : ""}MAC: {system.macAddress || "—"} · IMEI: {system.imeiGprs || "—"}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -294,7 +294,7 @@ export default function ClientDetail() {
                     <div><Label>Modelo</Label><Input value={editingSystem.model || ""} onChange={(e) => setEditingSystem({ ...editingSystem, model: e.target.value })} /></div>
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} value={editingSystem.macAddress || ""} onChange={(e) => setEditingSystem({ ...editingSystem, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} value={editingSystem.imeiGprs || ""} onChange={(e) => setEditingSystem({ ...editingSystem, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
-                    <div><Label>ID ISEP</Label><Input value={editingSystem.isepId || "Será gerado ao salvar"} disabled /></div>
+                    {editingSystem.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value={editingSystem.isepId || "Será gerado ao salvar"} disabled /></div>}
                     <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select></div>
                   </div>
                   <Button className="mt-3" onClick={() => {

@@ -232,3 +232,4 @@
 - [ ] Adaptar os parsers por fabricante para extrair o identificador transmitido pela central e localizar corretamente o sistema
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
+- [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb

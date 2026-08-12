@@ -294,6 +294,7 @@ export async function getAlarmSystemByPanelIdentifier(identifier: string, identi
       : alarmSystems.imeiGprs;
 
   const scopedConditions = [eq(identifierColumn, normalized)];
+  if (identifierType === "isep") scopedConditions.push(eq(alarmSystems.brand, "VIAWEB"));
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
   if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
   const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
@@ -318,7 +319,7 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
     account: normalizePanelIdentifier(data.account),
     macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null,
     imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null,
-    isepId: data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId(),
+    isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId()) : null,
   };
   const result = await db.insert(alarmSystems).values(normalizedData);
   return { id: result[0].insertId };
@@ -334,7 +335,9 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
     ...(data.macAddress !== undefined ? { macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null } : {}),
     ...(data.imeiGprs !== undefined ? { imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null } : {}),
   };
-  if (!current?.isepId && !normalizedData.isepId) normalizedData.isepId = await generateIsepId();
+  const effectiveBrand = normalizedData.brand || current?.brand;
+  if (effectiveBrand === "VIAWEB" && !current?.isepId && !normalizedData.isepId) normalizedData.isepId = await generateIsepId();
+  if (effectiveBrand !== "VIAWEB") normalizedData.isepId = null;
   await db.update(alarmSystems).set(normalizedData).where(eq(alarmSystems.id, id));
 }
 
