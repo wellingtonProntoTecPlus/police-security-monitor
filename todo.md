@@ -216,8 +216,10 @@
 - [x] Corrigir a carga para exibir os códigos Compatec, Vetti e Universais nos fabricantes corretos
 - [x] Corrigir a sincronização do repositório da VPS para receber os arquivos de atualização publicados
 - [x] Decisão do usuário: preservar todos os códigos UNIVERSAL personalizados cadastrados manualmente
+- [ ] Adicionar verificação SQL versionada que comprove a carga esperada por fabricante na VPS
+- [ ] Documentar a contagem oficial de códigos importados, separando base Compatec, base Vetti e universais personalizados
 
 ## Correção de Acesso
-- [ ] Corrigir login que valida credenciais mas não mantém a sessão no sistema
-- [ ] Criar e validar token de sessão local sem depender do SDK OAuth do Manus
-- [ ] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
+- [x] Corrigir login que valida credenciais mas não mantém a sessão no sistema
+- [x] Criar e validar token de sessão local sem depender do SDK OAuth do Manus
+- [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
