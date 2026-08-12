@@ -130,6 +130,8 @@ export default function Dashboard() {
   const [alertPlaying, setAlertPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioActivationNeeded, setAudioActivationNeeded] = useState(true);
+  const [audioDeactivateOpen, setAudioDeactivateOpen] = useState(false);
+  const [audioDeactivatePassword, setAudioDeactivatePassword] = useState("");
   const [pendingPopup, setPendingPopup] = useState(false);
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sirenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -141,6 +143,8 @@ export default function Dashboard() {
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
   const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
   const updateIncidentMut = trpc.incident.update.useMutation();
+  const verifyPasswordMut = trpc.auth.verifyPassword.useMutation();
+  const logoutMut = trpc.auth.logout.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
 
@@ -278,6 +282,42 @@ export default function Dashboard() {
       setAudioActivationNeeded(true);
       toast.error("O navegador bloqueou o áudio. Clique novamente em ‘Ativar áudio’.");
     }
+  }
+
+  async function disableAlertAudio() {
+    if (!audioDeactivatePassword) {
+      toast.error("Informe sua senha para desativar o áudio.");
+      return;
+    }
+    try {
+      await verifyPasswordMut.mutateAsync({ password: audioDeactivatePassword });
+      stopAlertSound();
+      setAudioEnabled(false);
+      setAudioActivationNeeded(true);
+      setAudioDeactivatePassword("");
+      setAudioDeactivateOpen(false);
+      toast.success("Alertas sonoros desativados para esta sessão.");
+    } catch (error: any) {
+      toast.error(error?.message || "Senha inválida. O áudio continua ativo.");
+    }
+  }
+
+  async function endCurrentSession() {
+    try {
+      await logoutMut.mutateAsync();
+    } catch {
+      // Mesmo em uma falha de rede, direciona para o login para evitar manter a tela operacional aberta.
+    } finally {
+      window.location.assign("/login");
+    }
+  }
+
+  function openManualOccurrence() {
+    // Reinicia o formulário e abre acima de qualquer janela operacional já exibida.
+    setManualAccount("");
+    setManualDescription("");
+    setManualPriority("medium");
+    setManualOccurrenceOpen(true);
   }
 
   function stopAlertSound() {
@@ -625,20 +665,20 @@ export default function Dashboard() {
       <div className="flex flex-col h-[calc(100vh-1px)] overflow-hidden">
         {/* TOP BAR - Botões de Status */}
         <div className="h-12 min-h-12 border-b border-border bg-card flex items-center justify-between px-4">
-          <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={() => setManualOccurrenceOpen(true)}>
+          <Button type="button" variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={openManualOccurrence}>
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
           </Button>
           <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant="outline"
-              onClick={enableAlertAudio}
+              onClick={() => audioEnabled ? setAudioDeactivateOpen(true) : enableAlertAudio()}
               className={audioEnabled
                 ? "border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10"
                 : audioActivationNeeded
                   ? "border-amber-400 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 animate-pulse"
                   : "border-amber-400 text-amber-200 hover:bg-amber-500/15"}
-              title="Ative uma vez após entrar no sistema para permitir alertas sonoros"
+              title={audioEnabled ? "Para desativar, informe a senha do usuário logado" : "Ative uma vez após entrar no sistema para permitir alertas sonoros"}
             >
               {audioEnabled ? <Volume2 className="h-3.5 w-3.5 mr-1" /> : <VolumeX className="h-3.5 w-3.5 mr-1" />}
               {audioEnabled ? "Áudio ativo" : "Ativar áudio"}
@@ -672,9 +712,14 @@ export default function Dashboard() {
               </div>
               <span className="text-xs text-muted-foreground">Operador: <strong className="text-foreground">{user?.name?.split(' ')[0]}</strong></span>
               {user && (
-                <button onClick={() => { window.location.href = "/login"; }} className="ml-2 text-xs text-red-400 hover:text-red-300 flex items-center gap-1" title="Sair">
-                  <LogOut className="w-3 h-3" /> Sair
-                </button>
+                <div className="ml-2 flex items-center gap-2">
+                  <button onClick={endCurrentSession} disabled={logoutMut.isPending} className="text-xs text-amber-300 hover:text-amber-200 disabled:opacity-50 flex items-center gap-1" title="Trocar Usuário">
+                    <Users className="w-3 h-3" /> Trocar Usuário
+                  </button>
+                  <button onClick={endCurrentSession} disabled={logoutMut.isPending} className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 flex items-center gap-1" title="Sair">
+                    <LogOut className="w-3 h-3" /> Sair
+                  </button>
+                </div>
               )}
               {!user && (
                 <a href="/login" className="ml-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
@@ -912,7 +957,7 @@ export default function Dashboard() {
 
       {/* Ocorrência Manual */}
       {manualOccurrenceOpen && (
-        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center" onClick={() => setManualOccurrenceOpen(false)}>
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center" onClick={() => setManualOccurrenceOpen(false)}>
           <div className="bg-card border border-border rounded-lg w-[480px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -944,8 +989,43 @@ export default function Dashboard() {
               <Textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Descreva a ocorrência manual..." className="min-h-[100px]" />
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => setManualOccurrenceOpen(false)}>Cancelar</Button>
-                <Button className="bg-yellow-600 hover:bg-yellow-700" onClick={createManualOccurrence}><Plus className="h-4 w-4 mr-1" /> Criar ocorrência</Button>
+                <Button className="bg-yellow-600 hover:bg-yellow-700" disabled={createManualEventMut.isPending} onClick={createManualOccurrence}>
+                  <Plus className="h-4 w-4 mr-1" /> {createManualEventMut.isPending ? "Criando..." : "Criar ocorrência"}
+                </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação para desativar áudio */}
+      {audioDeactivateOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center" onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }}>
+          <div className="bg-card border border-cyan-500/40 rounded-lg w-[420px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 mb-3">
+              <div>
+                <h3 className="font-bold text-lg text-foreground">Desativar alertas sonoros</h3>
+                <p className="text-xs text-muted-foreground mt-1">Confirme a senha do usuário logado para interromper o áudio.</p>
+              </div>
+              <button onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }} className="text-muted-foreground hover:text-foreground" aria-label="Fechar confirmação"><X className="h-5 w-5" /></button>
+            </div>
+            <label className="block text-xs font-medium text-muted-foreground">
+              Senha do usuário {user?.name || "logado"}
+              <input
+                type="password"
+                autoFocus
+                value={audioDeactivatePassword}
+                onChange={(event) => setAudioDeactivatePassword(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") void disableAlertAudio(); }}
+                className="mt-1.5 h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-cyan-400"
+                placeholder="Digite sua senha"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }}>Cancelar</Button>
+              <Button className="bg-cyan-700 hover:bg-cyan-800" disabled={verifyPasswordMut.isPending} onClick={() => void disableAlertAudio()}>
+                {verifyPasswordMut.isPending ? "Validando..." : "Confirmar desativação"}
+              </Button>
             </div>
           </div>
         </div>

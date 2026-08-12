@@ -80,6 +80,19 @@ export const appRouter = router({
       await db.updateUserLastSignedIn(user.id);
       return { success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }),
+    verifyPassword: protectedProcedure.input(z.object({
+      password: z.string().min(1),
+    })).mutation(async ({ input, ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user?.password) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário sem senha cadastrada" });
+      }
+      const valid = await bcrypt.compare(input.password, user.password);
+      if (!valid) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha inválida" });
+      }
+      return { success: true } as const;
+    }),
   }),
 
   // ============================================================
@@ -432,7 +445,7 @@ export const appRouter = router({
         remoteIp: "MANUAL",
         rawData: "Ocorrência criada manualmente pelo operador",
       });
-      await db.createIncident({
+      const incident = await db.createIncident({
         eventId: event.id,
         alarmSystemId: input.alarmSystemId || null,
         clientId: input.clientId || null,
@@ -440,9 +453,7 @@ export const appRouter = router({
         priority: input.priority,
         notes: "Ocorrência manual criada pelo operador",
       });
-      const incident = await db.listIncidents("waiting");
-      const createdIncident = incident.find((item) => item.eventId === event.id);
-      return { ...event, incidentId: createdIncident?.id, incidentStatus: "waiting" as const };
+      return { ...event, incidentId: incident.id, incidentStatus: "waiting" as const };
     }),
   }),
 

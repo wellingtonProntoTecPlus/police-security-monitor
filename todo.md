@@ -263,3 +263,12 @@
 - [x] Persistir o status Manutenção de forma reversível nas filas do dashboard
 - [ ] Validar na VPS o recarregamento das filas Aguardando, Atendimento, Observação, Tático e Manutenção
 - [ ] Validar na VPS a criação, o atendimento, a finalização e a presença da Ocorrência Manual no relatório
+
+## Correções de Controles do Dashboard
+- [x] Permitir desativar o áudio somente após validar a senha do usuário logado
+- [x] Corrigir o botão Trocar Usuário para encerrar a sessão e abrir o login
+- [x] Corrigir a abertura e criação da Ocorrência Manual no dashboard
+- [x] Investigar a abertura do modal de Ocorrência Manual e eliminar possíveis falhas de estado ou sobreposição
+- [x] Adicionar validação automatizada do fluxo backend de criação de Ocorrência Manual
+- [x] Elevar e validar a camada visual do modal de Ocorrência Manual para evitar sobreposição por outros modais
+- [x] Documentar no código a prevenção adotada para a abertura confiável da Ocorrência Manual
