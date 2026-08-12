@@ -39,10 +39,14 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  const secure = isSecureRequest(req);
+
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    // Browsers rejeitam SameSite=None se o cookie não possuir Secure.
+    // Na VPS o acesso atual é via http://IP:3000, portanto Lax mantém a sessão.
+    sameSite: secure ? "none" : "lax",
+    secure,
   };
 }

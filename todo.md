@@ -211,3 +211,11 @@
 
 ## Complementos de Relatórios
 - [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend
+
+## Correção de Carga Contact ID na VPS
+- [x] Corrigir a carga para exibir os códigos Compatec, Vetti e Universais nos fabricantes corretos
+- [x] Corrigir a sincronização do repositório da VPS para receber os arquivos de atualização publicados
+- [x] Decisão do usuário: preservar todos os códigos UNIVERSAL personalizados cadastrados manualmente
+
+## Correção de Acesso
+- [ ] Corrigir login que valida credenciais mas não mantém a sessão no sistema
