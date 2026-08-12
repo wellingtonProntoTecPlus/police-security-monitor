@@ -506,10 +506,11 @@ export const appRouter = router({
       notes: z.string().optional(),
       resolution: z.string().optional(),
       operatorId: z.number().optional(),
-    })).mutation(({ input }) => {
+    })).mutation(({ input, ctx }) => {
       const { id, ...data } = input;
       if (data.status === 'dispatched') (data as any).dispatchedAt = new Date();
       if (data.status === 'closed') (data as any).closedAt = new Date();
+      if (data.status === 'attending' && !data.operatorId) (data as any).operatorId = ctx.user.id;
       return db.updateIncident(id, data);
     }),
     observe: operatorProcedure.input(z.object({
@@ -672,6 +673,7 @@ export const appRouter = router({
     }),
     create: operatorProcedure.input(z.object({
       account: z.string(),
+      incidentId: z.number().optional(),
       eventCode: z.string(),
       qualifier: z.string().optional(),
       partition: z.string().optional(),
@@ -693,7 +695,12 @@ export const appRouter = router({
       sendPush: z.boolean().optional(),
       eventReceivedAt: z.date().optional(),
       startedAt: z.date().optional(),
-    })).mutation(({ input }) => db.createOccurrence(input)),
+    })).mutation(({ input }) => {
+      const { incidentId, ...occurrence } = input;
+      return incidentId
+        ? db.createOccurrenceAndCloseIncident(incidentId, occurrence)
+        : db.createOccurrence(occurrence);
+    }),
   }),
   systemUser: router({
     list: adminProcedure.query(() => db.listSystemUsers()),

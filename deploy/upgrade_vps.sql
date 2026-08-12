@@ -232,3 +232,16 @@ SET @statement = (
 PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
+
+-- Garante que um evento possua uma única ocorrência persistida.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'CREATE UNIQUE INDEX incidents_event_id_unique ON incidents (eventId)',
+    'SELECT 1'
+  )
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'incidents' AND INDEX_NAME = 'incidents_event_id_unique'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;

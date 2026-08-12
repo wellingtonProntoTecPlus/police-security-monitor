@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
 
 // ============================================================
 // USERS (base auth - já existente)
@@ -265,7 +265,7 @@ export const incidents = mysqlTable("incidents", {
   closedAt: timestamp("closedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [uniqueIndex("incidents_event_id_unique").on(table.eventId)]);
 
 export type Incident = typeof incidents.$inferSelect;
 export type InsertIncident = typeof incidents.$inferInsert;

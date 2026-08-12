@@ -25,6 +25,7 @@ import {
 } from "../drizzle/schema";
 import { finalizations, InsertFinalization } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -463,6 +464,26 @@ export async function createAlarmEvent(data: InsertAlarmEvent) {
   return { id: result[0].insertId };
 }
 
+/**
+ * Um evento que precisa de atendimento só pode ser exibido depois que o evento
+ * e o incidente foram gravados juntos. Assim, reinício ou troca de usuário não
+ * transforma uma ocorrência aberta em um card apenas temporário do Socket.IO.
+ */
+export async function createAlarmEventWithOpenIncident(input: {
+  event: InsertAlarmEvent;
+  incident: Omit<InsertIncident, "eventId">;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+
+  return db.transaction(async (tx) => {
+    const eventResult = await tx.insert(alarmEvents).values(input.event);
+    const eventId = Number(eventResult[0].insertId);
+    const incidentResult = await tx.insert(incidents).values({ ...input.incident, eventId });
+    return { eventId, incidentId: Number(incidentResult[0].insertId) };
+  });
+}
+
 export async function listAlarmEvents(limit = 50, offset = 0) {
   const db = await getDb();
   if (!db) return [];
@@ -533,6 +554,10 @@ export async function listOpenQueueEvents() {
     ...event,
     incidentId: incident.id,
     incidentStatus: incident.status,
+    incidentClientId: incident.clientId,
+    incidentSystemId: incident.alarmSystemId,
+    incidentOperatorId: incident.operatorId,
+    incidentNotes: incident.notes,
     observationUntil: incident.observationUntil,
   }));
 }
@@ -789,6 +814,26 @@ export async function createOccurrence(data: InsertOccurrence) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(occurrences).values(data);
   return { id: result[0].insertId };
+}
+
+/** Fecha a ocorrência somente quando o relatório foi gravado com sucesso. */
+export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    const current = await tx.select({ status: incidents.status }).from(incidents).where(eq(incidents.id, incidentId)).limit(1);
+    if (!current[0]) throw new Error("Ocorrência aberta não encontrada");
+    if (current[0].status === "closed") throw new Error("Ocorrência já está finalizada");
+    const reportResult = await tx.insert(occurrences).values(occurrence);
+    const reportId = Number(reportResult[0].insertId);
+    if (!canCloseIncidentAfterReport(reportId)) throw new Error("Relatório não foi persistido; ocorrência permanece aberta");
+    await tx.update(incidents).set({
+      status: "closed",
+      resolution: occurrence.observations || "Finalizada pelo operador",
+      closedAt: new Date(),
+    }).where(eq(incidents.id, incidentId));
+    return { id: reportId };
+  });
 }
 
 export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string; operatorName?: string }) {

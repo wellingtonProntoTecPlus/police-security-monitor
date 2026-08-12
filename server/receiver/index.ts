@@ -4,8 +4,9 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
+import { hasPersistedOpenIncident } from './persistenceContract';
 import { resolveSystemAccount } from './systemAccount';
 
 // Configuração dos receptores por marca/porta
@@ -296,10 +297,13 @@ async function processEvent(evento: any, remoteIp: string) {
     const shouldOpenAttendance = automaticAction !== "report_only" && !systemInMaintenance;
     const automaticFinalizationMessage = systemInMaintenance ? maintenanceMessage : "Finalizada automaticamente";
 
-    // Salvar evento no banco
-    let savedEvent: any = { id: Date.now() };
+    // Salvar o evento e a ocorrência aberta juntos antes de emitir ao dashboard.
+    // Nunca use Date.now() como ID de reserva: isso criaria um card temporário que
+    // não poderia ser reconstruído depois de reiniciar ou trocar de operador.
+    let savedEvent: any;
+    let incident: { id: number } | null = null;
     try {
-      savedEvent = await createAlarmEvent({
+      const eventData = {
         alarmSystemId: system?.id || null,
         account: effectiveAccount,
         brand: evento.brand,
@@ -314,25 +318,26 @@ async function processEvent(evento: any, remoteIp: string) {
         rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}`,
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
-      });
-    } catch (e: any) {
-      console.warn(`[RECIP] Erro ao salvar evento no banco: ${e.message}`);
-    }
-
-    let incident: { id: number } | null = null;
-    if (shouldOpenAttendance) {
-      try {
-        incident = await createIncident({
-          eventId: savedEvent.id,
-          alarmSystemId: system?.id || null,
-          clientId: system?.clientId || null,
-          status: "waiting",
-          priority: priority as "critical" | "high" | "medium" | "low",
-          notes: "Evento recebido e aguardando atendimento",
+      };
+      if (shouldOpenAttendance) {
+        const persisted = await createAlarmEventWithOpenIncident({
+          event: eventData,
+          incident: {
+            alarmSystemId: system?.id || null,
+            clientId: system?.clientId || null,
+            status: "waiting",
+            priority: priority as "critical" | "high" | "medium" | "low",
+            notes: "Evento recebido e aguardando atendimento",
+          },
         });
-      } catch (e: any) {
-        console.warn(`[RECIP] Erro ao criar incidente: ${e.message}`);
+        savedEvent = { id: persisted.eventId };
+        incident = { id: persisted.incidentId };
+      } else {
+        savedEvent = await createAlarmEvent(eventData);
       }
+    } catch (e: any) {
+      console.error(`[RECIP] Evento não emitido: falha ao persistir evento/incidente: ${e.message}`);
+      return;
     }
 
     if (!shouldOpenAttendance) {
@@ -354,6 +359,11 @@ async function processEvent(evento: any, remoteIp: string) {
         eventReceivedAt: new Date(),
       });
       console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
+      return;
+    }
+
+    if (!hasPersistedOpenIncident(savedEvent?.id, incident?.id)) {
+      console.error("[RECIP] Evento não emitido: ocorrência aberta sem persistência confirmada");
       return;
     }
 

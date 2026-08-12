@@ -170,7 +170,11 @@ export default function Dashboard() {
   const { connected, realtimeEvents } = useSocket();
 
   // Queries
-  const { data: persistedQueueData, isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: persistedQueueData, isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, {
+    refetchInterval: 5000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
@@ -186,6 +190,7 @@ export default function Dashboard() {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
     realtimeEvents.forEach((ev) => {
+      const persistedEvent = ev as typeof ev & { incidentId?: number };
       if (ev.kind === "restoration_closed") {
         const closeKey = `restoration-${ev.originalEventId}-${ev.id}`;
         if (!processedIds.current.has(closeKey)) {
@@ -194,6 +199,13 @@ export default function Dashboard() {
           if (selectedEvent?.id === ev.originalEventId) setSelectedEvent(null);
           toast.success("Finalizado com a restauração do evento");
         }
+        return;
+      }
+      // O receptor só emite eventos de atendimento depois de gravar event +
+      // incident juntos. Sem incidentId não há card temporário na operação.
+      if (!persistedEvent.incidentId) {
+        console.warn("[Dashboard] Evento sem incidente persistido ignorado", ev);
+        void utils.incident.openQueue.invalidate();
         return;
       }
       const evKey = `${ev.account}-${ev.eventCode}-${ev.timestamp || Date.now()}`;
@@ -213,10 +225,11 @@ export default function Dashboard() {
     });
     if (newEvents.length > 0) {
       setQueues((prev) => [...newEvents, ...prev]);
+      void utils.incident.openQueue.invalidate();
       // Tocar som por 5 segundos
       startAlertSound();
     }
-  }, [realtimeEvents, clientData, systemData]);
+  }, [realtimeEvents, clientData, systemData, utils]);
 
   // Reconstrói a fila por dados persistidos também após troca de usuário e prazos expirados.
   // A assinatura impede atualização circular sem ocultar mudanças reais de status.
@@ -413,9 +426,10 @@ export default function Dashboard() {
       setSelectedEvent({ ...ev, queueStatus: newStatus });
     }
     if (ev.incidentId) {
-      updateIncidentMut.mutate({ id: ev.incidentId, status: queueStatusToIncidentStatus(newStatus) });
+      updateIncidentMut.mutate({ id: ev.incidentId, status: queueStatusToIncidentStatus(newStatus), operatorId: user?.id });
+      void utils.incident.openQueue.invalidate();
     }
-  }, [selectedEvent, updateIncidentMut]);
+  }, [selectedEvent, updateIncidentMut, user?.id, utils]);
 
   // Finalizar evento
   // finalizeEvent definido abaixo de selectedClient/selectedSystem
@@ -584,6 +598,7 @@ export default function Dashboard() {
     const finalLogs = [`[${new Date().toLocaleTimeString("pt-BR")}] Evento FINALIZADO`, ...logs];
     const attendingTime = Date.now() - attendStartTime;
     createOccurrenceMut.mutate({
+      incidentId: ev.incidentId || undefined,
       account: ev.account,
       eventCode: ev.eventCode,
       qualifier: ev.qualifier || undefined,
@@ -606,9 +621,7 @@ export default function Dashboard() {
       startedAt: new Date(attendStartTime),
     }, {
       onSuccess: () => {
-        if (ev.incidentId) {
-          updateIncidentMut.mutate({ id: ev.incidentId, status: "closed", resolution: attendingNotes });
-        }
+        void utils.incident.openQueue.invalidate();
         setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
         setSelectedEvent(null);
         setAttendingNotes("");
@@ -621,7 +634,7 @@ export default function Dashboard() {
         toast.error("Erro ao salvar ocorrência: " + err.message);
       }
     });
-  }, [logs, attendStartTime, attendingNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, updateIncidentMut]);
+  }, [logs, attendStartTime, attendingNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils]);
 
   const finalizeSameClientEvents = async (ev: QueueEvent) => {
     if (!attendingNotes.trim()) {
@@ -637,6 +650,7 @@ export default function Dashboard() {
     const finalizedAt = new Date();
     try {
       await Promise.all(relatedEvents.flatMap((item) => [createOccurrenceMut.mutateAsync({
+        incidentId: item.incidentId || undefined,
         account: item.account,
         eventCode: item.eventCode,
         qualifier: item.qualifier || undefined,
@@ -657,7 +671,8 @@ export default function Dashboard() {
         sendEmail,
         sendPush,
         startedAt: new Date(attendStartTime),
-      }), ...(item.incidentId ? [updateIncidentMut.mutateAsync({ id: item.incidentId, status: "closed", resolution: attendingNotes })] : [])]));
+      })]));
+      await utils.incident.openQueue.invalidate();
       setQueues((previous) => previous.filter((item) => item.account !== ev.account));
       setSelectedEvent(null);
       setAttendingNotes("");

@@ -297,3 +297,9 @@
 - [x] Retornar a ocorrência da observação para o atendimento quando o prazo terminar
 - [x] Adicionar testes automatizados para manutenção, observação e reconstrução de filas
 - [x] Abrir o calendário de manutenção usando a conta do evento mesmo quando o vínculo de sistema não vier no incidente
+
+## Persistência de Ocorrências Abertas
+- [x] Garantir que todo evento recebido possua incidente persistido antes de ser exibido na fila
+- [x] Reconstruir todas as filas abertas após reinício, atualização, troca de usuário ou recarregamento
+- [x] Preservar cliente, sistema, operador de atendimento e histórico até a finalização da ocorrência
+- [x] Cobrir em testes a recuperação de uma ocorrência aberta e a transferência ao relatório somente após finalizar
