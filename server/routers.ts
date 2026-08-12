@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { TRPCError } from "@trpc/server";
 import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
+import { createLocalSessionToken } from "./_core/localSession";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -71,11 +72,8 @@ export const appRouter = router({
       if (!user.password) throw new Error("Usuário sem senha cadastrada");
       const valid = await bcrypt.compare(input.password, user.password);
       if (!valid) throw new Error("Email ou senha inválidos");
-      // Create session token
-      const sessionToken = await sdk.createSessionToken(user.openId, {
-        name: user.name || "",
-        expiresInMs: ONE_YEAR_MS,
-      });
+      // Sessão própria: funciona também na VPS sem depender do OAuth do Manus.
+      const sessionToken = createLocalSessionToken({ id: user.id, openId: user.openId });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       // Update lastSignedIn

@@ -1,6 +1,21 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+import * as db from "../db";
+import { verifyLocalSessionToken } from "./localSession";
+
+function getCookie(req: CreateExpressContextOptions["req"], name: string) {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return undefined;
+  const prefix = `${name}=`;
+  const item = cookieHeader.split(";").map(value => value.trim()).find(value => value.startsWith(prefix));
+  if (!item) return undefined;
+  try {
+    return decodeURIComponent(item.slice(prefix.length));
+  } catch {
+    return undefined;
+  }
+}
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -18,6 +33,11 @@ export async function createContext(
   } catch (error) {
     // Authentication is optional for public procedures.
     user = null;
+  }
+
+  if (!user) {
+    const session = verifyLocalSessionToken(getCookie(opts.req, "session"));
+    if (session) user = await db.getUserById(session.userId) ?? null;
   }
 
   return {
