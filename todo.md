@@ -272,3 +272,5 @@
 - [x] Adicionar validação automatizada do fluxo backend de criação de Ocorrência Manual
 - [x] Elevar e validar a camada visual do modal de Ocorrência Manual para evitar sobreposição por outros modais
 - [x] Documentar no código a prevenção adotada para a abertura confiável da Ocorrência Manual
+- [x] Corrigir a validação de senha que está rejeitando o usuário ao desativar o áudio
+- [x] Corrigir o erro React #185 no dashboard após a atualização da VPS

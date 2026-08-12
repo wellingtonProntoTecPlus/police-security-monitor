@@ -73,6 +73,9 @@ const PRIORITY_BORDER: Record<string, string> = {
   low: "border-l-green-500",
 };
 
+const EMPTY_QUEUE: any[] = [];
+const EMPTY_CONNECTION_SYSTEMS: any[] = [];
+
 function incidentStatusToQueueStatus(status?: string): QueueStatus {
   if (status === "attending") return "attending";
   if (status === "observing") return "observing";
@@ -138,12 +141,13 @@ export default function Dashboard() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const pendingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pendingPopupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const queueHydratedRef = useRef(false);
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
   const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
   const updateIncidentMut = trpc.incident.update.useMutation();
-  const verifyPasswordMut = trpc.auth.verifyPassword.useMutation();
+  const passwordConfirmationMut = trpc.auth.login.useMutation();
   const logoutMut = trpc.auth.logout.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
@@ -151,11 +155,13 @@ export default function Dashboard() {
   const { connected, realtimeEvents } = useSocket();
 
   // Queries
-  const { data: persistedQueue = [], isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: persistedQueueData, isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, { refetchInterval: 15000 });
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
-  const { data: connectionSystems = [] } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
+  const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
+  const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
 
   const onlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "online"), [connectionSystems]);
   const offlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "offline"), [connectionSystems]);
@@ -199,7 +205,7 @@ export default function Dashboard() {
 
   // Reconstruir filas pelo status persistido dos incidentes após recarregar a página.
   useEffect(() => {
-    if (!isPersistedQueueLoading && queues.length === 0) {
+    if (!isPersistedQueueLoading && persistedQueueData && !queueHydratedRef.current) {
       const initial: QueueEvent[] = persistedQueue.map((ev: any) => {
         const system = (systemData || []).find((s: any) => s.account === ev.account);
         const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
@@ -214,9 +220,10 @@ export default function Dashboard() {
           description: ev.description || 'EVENTO NÃO CADASTRADO',
         };
       });
+      queueHydratedRef.current = true;
       setQueues(initial);
     }
-  }, [persistedQueue, isPersistedQueueLoading, clientData, systemData, queues.length]);
+  }, [persistedQueueData, isPersistedQueueLoading, clientData, systemData]);
 
   // Função para tocar som de alerta por 5 segundos
   function startAlertSound() {
@@ -290,7 +297,11 @@ export default function Dashboard() {
       return;
     }
     try {
-      await verifyPasswordMut.mutateAsync({ password: audioDeactivatePassword });
+      if (!user?.email) {
+        throw new Error("Não foi possível identificar o e-mail do usuário logado.");
+      }
+      // Reutiliza o mesmo fluxo que autorizou a sessão atual, garantindo a mesma senha aceita no login.
+      await passwordConfirmationMut.mutateAsync({ email: user.email, password: audioDeactivatePassword });
       stopAlertSound();
       setAudioEnabled(false);
       setAudioActivationNeeded(true);
@@ -1023,8 +1034,8 @@ export default function Dashboard() {
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => { setAudioDeactivateOpen(false); setAudioDeactivatePassword(""); }}>Cancelar</Button>
-              <Button className="bg-cyan-700 hover:bg-cyan-800" disabled={verifyPasswordMut.isPending} onClick={() => void disableAlertAudio()}>
-                {verifyPasswordMut.isPending ? "Validando..." : "Confirmar desativação"}
+              <Button className="bg-cyan-700 hover:bg-cyan-800" disabled={passwordConfirmationMut.isPending} onClick={() => void disableAlertAudio()}>
+                {passwordConfirmationMut.isPending ? "Validando..." : "Confirmar desativação"}
               </Button>
             </div>
           </div>
