@@ -575,6 +575,7 @@ export const appRouter = router({
       partnerCompanyId: z.number().optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
+      operatorName: z.string().optional(),
     }).optional()).query(({ input, ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });

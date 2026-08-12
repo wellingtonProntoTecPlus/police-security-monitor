@@ -1,18 +1,25 @@
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Search, Download } from "lucide-react";
 
 export default function Reports() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
-  const [appliedFilters, setAppliedFilters] = useState({ dateFrom: "", dateTo: "", account: "" });
+  const [clientFilter, setClientFilter] = useState("all");
+  const [operatorFilter, setOperatorFilter] = useState("all");
+  const [appliedFilters, setAppliedFilters] = useState<{ dateFrom: string; dateTo: string; account: string; clientId?: number; operatorName?: string }>({ dateFrom: "", dateTo: "", account: "" });
+
+  const { data: clients = [] } = trpc.monitoredClient.list.useQuery(undefined);
+  const { data: allOccurrences = [] } = trpc.occurrence.list.useQuery({ limit: 200, offset: 0 });
+  const operators = useMemo(() => Array.from(new Set(allOccurrences.map((item: any) => item.operatorName).filter(Boolean))).sort(), [allOccurrences]);
 
   const { data: occurrences = [] } = trpc.occurrence.list.useQuery({
     limit: 200,
@@ -26,13 +33,21 @@ export default function Reports() {
     if (dateFrom && dateTo && dateFrom > dateTo) {
       return;
     }
-    setAppliedFilters({ dateFrom, dateTo, account: accountFilter });
+    setAppliedFilters({
+      dateFrom,
+      dateTo,
+      account: accountFilter,
+      clientId: clientFilter === "all" ? undefined : Number(clientFilter),
+      operatorName: operatorFilter === "all" ? undefined : operatorFilter,
+    });
   }
 
   function clearFilters() {
     setDateFrom("");
     setDateTo("");
     setAccountFilter("");
+    setClientFilter("all");
+    setOperatorFilter("all");
     setAppliedFilters({ dateFrom: "", dateTo: "", account: "" });
   }
 
@@ -58,7 +73,7 @@ export default function Reports() {
           <CardTitle className="text-lg">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-4">
             <div>
               <label className="text-sm text-muted-foreground">Data Início</label>
               <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -70,6 +85,26 @@ export default function Reports() {
             <div>
               <label className="text-sm text-muted-foreground">Conta</label>
               <Input placeholder="Nº da conta" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Cliente</label>
+              <Select value={clientFilter} onValueChange={setClientFilter}>
+                <SelectTrigger><SelectValue placeholder="Todos os clientes" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os clientes</SelectItem>
+                  {clients.map((client: any) => <SelectItem key={client.id} value={String(client.id)}>{client.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Operador</label>
+              <Select value={operatorFilter} onValueChange={setOperatorFilter}>
+                <SelectTrigger><SelectValue placeholder="Todos os operadores" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os operadores</SelectItem>
+                  {operators.map((operator) => <SelectItem key={operator as string} value={operator as string}>{operator as string}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-end">
               <Button className="w-full" onClick={handleSearch}><Search className="w-4 h-4 mr-2" /> Buscar</Button>

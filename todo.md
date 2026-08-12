@@ -144,10 +144,10 @@
 - [x] Tela/seção de Zonas/Setores acessível para cadastro
 
 ## Páginas Faltantes
-- [ ] Criar página de Relatórios (/reports) com filtros por data, operador, cliente
-- [ ] Criar página de Finalizações (/finalizations) com histórico de ocorrências
-- [ ] Criar página de Usuários (/users) com hierarquias Admin/Supervisor/Operador
-- [ ] Implementar login próprio com usuário/senha (independente do Manus OAuth)
+- [x] Criar página de Relatórios (/reports) com filtros por data, operador, cliente
+- [x] Redefinido pelo usuário: /finalizations é cadastro de motivos automáticos; o histórico de ocorrências permanece em /reports
+- [x] Criar página de Usuários (/users) com hierarquias Admin/Supervisor/Operador
+- [x] Implementar login próprio com usuário/senha (independente do Manus OAuth)
 - [ ] Adicionar todos os 78 códigos Contact ID no banco local da VPS
 
 ## Contact ID - Qualifier E/R e Códigos Universais
@@ -176,7 +176,7 @@
 - [x] "EVENTO NÃO CADASTRADO" quando código do evento não está na tabela Contact ID
 - [x] Finalizações = cadastro de textos/motivos de finalização automática (não é histórico)
 - [x] Remover autenticação obrigatória para funcionar na VPS (já feito parcialmente)
-- [ ] Integrar finalizações automáticas no botão Finalizar do dashboard (selecionar motivo)
+- [x] Integrar finalizações automáticas no botão Finalizar do dashboard (selecionar motivo)
 - [x] Integrar finalizações automáticas no botão Finalizar do dashboard (selecionar motivo)
 - [x] Corrigir cadastro Empresa Gestora não salvando
 - [x] Corrigir cadastro Empresa Parceira com erro SQL (campos undefined)
@@ -184,12 +184,12 @@
 - [x] Adicionar máscaras em telefone e WhatsApp em todos os cadastros
 
 ## Correções 10/08 - Sessão 2
-- [ ] Remover feriados da Empresa Gestora
-- [ ] Corrigir feriados da Empresa Parceira (nacional=dia/mês, municipal=dia/mês/ano)
+- [x] Remover feriados da Empresa Gestora
+- [x] Corrigir feriados da Empresa Parceira (nacional=dia/mês, municipal=dia/mês/ano)
 - [ ] Corrigir erro ao finalizar ocorrência na VPS
-- [ ] Som de alerta mais forte/persuasivo
-- [ ] Popup de finalização rápida não abre (corrigir para abrir modal com lista clicável)
-- [ ] Logo da parceira não aparece na lista de empresas parceiras
+- [x] Som de alerta mais forte/persuasivo
+- [x] Popup de finalização rápida não abre (corrigir para abrir modal com lista clicável)
+- [x] Logo da parceira não aparece na lista de empresas parceiras
 
 ## Revisão de Cadastros, Relatórios e Hierarquias
 - [x] Validar e corrigir a edição de Empresas Parceiras
@@ -205,3 +205,9 @@
 - [x] Aplicar efetivamente as regras das hierarquias Admin, Supervisor, Operador e Parceiro
 - [x] Aplicar autenticação e escopo por Parceiro nas rotas de detalhes: empresa, contatos, sistemas, câmeras e zonas
 - [x] Diferenciar permissões de Supervisor e Operador nas rotas de gestão e validar os quatro perfis com testes
+
+## Correção de Eventos no Dashboard
+- [x] Corrigir chave React duplicada nos cards da fila de eventos do dashboard
+
+## Complementos de Relatórios
+- [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend

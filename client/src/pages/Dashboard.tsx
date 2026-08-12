@@ -109,6 +109,8 @@ export default function Dashboard() {
   const [alertPlaying, setAlertPlaying] = useState(false);
   const [pendingPopup, setPendingPopup] = useState(false);
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sirenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const pendingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pendingPopupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -176,7 +178,35 @@ export default function Dashboard() {
   // Função para tocar som de alerta por 5 segundos
   function startAlertSound() {
     setAlertPlaying(true);
-    try { audioRef.current?.play(); } catch {}
+    try {
+      if (audioRef.current) {
+        audioRef.current.volume = 1;
+        void audioRef.current.play();
+      }
+    } catch {}
+    const playSirenPulse = () => {
+      try {
+        const AudioContextCtor = window.AudioContext;
+        const context = audioContextRef.current || new AudioContextCtor();
+        audioContextRef.current = context;
+        if (context.state === "suspended") void context.resume();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const now = context.currentTime;
+        oscillator.type = "square";
+        oscillator.frequency.setValueAtTime(880, now);
+        oscillator.frequency.exponentialRampToValueAtTime(1280, now + 0.22);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.18, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + 0.3);
+      } catch {}
+    };
+    playSirenPulse();
+    if (sirenIntervalRef.current) clearInterval(sirenIntervalRef.current);
+    sirenIntervalRef.current = setInterval(playSirenPulse, 650);
     if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
     alertTimeoutRef.current = setTimeout(() => {
       stopAlertSound();
@@ -192,6 +222,10 @@ export default function Dashboard() {
     if (alertTimeoutRef.current) {
       clearTimeout(alertTimeoutRef.current);
       alertTimeoutRef.current = null;
+    }
+    if (sirenIntervalRef.current) {
+      clearInterval(sirenIntervalRef.current);
+      sirenIntervalRef.current = null;
     }
   }
 
@@ -473,7 +507,7 @@ export default function Dashboard() {
             <div className="border-t border-border flex-1 min-h-0 flex flex-col overflow-hidden">
               <div className="px-3 py-1.5 text-xs font-bold text-red-400">AGUARDANDO ({grouped.waiting.length})</div>
               <div className="flex-1 overflow-y-auto px-2 pb-2">
-                {grouped.waiting.map((ev) => <EventCard key={`${ev.account}-${ev.queuedAt}`} ev={ev} />)}
+                {grouped.waiting.map((ev, index) => <EventCard key={`${ev.account}-${ev.queuedAt}-${ev.eventCode}-${index}`} ev={ev} />)}
                 {grouped.waiting.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Nenhuma ocorrência</p>}
               </div>
             </div>
@@ -535,11 +569,9 @@ export default function Dashboard() {
                       <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(selectedEvent)}>
                         Finalizar
                       </Button>
-                      {finalizacoes.length > 0 && (
-                        <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => setSelectedFinalization("open")}>
-                          Finalização Rápida
-                        </Button>
-                      )}
+                      <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => setSelectedFinalization("open")}>
+                        Finalização Rápida
+                      </Button>
                     </div>
                   </div>
                 </div>

@@ -510,11 +510,12 @@ export async function createOccurrence(data: InsertOccurrence) {
   return { id: result[0].insertId };
 }
 
-export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string }) {
+export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string; operatorName?: string }) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
   if (opts?.account?.trim()) conditions.push(like(occurrences.account, `%${opts.account.trim()}%`));
+  if (opts?.operatorName?.trim()) conditions.push(like(occurrences.operatorName, `%${opts.operatorName.trim()}%`));
   if (opts?.clientId) conditions.push(eq(occurrences.clientId, opts.clientId));
   if (opts?.partnerCompanyId) conditions.push(eq(occurrences.partnerCompanyId, opts.partnerCompanyId));
   if (opts?.dateFrom) conditions.push(gte(occurrences.finalizedAt, new Date(`${opts.dateFrom}T00:00:00`)));
