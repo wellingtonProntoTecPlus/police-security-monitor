@@ -223,3 +223,11 @@
 - [x] Corrigir login que valida credenciais mas não mantém a sessão no sistema
 - [x] Criar e validar token de sessão local sem depender do SDK OAuth do Manus
 - [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
+
+## Identificação de Sistemas de Alarme
+- [x] Cadastrar MAC Ethernet de seis dígitos por sistema de alarme
+- [x] Cadastrar IMEI GPRS de seis dígitos por sistema de alarme
+- [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
+- [x] Permitir selecionar a porta receptora conforme a fabricante da central
+- [ ] Adaptar os parsers por fabricante para extrair o identificador transmitido pela central e localizar corretamente o sistema
+- [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP

@@ -14,3 +14,7 @@
 ## 12/08/2026 — Relatórios
 
 - A tela de Relatórios foi revisada visualmente com campos de Data Início, Data Fim, Conta, Cliente e Operador, além dos comandos Buscar e Limpar.
+
+## 12/08/2026 — Cadastro de cliente
+
+- A página de detalhe de cliente renderizou corretamente após a ampliação do cadastro de sistemas de alarme, preservando as abas de contatos, sistemas, zonas e câmeras.

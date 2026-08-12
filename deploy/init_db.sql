@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS alarm_systems (
   firmwareVersion VARCHAR(50),
   communicationType VARCHAR(50),
   macAddress VARCHAR(20),
+  imeiGprs VARCHAR(20),
+  isepId VARCHAR(4),
   viawebCode VARCHAR(10),
   partitions INT DEFAULT 1,
   receiverPort INT,

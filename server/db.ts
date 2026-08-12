@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like, inArray, gte, lte } from "drizzle-orm";
+import { eq, and, or, desc, sql, like, inArray, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -250,6 +250,48 @@ export async function getAlarmSystemByAccount(account: string) {
   return result[0];
 }
 
+function normalizePanelIdentifier(value: string) {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+const ISEP_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+export async function generateIsepId() {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = Array.from({ length: 4 }, () => ISEP_CHARS[Math.floor(Math.random() * ISEP_CHARS.length)]).join("");
+    const found = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isepId, candidate)).limit(1);
+    if (!found[0]) return candidate;
+  }
+
+  throw new Error("Não foi possível gerar um ID ISEP exclusivo");
+}
+
+export async function getAlarmSystemByEventIdentifier(identifier: string, brand?: string, receiverPort?: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const normalized = normalizePanelIdentifier(identifier);
+  if (!normalized) return undefined;
+
+  const identifierCondition = or(
+    eq(alarmSystems.account, normalized),
+    eq(alarmSystems.isepId, normalized),
+    eq(alarmSystems.macAddress, normalized),
+    eq(alarmSystems.imeiGprs, normalized),
+  );
+
+  const scopedConditions = [identifierCondition];
+  if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
+  if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
+  const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
+  if (scoped[0]) return scoped[0];
+
+  const fallback = await db.select().from(alarmSystems).where(identifierCondition).limit(1);
+  return fallback[0];
+}
+
 export async function getAlarmSystem(id: number) {
   const db = await getDb();
   if (!db) return undefined;
@@ -260,14 +302,29 @@ export async function getAlarmSystem(id: number) {
 export async function createAlarmSystem(data: InsertAlarmSystem) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmSystems).values(data);
+  const normalizedData: InsertAlarmSystem = {
+    ...data,
+    account: normalizePanelIdentifier(data.account),
+    macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null,
+    imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null,
+    isepId: data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId(),
+  };
+  const result = await db.insert(alarmSystems).values(normalizedData);
   return { id: result[0].insertId };
 }
 
 export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSystem>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(alarmSystems).set(data).where(eq(alarmSystems.id, id));
+  const current = await getAlarmSystem(id);
+  const normalizedData: Partial<InsertAlarmSystem> = {
+    ...data,
+    ...(data.account !== undefined ? { account: normalizePanelIdentifier(data.account) } : {}),
+    ...(data.macAddress !== undefined ? { macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null } : {}),
+    ...(data.imeiGprs !== undefined ? { imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null } : {}),
+  };
+  if (!current?.isepId && !normalizedData.isepId) normalizedData.isepId = await generateIsepId();
+  await db.update(alarmSystems).set(normalizedData).where(eq(alarmSystems.id, id));
 }
 
 // ============================================================

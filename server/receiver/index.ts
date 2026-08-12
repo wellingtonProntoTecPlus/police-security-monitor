@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, getAlarmSystemByAccount, getContactIdDescription } from '../db';
+import { createAlarmEvent, getAlarmSystemByEventIdentifier, getContactIdDescription } from '../db';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -260,13 +260,14 @@ async function processEvent(evento: any, remoteIp: string) {
       console.warn(`[RECIP] Código não cadastrado ${evento.eventCode}: ${e.message}`);
     }
 
-    // Buscar sistema de alarme pela conta
+    // A central pode transmitir a conta, o ID ISEP, MAC ou IMEI programado no painel.
+    // Marca e porta são usadas como escopo adicional para evitar vinculação incorreta.
     let system: any = null;
     let clientName = `CONTA NÃO CADASTRADA (${evento.account})`;
     try {
-      system = await getAlarmSystemByAccount(evento.account);
+      system = await getAlarmSystemByEventIdentifier(evento.account, evento.brand, evento.receiverPort);
       if (system) {
-        clientName = `Conta ${evento.account}`;
+        clientName = `Sistema ${system.account}`;
       }
     } catch (e: any) {
       console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);

@@ -15,6 +15,19 @@ import { User, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 
+const RECEIVER_PORTS: Record<string, number[]> = {
+  JFL: [9061, 9191, 9131],
+  INTELBRAS: [9071, 9271],
+  VETTI: [9161],
+  COMPATEC: [9112],
+  RADIOENGE: [9035, 9040],
+  VIAWEB: [9111],
+};
+
+function portsForBrand(brand: string) {
+  return RECEIVER_PORTS[brand] || [];
+}
+
 export default function ClientDetail() {
   const [, params] = useRoute("/clients/:id");
   const clientId = Number(params?.id);
@@ -51,7 +64,10 @@ export default function ClientDetail() {
   const [editingSystem, setEditingSystem] = useState<any>(null);
   const [editingZone, setEditingZone] = useState<any>(null);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "" });
-  const [systemForm, setSystemForm] = useState({ account: "", brand: "JFL" as any, model: "", receiverPort: 0 });
+  const [systemForm, setSystemForm] = useState({
+    account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
+    macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061,
+  });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
   const [zoneForm, setZoneForm] = useState({ zoneNumber: 1, name: "", type: "perimeter" as any, partition: 1 });
@@ -196,7 +212,7 @@ export default function ClientDetail() {
                     <div><Label>Conta (Contact ID) *</Label><Input placeholder="0001" value={systemForm.account} onChange={(e) => setSystemForm({ ...systemForm, account: e.target.value })} /></div>
                     <div>
                       <Label>Marca</Label>
-                      <Select value={systemForm.brand} onValueChange={(v) => setSystemForm({ ...systemForm, brand: v })}>
+                      <Select value={systemForm.brand} onValueChange={(v) => setSystemForm({ ...systemForm, brand: v, receiverPort: portsForBrand(v)[0] || 0 })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="JFL">JFL</SelectItem>
@@ -209,9 +225,31 @@ export default function ClientDetail() {
                       </Select>
                     </div>
                     <div><Label>Modelo</Label><Input placeholder="Ex: Active 20" value={systemForm.model} onChange={(e) => setSystemForm({ ...systemForm, model: e.target.value })} /></div>
-                    <div><Label>Porta Receptor</Label><Input type="number" placeholder="9061" value={systemForm.receiverPort || ""} onChange={(e) => setSystemForm({ ...systemForm, receiverPort: Number(e.target.value) })} /></div>
+                    <div>
+                      <Label>Comunicação</Label>
+                      <Select value={systemForm.communicationType} onValueChange={(communicationType) => setSystemForm({ ...systemForm, communicationType })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectItem value="ethernet">Ethernet</SelectItem><SelectItem value="gprs">GPRS</SelectItem><SelectItem value="both">Ethernet + GPRS</SelectItem></SelectContent>
+                      </Select>
+                    </div>
+                    <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} placeholder="A1B2C3" value={systemForm.macAddress} onChange={(e) => setSystemForm({ ...systemForm, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
+                    <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} placeholder="123456" value={systemForm.imeiGprs} onChange={(e) => setSystemForm({ ...systemForm, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
+                    <div><Label>ID ISEP</Label><Input value="Gerado ao salvar" disabled /></div>
+                    <div>
+                      <Label>Porta receptora</Label>
+                      <Select value={String(systemForm.receiverPort)} onValueChange={(value) => setSystemForm({ ...systemForm, receiverPort: Number(value) })}>
+                        <SelectTrigger><SelectValue placeholder="Selecione a porta" /></SelectTrigger>
+                        <SelectContent>{portsForBrand(systemForm.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <Button className="mt-3" onClick={() => { createSystem.mutate({ clientId, ...systemForm }); setShowSystemForm(false); setSystemForm({ account: "", brand: "JFL", model: "", receiverPort: 0 }); }}>Salvar</Button>
+                  <p className="mt-3 text-xs text-muted-foreground">O ID ISEP é gerado automaticamente com 4 caracteres. Informe esse código ao técnico para programar na central.</p>
+                  <Button className="mt-3" onClick={() => {
+                    if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
+                    createSystem.mutate({ clientId, ...systemForm });
+                    setShowSystemForm(false);
+                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061 });
+                  }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
             </div>
@@ -225,6 +263,7 @@ export default function ClientDetail() {
                         <div>
                           <p className="font-bold text-foreground font-mono">Conta: {system.account}</p>
                           <p className="text-sm text-muted-foreground">{system.brand} - {system.model || "Modelo não informado"}</p>
+                          <p className="text-xs text-muted-foreground font-mono">ISEP: {system.isepId || "Gerado ao salvar edição"} · MAC: {system.macAddress || "—"} · IMEI: {system.imeiGprs || "—"}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -251,13 +290,16 @@ export default function ClientDetail() {
                   <DialogHeader><DialogTitle>Editar Sistema de Alarme</DialogTitle></DialogHeader>
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label>Conta *</Label><Input value={editingSystem.account || ""} onChange={(e) => setEditingSystem({ ...editingSystem, account: e.target.value })} /></div>
-                    <div><Label>Marca</Label><Select value={editingSystem.brand} onValueChange={(brand) => setEditingSystem({ ...editingSystem, brand })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="JFL">JFL</SelectItem><SelectItem value="INTELBRAS">Intelbras</SelectItem><SelectItem value="VETTI">Vetti</SelectItem><SelectItem value="COMPATEC">Compatec</SelectItem><SelectItem value="RADIOENGE">Radioenge</SelectItem><SelectItem value="VIAWEB">ViaWeb</SelectItem></SelectContent></Select></div>
+                    <div><Label>Marca</Label><Select value={editingSystem.brand} onValueChange={(brand) => setEditingSystem({ ...editingSystem, brand, receiverPort: portsForBrand(brand)[0] || 0 })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="JFL">JFL</SelectItem><SelectItem value="INTELBRAS">Intelbras</SelectItem><SelectItem value="VETTI">Vetti</SelectItem><SelectItem value="COMPATEC">Compatec</SelectItem><SelectItem value="RADIOENGE">Radioenge</SelectItem><SelectItem value="VIAWEB">ViaWeb</SelectItem></SelectContent></Select></div>
                     <div><Label>Modelo</Label><Input value={editingSystem.model || ""} onChange={(e) => setEditingSystem({ ...editingSystem, model: e.target.value })} /></div>
-                    <div><Label>Porta Receptor</Label><Input type="number" value={editingSystem.receiverPort || ""} onChange={(e) => setEditingSystem({ ...editingSystem, receiverPort: Number(e.target.value) })} /></div>
+                    <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} value={editingSystem.macAddress || ""} onChange={(e) => setEditingSystem({ ...editingSystem, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
+                    <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} value={editingSystem.imeiGprs || ""} onChange={(e) => setEditingSystem({ ...editingSystem, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
+                    <div><Label>ID ISEP</Label><Input value={editingSystem.isepId || "Será gerado ao salvar"} disabled /></div>
+                    <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select></div>
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
-                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", receiverPort: Number(editingSystem.receiverPort) || 0 });
+                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", receiverPort: Number(editingSystem.receiverPort) || 0 });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>
