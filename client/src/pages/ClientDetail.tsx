@@ -243,7 +243,7 @@ export default function ClientDetail() {
                       </Select>
                     </div>
                   </div>
-                  <p className="mt-3 text-xs text-muted-foreground">O ID ISEP é gerado automaticamente com 4 caracteres. Informe esse código ao técnico para programar na central.</p>
+                  <p className="mt-3 text-xs text-muted-foreground">O ID ISEP é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e só deve ser programado no campo específico ISEP/identificador da central, quando a fabricante disponibilizar esse campo.</p>
                   <Button className="mt-3" onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     createSystem.mutate({ clientId, ...systemForm });

@@ -250,6 +250,18 @@ export async function getAlarmSystemByAccount(account: string) {
   return result[0];
 }
 
+export async function getAlarmSystemByReceivedAccount(account: string, brand?: string, receiverPort?: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const normalizedAccount = normalizePanelIdentifier(account);
+  const scopedConditions = [eq(alarmSystems.account, normalizedAccount)];
+  if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
+  if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
+  const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
+  if (scoped[0]) return scoped[0];
+  return getAlarmSystemByAccount(normalizedAccount);
+}
+
 function normalizePanelIdentifier(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
@@ -269,26 +281,25 @@ export async function generateIsepId() {
   throw new Error("Não foi possível gerar um ID ISEP exclusivo");
 }
 
-export async function getAlarmSystemByEventIdentifier(identifier: string, brand?: string, receiverPort?: number) {
+export async function getAlarmSystemByPanelIdentifier(identifier: string, identifierType: "isep" | "mac" | "imei", brand?: string, receiverPort?: number) {
   const db = await getDb();
   if (!db) return undefined;
   const normalized = normalizePanelIdentifier(identifier);
   if (!normalized) return undefined;
 
-  const identifierCondition = or(
-    eq(alarmSystems.account, normalized),
-    eq(alarmSystems.isepId, normalized),
-    eq(alarmSystems.macAddress, normalized),
-    eq(alarmSystems.imeiGprs, normalized),
-  );
+  const identifierColumn = identifierType === "isep"
+    ? alarmSystems.isepId
+    : identifierType === "mac"
+      ? alarmSystems.macAddress
+      : alarmSystems.imeiGprs;
 
-  const scopedConditions = [identifierCondition];
+  const scopedConditions = [eq(identifierColumn, normalized)];
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
   if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
   const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
   if (scoped[0]) return scoped[0];
 
-  const fallback = await db.select().from(alarmSystems).where(identifierCondition).limit(1);
+  const fallback = await db.select().from(alarmSystems).where(eq(identifierColumn, normalized)).limit(1);
   return fallback[0];
 }
 
