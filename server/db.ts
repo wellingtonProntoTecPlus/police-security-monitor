@@ -552,6 +552,23 @@ export async function listOpenQueueEvents() {
     }).where(and(eq(incidents.status, "maintenance"), inArray(incidents.alarmSystemId, expiredMaintenanceIds)));
   }
 
+  const activeMaintenances = await db.select({
+    id: alarmSystems.id,
+    maintenanceEndAt: alarmSystems.maintenanceEndAt,
+    maintenanceNotes: alarmSystems.maintenanceNotes,
+  }).from(alarmSystems).where(and(
+    lte(alarmSystems.maintenanceStartAt, now),
+    gte(alarmSystems.maintenanceEndAt, now),
+  ));
+  for (const maintenance of activeMaintenances) {
+    if (!maintenance.maintenanceEndAt) continue;
+    await ensureMaintenanceIncident({
+      systemId: maintenance.id,
+      endAt: maintenance.maintenanceEndAt,
+      notes: maintenance.maintenanceNotes || `Sistema em manutenção até ${maintenance.maintenanceEndAt.toLocaleString("pt-BR")}`,
+    });
+  }
+
   await db.update(incidents).set({
     status: "attending",
     observationUntil: null,

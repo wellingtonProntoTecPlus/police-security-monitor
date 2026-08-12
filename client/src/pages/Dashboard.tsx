@@ -137,8 +137,8 @@ export default function Dashboard() {
   const [manualPriority, setManualPriority] = useState<"critical" | "high" | "medium" | "low">("medium");
   const [bulkFinalizeOpen, setBulkFinalizeOpen] = useState(false);
   const [alertPlaying, setAlertPlaying] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(false);
-  const [audioActivationNeeded, setAudioActivationNeeded] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [audioActivationNeeded, setAudioActivationNeeded] = useState(false);
   const [pendingPopup, setPendingPopup] = useState(false);
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sirenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -340,9 +340,13 @@ export default function Dashboard() {
     }
   }
 
-  async function disableAlertAudio(password: string) {
+  async function disableAlertAudio(password: string, reason: string) {
     if (!password) {
       toast.error("Informe sua senha para desativar o áudio.");
+      return;
+    }
+    if (!reason.trim()) {
+      toast.error("Informe o motivo para desativar o áudio.");
       return;
     }
     try {
@@ -354,7 +358,7 @@ export default function Dashboard() {
       stopAlertSound();
       setAudioEnabled(false);
       setAudioActivationNeeded(true);
-      toast.success("Alertas sonoros desativados para esta sessão.");
+      toast.success(`Alertas sonoros desativados. Motivo: ${reason.trim()}`);
     } catch (error: any) {
       toast.error(error?.message || "Senha inválida. O áudio continua ativo.");
     }
@@ -364,7 +368,9 @@ export default function Dashboard() {
     // A confirmação nativa elimina a camada reativa que causava React #185 na VPS.
     const password = window.prompt("Para desativar os alertas sonoros, informe a senha do usuário logado:");
     if (password === null) return;
-    void disableAlertAudio(password);
+    const reason = window.prompt("Informe o motivo obrigatório para desativar os alertas sonoros:");
+    if (reason === null) return;
+    void disableAlertAudio(password, reason);
   }
 
   function openManualOccurrence() {

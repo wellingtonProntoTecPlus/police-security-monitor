@@ -326,3 +326,8 @@
 - [ ] Manter ocorrências em observação visíveis na fila Em Observação até o prazo ou ação do operador
 - [ ] Garantir que eventos novos finalizados por manutenção não substituam a ocorrência de manutenção na fila
 - [x] Criar um card de manutenção persistente quando o sistema não tiver incidente aberto
+
+## Áudio Operacional Justificado
+- [x] Corrigir a criação do card de manutenção quando a manutenção já está ativa
+- [x] Ativar o controle de áudio ao abrir o dashboard
+- [x] Exigir senha e motivo obrigatório para desativar o áudio

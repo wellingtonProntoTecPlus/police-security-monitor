@@ -132,14 +132,12 @@ describe("Dashboard — Ocorrência Manual", () => {
 
   it("pede a senha em confirmação nativa ao desativar o áudio, sem montar um modal React", async () => {
     const user = userEvent.setup();
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("SenhaConfirmada123");
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValueOnce("SenhaConfirmada123").mockReturnValueOnce("Troca de turno");
     render(<Dashboard />);
 
-    await user.click(screen.getByRole("button", { name: "Ativar áudio" }));
-    await screen.findByRole("button", { name: "Áudio ativo" });
     await user.click(screen.getByRole("button", { name: "Áudio ativo" }));
 
-    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy).toHaveBeenCalledTimes(2);
     await waitFor(() => {
       expect(standardMutation.mutateAsync).toHaveBeenCalledWith({
         email: "wellingtonportes@gmail.com",
