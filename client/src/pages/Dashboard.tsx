@@ -7,7 +7,7 @@ import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
   ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2,
-  LogOut,
+  LogOut, Volume2, VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -107,6 +107,8 @@ export default function Dashboard() {
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
   const [alertPlaying, setAlertPlaying] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioActivationNeeded, setAudioActivationNeeded] = useState(true);
   const [pendingPopup, setPendingPopup] = useState(false);
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sirenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -187,11 +189,16 @@ export default function Dashboard() {
 
   // Função para tocar som de alerta por 5 segundos
   function startAlertSound() {
+    if (!audioEnabled) {
+      setAudioActivationNeeded(true);
+      toast.warning("Novo evento recebido. Clique em ‘Ativar áudio’ para habilitar os alertas sonoros.");
+      return;
+    }
     setAlertPlaying(true);
     try {
       if (audioRef.current) {
         audioRef.current.volume = 1;
-        void audioRef.current.play();
+        void audioRef.current.play().catch(() => setAudioActivationNeeded(true));
       }
     } catch {}
     const playSirenPulse = () => {
@@ -221,6 +228,29 @@ export default function Dashboard() {
     alertTimeoutRef.current = setTimeout(() => {
       stopAlertSound();
     }, 5000);
+  }
+
+  async function enableAlertAudio() {
+    try {
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      const context = audioContextRef.current || new AudioContextCtor();
+      audioContextRef.current = context;
+      if (context.state === "suspended") await context.resume();
+      if (audioRef.current) {
+        audioRef.current.volume = 0;
+        await audioRef.current.play();
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        audioRef.current.volume = 1;
+      }
+      setAudioEnabled(true);
+      setAudioActivationNeeded(false);
+      toast.success("Alertas sonoros ativados para esta sessão.");
+    } catch {
+      setAudioEnabled(false);
+      setAudioActivationNeeded(true);
+      toast.error("O navegador bloqueou o áudio. Clique novamente em ‘Ativar áudio’.");
+    }
   }
 
   function stopAlertSound() {
@@ -469,6 +499,20 @@ export default function Dashboard() {
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
           </Button>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={enableAlertAudio}
+              className={audioEnabled
+                ? "border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10"
+                : audioActivationNeeded
+                  ? "border-amber-400 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 animate-pulse"
+                  : "border-amber-400 text-amber-200 hover:bg-amber-500/15"}
+              title="Ative uma vez após entrar no sistema para permitir alertas sonoros"
+            >
+              {audioEnabled ? <Volume2 className="h-3.5 w-3.5 mr-1" /> : <VolumeX className="h-3.5 w-3.5 mr-1" />}
+              {audioEnabled ? "Áudio ativo" : "Ativar áudio"}
+            </Button>
             <Button variant="outline" size="sm" className="border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold" onClick={() => setArmDisarmModal('disarmed')}>
               <WifiOff className="h-3.5 w-3.5 mr-1" /> Desarmados ({armDisarmData?.disarmed?.length || 0})
             </Button>

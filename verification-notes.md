@@ -18,3 +18,7 @@
 ## 12/08/2026 — Cadastro de cliente
 
 - A página de detalhe de cliente renderizou corretamente após a ampliação do cadastro de sistemas de alarme, preservando as abas de contatos, sistemas, zonas e câmeras.
+
+## 12/08/2026 — Alerta sonoro
+
+- O dashboard exibe de forma visível o botão “Ativar áudio” no cabeçalho, antes dos indicadores Armados/Desarmados, permitindo liberar o som após o login conforme a regra do navegador.

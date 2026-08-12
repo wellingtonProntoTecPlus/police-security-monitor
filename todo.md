@@ -238,3 +238,7 @@
 - [ ] Finalizar e registrar apenas em Relatórios os eventos configurados para não abrir atendimento
 - [ ] Finalizar a ocorrência aberta ao receber a restauração correspondente
 - [ ] Registrar as descrições “Finalizada automaticamente” e “Finalizado com a restauração do evento” nos dois fluxos
+
+## Alerta Sonoro Operacional
+- [ ] Garantir áudio audível ao entrar novo evento na fila Aguardando
+- [ ] Orientar a ativação inicial de áudio exigida pelos navegadores
