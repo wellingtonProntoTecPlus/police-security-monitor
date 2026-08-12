@@ -132,6 +132,16 @@ export default function Dashboard() {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
     realtimeEvents.forEach((ev) => {
+      if (ev.kind === "restoration_closed") {
+        const closeKey = `restoration-${ev.originalEventId}-${ev.id}`;
+        if (!processedIds.current.has(closeKey)) {
+          processedIds.current.add(closeKey);
+          setQueues((prev) => prev.filter((queued: any) => queued.id !== ev.originalEventId));
+          if (selectedEvent?.id === ev.originalEventId) setSelectedEvent(null);
+          toast.success("Finalizado com a restauração do evento");
+        }
+        return;
+      }
       const evKey = `${ev.account}-${ev.eventCode}-${ev.timestamp || Date.now()}`;
       if (!processedIds.current.has(evKey)) {
         processedIds.current.add(evKey);
@@ -157,7 +167,7 @@ export default function Dashboard() {
   // Carregar eventos do banco na inicialização
   useEffect(() => {
     if (dbEvents.length > 0 && queues.length === 0) {
-      const initial: QueueEvent[] = dbEvents.map((ev: any) => {
+      const initial: QueueEvent[] = dbEvents.filter((ev: any) => !ev.autoFinalized).map((ev: any) => {
         const system = (systemData || []).find((s: any) => s.account === ev.account);
         const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
         const evKey = `${ev.account}-${ev.eventCode}-${ev.receivedAt}`;

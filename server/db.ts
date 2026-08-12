@@ -450,6 +450,67 @@ export async function getIncident(id: number) {
   return result[0];
 }
 
+export async function createAutomaticIncident(data: { eventId: number; alarmSystemId?: number | null; clientId?: number | null; priority: "critical" | "high" | "medium" | "low" }) {
+  return createIncident({
+    eventId: data.eventId,
+    alarmSystemId: data.alarmSystemId || null,
+    clientId: data.clientId || null,
+    status: "waiting",
+    priority: data.priority,
+    notes: "Aguardando tratamento automático por restauração",
+  });
+}
+
+export async function findIncidentForRestoration(input: { alarmSystemId?: number | null; account: string; restorationCode: string }) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const candidates = await db
+    .select({ incident: incidents, event: alarmEvents })
+    .from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(and(
+      eq(alarmEvents.account, input.account),
+      input.alarmSystemId ? eq(incidents.alarmSystemId, input.alarmSystemId) : sql`1=1`,
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]),
+    ))
+    .orderBy(desc(incidents.createdAt));
+
+  for (const candidate of candidates) {
+    const config = await getContactIdDescription(candidate.event.eventCode, candidate.event.qualifier);
+    if (config?.fechaComRestauracao && (config.codigoRestauracao === input.restorationCode || candidate.event.eventCode === input.restorationCode)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+export async function finalizeIncidentWithRestoration(input: { incident: typeof incidents.$inferSelect; event: typeof alarmEvents.$inferSelect }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const message = "Finalizado com a restauração do evento";
+  const finalizedAt = new Date();
+  await db.update(incidents).set({ status: "closed", resolution: message, closedAt: finalizedAt }).where(eq(incidents.id, input.incident.id));
+  return createOccurrence({
+    account: input.event.account,
+    eventCode: input.event.eventCode,
+    qualifier: input.event.qualifier,
+    partition: input.event.partition,
+    zoneUser: input.event.zoneUser,
+    description: input.event.description,
+    priority: input.event.priority,
+    brand: input.event.brand,
+    clientId: input.incident.clientId || null,
+    systemId: input.incident.alarmSystemId || null,
+    operatorName: "Sistema",
+    observations: message,
+    logs: JSON.stringify([`[${finalizedAt.toLocaleTimeString("pt-BR")}] ${message}`]),
+    attendingTimeMs: input.incident.createdAt ? Math.max(0, finalizedAt.getTime() - input.incident.createdAt.getTime()) : 0,
+    eventReceivedAt: input.event.receivedAt,
+    finalizedAt,
+  });
+}
+
 // ============================================================
 // CONTACT ID CODES
 // ============================================================

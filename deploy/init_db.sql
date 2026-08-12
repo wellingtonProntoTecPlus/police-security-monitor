@@ -209,6 +209,8 @@ CREATE TABLE IF NOT EXISTS alarm_events (
   receiverPort INT,
   remoteIp VARCHAR(50),
   rawData TEXT,
+  autoFinalized TINYINT(1) NOT NULL DEFAULT 0,
+  autoFinalizationReason VARCHAR(255),
   receivedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

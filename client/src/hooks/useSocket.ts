@@ -16,6 +16,8 @@ export interface AlarmEvent {
   timestamp: string;
   clientId?: number;
   alarmSystemId?: number;
+  kind?: "restoration_closed";
+  originalEventId?: number;
 }
 
 export function useSocket() {

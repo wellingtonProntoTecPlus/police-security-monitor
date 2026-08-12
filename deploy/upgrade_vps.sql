@@ -94,6 +94,31 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Campos para registrar eventos finalizados automaticamente.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_events ADD COLUMN autoFinalized TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_events' AND COLUMN_NAME = 'autoFinalized'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_events ADD COLUMN autoFinalizationReason VARCHAR(255)',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_events' AND COLUMN_NAME = 'autoFinalizationReason'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Feriados nacionais/municipais e códigos Contact ID com qualifier.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

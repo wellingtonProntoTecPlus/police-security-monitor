@@ -4,7 +4,8 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, getAlarmSystemByReceivedAccount, getContactIdDescription } from '../db';
+import { createAlarmEvent, createAutomaticIncident, createOccurrence, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription } from '../db';
+import { getAutomaticEventAction } from './autoFinalization';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -247,8 +248,9 @@ async function processEvent(evento: any, remoteIp: string) {
     // Buscar descrição do código
     let description = `Evento ${evento.eventCode}`;
     let priority = 'medium';
+    let codeInfo: any = null;
     try {
-      const codeInfo = await getContactIdDescription(evento.eventCode, evento.qualifier);
+      codeInfo = await getContactIdDescription(evento.eventCode, evento.qualifier);
       if (codeInfo) {
         description = codeInfo.description || description;
         priority = codeInfo.priority || priority;
@@ -275,6 +277,11 @@ async function processEvent(evento: any, remoteIp: string) {
       console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);
     }
 
+    const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
+    const shouldOpenAttendance = automaticAction !== "report_only";
+    const shouldCloseWithRestoration = automaticAction === "track_for_restoration";
+    const automaticFinalizationMessage = "Finalizada automaticamente";
+
     // Salvar evento no banco
     let savedEvent: any = { id: Date.now() };
     try {
@@ -291,9 +298,66 @@ async function processEvent(evento: any, remoteIp: string) {
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
         rawData: evento.rawData,
+        autoFinalized: !shouldOpenAttendance,
+        autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       });
     } catch (e: any) {
       console.warn(`[RECIP] Erro ao salvar evento no banco: ${e.message}`);
+    }
+
+    if (!shouldOpenAttendance) {
+      await createOccurrence({
+        account: evento.account,
+        eventCode: evento.eventCode,
+        qualifier: evento.qualifier,
+        partition: evento.partition,
+        zoneUser: evento.zoneUser,
+        description,
+        priority,
+        brand: evento.brand,
+        clientId: system?.clientId || null,
+        systemId: system?.id || null,
+        operatorName: "Sistema",
+        observations: automaticFinalizationMessage,
+        logs: JSON.stringify([`[${new Date().toLocaleTimeString("pt-BR")}] ${automaticFinalizationMessage}`]),
+        attendingTimeMs: 0,
+        eventReceivedAt: new Date(),
+      });
+      console.log(`[RECIP] ${evento.brand} | Conta ${evento.account} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
+      return;
+    }
+
+    if (automaticAction === "try_restoration") {
+      const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: evento.account, restorationCode: evento.eventCode });
+      if (pending) {
+        await finalizeIncidentWithRestoration(pending);
+        if (eventCallback) {
+          eventCallback({
+            id: savedEvent.id,
+            kind: "restoration_closed",
+            originalEventId: pending.event.id,
+            account: evento.account,
+            brand: evento.brand,
+            qualifier: evento.qualifier,
+            eventCode: evento.eventCode,
+            description: "Finalizado com a restauração do evento",
+            priority,
+            receiverPort: evento.receiverPort,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        console.log(`[RECIP] ${evento.brand} | Conta ${evento.account} | ${evento.qualifier}${evento.eventCode} | Finalizado com a restauração do evento`);
+        return;
+      }
+    }
+
+    if (shouldCloseWithRestoration) {
+      await createAutomaticIncident({
+        eventId: savedEvent.id,
+        alarmSystemId: system?.id,
+        clientId: system?.clientId,
+        priority: priority as "critical" | "high" | "medium" | "low",
+      });
     }
 
     // Emitir para o dashboard via callback

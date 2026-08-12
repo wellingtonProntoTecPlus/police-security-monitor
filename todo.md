@@ -233,3 +233,8 @@
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb
+
+## Finalização Automática de Ocorrências
+- [ ] Finalizar e registrar apenas em Relatórios os eventos configurados para não abrir atendimento
+- [ ] Finalizar a ocorrência aberta ao receber a restauração correspondente
+- [ ] Registrar as descrições “Finalizada automaticamente” e “Finalizado com a restauração do evento” nos dois fluxos

@@ -220,6 +220,8 @@ export const alarmEvents = mysqlTable("alarm_events", {
   receiverPort: int("receiverPort"),
   remoteIp: varchar("remoteIp", { length: 45 }),
   rawData: text("rawData"),
+  autoFinalized: boolean("autoFinalized").default(false).notNull(),
+  autoFinalizationReason: varchar("autoFinalizationReason", { length: 255 }),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
 });
 
