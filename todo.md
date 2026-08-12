@@ -303,3 +303,10 @@
 - [x] Reconstruir todas as filas abertas após reinício, atualização, troca de usuário ou recarregamento
 - [x] Preservar cliente, sistema, operador de atendimento e histórico até a finalização da ocorrência
 - [x] Cobrir em testes a recuperação de uma ocorrência aberta e a transferência ao relatório somente após finalizar
+
+## Ajustes de Operação e Perfil
+- [x] Retirar o incidente em manutenção do painel de tratamento e bloquear sua finalização até retirada da manutenção
+- [x] Evitar qualquer duplicidade entre fila de manutenção, tratamento e relatório
+- [x] Substituir controles amontoados do operador por avatar visível e menu de perfil
+- [x] Exibir informações do operador e permitir alteração de senha pelo menu de perfil
+- [x] Transformar Trocar Usuário em espera de próximo operador na tela de login

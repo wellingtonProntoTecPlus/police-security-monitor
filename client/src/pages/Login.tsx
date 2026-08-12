@@ -12,6 +12,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [, navigate] = useLocation();
+  const isShiftChange = new URLSearchParams(window.location.search).get("turno") === "1";
 
   const loginMut = trpc.auth.login.useMutation({
     onSuccess: (result) => {
@@ -42,7 +43,7 @@ export default function Login() {
             </div>
           </div>
           <CardTitle className="text-2xl font-bold">POLICE CENTRAL</CardTitle>
-          <p className="text-sm text-muted-foreground">Sistema de Monitoramento de Alarmes</p>
+          <p className="text-sm text-muted-foreground">{isShiftChange ? "Troca de turno: aguardando o próximo operador." : "Sistema de Monitoramento de Alarmes"}</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

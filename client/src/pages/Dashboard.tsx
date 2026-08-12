@@ -162,7 +162,6 @@ export default function Dashboard() {
   const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
   const passwordConfirmationMut = trpc.auth.login.useMutation();
-  const logoutMut = trpc.auth.logout.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
   const utils = trpc.useUtils();
@@ -351,16 +350,6 @@ export default function Dashboard() {
     const password = window.prompt("Para desativar os alertas sonoros, informe a senha do usuário logado:");
     if (password === null) return;
     void disableAlertAudio(password);
-  }
-
-  async function endCurrentSession() {
-    try {
-      await logoutMut.mutateAsync();
-    } catch {
-      // Mesmo em uma falha de rede, direciona para o login para evitar manter a tela operacional aberta.
-    } finally {
-      window.location.assign("/login");
-    }
   }
 
   function openManualOccurrence() {
@@ -865,7 +854,7 @@ export default function Dashboard() {
         <div className="flex flex-1 overflow-hidden">
           {/* COLUNA 1: Filas */}
           <div className="w-[300px] min-w-[300px] h-full border-r border-border bg-card flex flex-col">
-            <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+            <div className="px-3 py-2 border-b border-border flex items-center">
               <div className="flex items-center gap-2">
                 {connected ? (
                   <><div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" /><span className="text-xs text-green-400 font-bold">ONLINE</span></>
@@ -873,22 +862,6 @@ export default function Dashboard() {
                   <><div className="h-2 w-2 rounded-full bg-red-500" /><span className="text-xs text-red-400 font-bold">OFFLINE</span></>
                 )}
               </div>
-              <span className="text-xs text-muted-foreground">Operador: <strong className="text-foreground">{user?.name?.split(' ')[0]}</strong></span>
-              {user && (
-                <div className="ml-2 flex items-center gap-2">
-                  <button onClick={endCurrentSession} disabled={logoutMut.isPending} className="text-xs text-amber-300 hover:text-amber-200 disabled:opacity-50 flex items-center gap-1" title="Trocar Usuário">
-                    <Users className="w-3 h-3" /> Trocar Usuário
-                  </button>
-                  <button onClick={endCurrentSession} disabled={logoutMut.isPending} className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 flex items-center gap-1" title="Sair">
-                    <LogOut className="w-3 h-3" /> Sair
-                  </button>
-                </div>
-              )}
-              {!user && (
-                <a href="/login" className="ml-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                  <LogOut className="w-3 h-3" /> Entrar
-                </a>
-              )}
             </div>
             <ScrollArea className="flex-1">
               <QueueSection title="EM ATENDIMENTO" color="text-blue-400" events={grouped.attending} />
@@ -940,8 +913,21 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {selectedEvent.queueStatus === "maintenance" && (
+                  <div className="flex-1 flex items-center justify-center p-8">
+                    <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
+                      <Wrench className="mx-auto h-10 w-10 text-yellow-400 mb-3" />
+                      <h3 className="text-lg font-bold text-yellow-200">Sistema em manutenção</h3>
+                      <p className="mt-2 text-sm text-muted-foreground">A ocorrência está preservada exclusivamente na fila de manutenção. Ela não pode ser tratada, finalizada ou duplicada no relatório enquanto o período estiver ativo.</p>
+                      <Button className="mt-5 bg-red-600 hover:bg-red-700" onClick={() => void releaseMaintenance()} disabled={endMaintenanceMut.isPending}>
+                        <Wrench className="mr-2 h-4 w-4" /> {endMaintenanceMut.isPending ? "Retirando..." : "Retirar manutenção agora"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {/* OBSERVAÇÕES */}
-                <div className="px-4 py-2 border-b border-border">
+                <div className={`px-4 py-2 border-b border-border ${selectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
                   <div className="flex items-start gap-3">
                     <Textarea
                       className="flex-1 min-h-[60px] max-h-[80px] text-sm resize-none"
@@ -974,7 +960,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* BARRA DE AÇÕES */}
-                <div className="px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap">
+                <div className={`px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap ${selectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => { setActiveTab("cameras"); toast.info("Providências"); }}>
                     <FileText className="h-3.5 w-3.5" /> Providências
                   </Button>
@@ -1008,7 +994,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* CÂMERAS / CONTEÚDO */}
-                <div className="flex-1 px-4 py-2 overflow-hidden flex flex-col">
+                <div className={`flex-1 px-4 py-2 overflow-hidden flex flex-col ${selectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
                   {/* Carrossel de Câmeras - logo abaixo dos botões de ação */}
                   <div className="flex items-center gap-2 mb-2">
                     <button

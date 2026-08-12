@@ -93,6 +93,17 @@ export const appRouter = router({
       }
       return { success: true } as const;
     }),
+    changeOwnPassword: protectedProcedure.input(z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(6, "A nova senha deve ter no mínimo 6 caracteres"),
+    })).mutation(async ({ input, ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user?.password) throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário sem senha cadastrada" });
+      const valid = await bcrypt.compare(input.currentPassword, user.password);
+      if (!valid) throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha atual inválida" });
+      await db.updateSystemUser(ctx.user.id, { password: await bcrypt.hash(input.newPassword, 10) });
+      return { success: true } as const;
+    }),
   }),
 
   // ============================================================

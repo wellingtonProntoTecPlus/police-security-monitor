@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -20,7 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -123,10 +124,37 @@ function DashboardLayoutContent({
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
   const visibleMenuItems = user ? menuItems.filter((item) => (ROLE_MENU_ITEMS[user.role] || ROLE_MENU_ITEMS.operator).includes(item.path)) : menuItems;
+  const changeOwnPasswordMut = trpc.auth.changeOwnPassword.useMutation();
+
+  const changeShift = async () => {
+    await logout();
+    window.location.href = "/login?turno=1";
+  };
+
+  const saveOwnPassword = async () => {
+    if (newPassword !== confirmPassword) {
+      window.alert("A confirmação da nova senha não confere.");
+      return;
+    }
+    try {
+      await changeOwnPasswordMut.mutateAsync({ currentPassword, newPassword });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setProfileOpen(false);
+      window.alert("Senha alterada com sucesso.");
+    } catch (error: any) {
+      window.alert(error?.message || "Não foi possível alterar a senha.");
+    }
+  };
 
   useEffect(() => {
     if (isCollapsed) {
@@ -218,8 +246,8 @@ function DashboardLayoutContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
+                  <Avatar className="h-11 w-11 border-2 border-primary/60 shadow-md shrink-0">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-sm font-bold">
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -233,25 +261,62 @@ function DashboardLayoutContent({
                   </div>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" side="right" className="w-64">
+                <div className="px-3 py-2 border-b border-border">
+                  <p className="text-sm font-semibold truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-1">{user?.email}</p>
+                  <p className="text-xs text-primary mt-1 capitalize">Perfil: {user?.role}</p>
+                </div>
+                <DropdownMenuItem onClick={() => setProfileOpen(true)} className="cursor-pointer">
+                  <UserRound className="mr-2 h-4 w-4" />
+                  <span>Meu perfil e senha</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void changeShift()} className="cursor-pointer text-amber-600 focus:text-amber-700">
+                  <Users className="mr-2 h-4 w-4" />
+                  <span>Trocar usuário</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={logout}
+                  onClick={() => void logout()}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Sair</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => { logout(); window.location.href = "/"; }}
-                  className="cursor-pointer"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Trocar Usuário</span>
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarFooter>
         </Sidebar>
+        {profileOpen && (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-md rounded-xl border border-border bg-card text-card-foreground shadow-2xl">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div>
+                  <h2 className="font-semibold">Perfil do operador</h2>
+                  <p className="text-xs text-muted-foreground mt-1">{user?.name} · {user?.email}</p>
+                </div>
+                <button onClick={() => setProfileOpen(false)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fechar perfil"><X className="h-5 w-5" /></button>
+              </div>
+              <div className="space-y-4 p-5">
+                <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                  <p><span className="text-muted-foreground">Função:</span> <span className="capitalize font-medium">{user?.role}</span></p>
+                  <p className="mt-1 text-xs text-muted-foreground">Use a troca de usuário ao encerrar o turno. A tela volta ao login e as ocorrências abertas permanecem na fila.</p>
+                </div>
+                <div className="border-t border-border pt-4">
+                  <p className="mb-3 flex items-center gap-2 text-sm font-semibold"><KeyRound className="h-4 w-4 text-primary" /> Alterar senha</p>
+                  <div className="space-y-3">
+                    <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Senha atual" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                    <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Nova senha (mínimo 6 caracteres)" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                    <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirmar nova senha" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+                <Button variant="outline" onClick={() => setProfileOpen(false)}>Cancelar</Button>
+                <Button onClick={() => void saveOwnPassword()} disabled={changeOwnPasswordMut.isPending}>{changeOwnPasswordMut.isPending ? "Salvando..." : "Salvar senha"}</Button>
+              </div>
+            </div>
+          </div>
+        )}
         <div
           className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => {
