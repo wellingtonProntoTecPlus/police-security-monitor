@@ -609,6 +609,41 @@ export async function putSystemIncidentsInMaintenance(input: { systemId: number;
   ));
 }
 
+export async function ensureMaintenanceIncident(input: { systemId: number; endAt: Date; notes: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const existing = await db.select({ id: incidents.id }).from(incidents).where(and(
+    eq(incidents.alarmSystemId, input.systemId),
+    eq(incidents.status, "maintenance"),
+  )).limit(1);
+  if (existing[0]) return existing[0];
+
+  const system = (await db.select().from(alarmSystems).where(eq(alarmSystems.id, input.systemId)).limit(1))[0];
+  if (!system) throw new Error("Sistema de alarme não encontrado");
+  const saved = await createAlarmEventWithOpenIncident({
+    event: {
+      alarmSystemId: system.id,
+      account: system.account,
+      brand: system.brand,
+      qualifier: "E",
+      eventCode: "MAINTENANCE",
+      description: "Sistema em manutenção",
+      priority: "low",
+      receiverPort: system.receiverPort || null,
+      remoteIp: "SYSTEM",
+      rawData: `Manutenção operacional até ${input.endAt.toISOString()}`,
+    },
+    incident: {
+      alarmSystemId: system.id,
+      clientId: system.clientId,
+      status: "maintenance",
+      priority: "low",
+      notes: input.notes,
+    },
+  });
+  return { id: saved.incidentId };
+}
+
 export async function releaseMaintenanceIncidents(systemId: number, message: string) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");

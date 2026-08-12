@@ -315,3 +315,14 @@
 - [x] Buscar e mostrar o cliente e sistema ao informar a Conta Contact ID
 - [x] Corrigir a gravação de evento e incidente ao criar ocorrência manual
 - [x] Cobrir em testes a ocorrência manual associada a uma conta cadastrada
+
+## Eventos Recebidos sem Fila
+- [ ] Identificar por que eventos recebidos atualizam status, mas não criam ocorrência na fila
+- [ ] Restaurar a abertura de ocorrência para eventos que exigem atendimento
+- [ ] Validar na VPS o recebimento e a exibição de eventos reais após a correção
+
+## Visibilidade de Filas Operacionais
+- [x] Manter a ocorrência que iniciou a manutenção visível na fila Em Manutenção
+- [ ] Manter ocorrências em observação visíveis na fila Em Observação até o prazo ou ação do operador
+- [ ] Garantir que eventos novos finalizados por manutenção não substituam a ocorrência de manutenção na fila
+- [x] Criar um card de manutenção persistente quando o sistema não tiver incidente aberto
