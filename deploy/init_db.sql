@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS occurrences (
 
 CREATE TABLE IF NOT EXISTS incidents (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  alarmEventId INT,
+  eventId INT,
   alarmSystemId INT,
   clientId INT,
   operatorId INT,

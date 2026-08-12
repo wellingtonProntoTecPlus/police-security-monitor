@@ -335,3 +335,8 @@
 ## Card Imediato de Manutenção
 - [x] Criar o card de manutenção diretamente na confirmação da programação
 - [x] Atualizar a fila local para mostrar o card sem depender de recarregamento
+
+## Diagnóstico de Manutenção sem Card
+- [x] Inspecionar os registros de sistema e incidentes ativos para a Conta 0001
+- [ ] Corrigir a condição que impede o card persistido de aparecer na fila
+- [x] Compatibilizar a criação do card com os nomes de colunas existentes na VPS

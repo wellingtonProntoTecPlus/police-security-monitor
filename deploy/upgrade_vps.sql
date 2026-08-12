@@ -4,6 +4,32 @@
 
 SET @schema_name = DATABASE();
 
+-- Compatibilidade com instalações antigas que usavam alarmEventId.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE incidents ADD COLUMN eventId INT NULL AFTER id',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'incidents' AND COLUMN_NAME = 'eventId'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @legacy_event_id_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'incidents' AND COLUMN_NAME = 'alarmEventId'
+);
+SET @statement = IF(
+  @legacy_event_id_exists > 0,
+  'UPDATE incidents SET eventId = alarmEventId WHERE eventId IS NULL',
+  'SELECT 1'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Coluna de criação usada ao finalizar ocorrências.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
