@@ -13,6 +13,7 @@ import {
   alarmEvents, InsertAlarmEvent,
   incidents, InsertIncident,
   contactIdCodes,
+  systemTechnicalAccounts,
 } from "../drizzle/schema";
 import {
   alarmPgms, InsertAlarmPgm,
@@ -258,8 +259,36 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
   if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
   const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
-  if (scoped[0]) return scoped[0];
-  return getAlarmSystemByAccount(normalizedAccount);
+  const found = scoped[0] || await getAlarmSystemByAccount(normalizedAccount);
+  if (!found) return undefined;
+
+  const now = new Date();
+  await db.update(alarmSystems).set({ isOnline: true, lastCommunication: now }).where(eq(alarmSystems.id, found.id));
+  return { ...found, isOnline: true, lastCommunication: now };
+}
+
+export async function listSystemsConnectionStatus() {
+  const systems = await listAlarmSystems();
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  return systems.map((system) => ({
+    ...system,
+    connectionStatus: Boolean(system.isOnline && system.lastCommunication && system.lastCommunication >= cutoff) ? "online" : "offline",
+  }));
+}
+
+export async function ensureSystemTechnicalAccount() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const existing = await db.select().from(systemTechnicalAccounts).where(eq(systemTechnicalAccounts.account, "0000")).limit(1);
+  if (existing[0]) return existing[0];
+  await db.insert(systemTechnicalAccounts).values({
+    account: "0000",
+    name: "Conta do Sistema",
+    description: "Conta técnica para eventos recebidos sem identificação de cliente ou de central cadastrada.",
+    isActive: true,
+  });
+  const created = await db.select().from(systemTechnicalAccounts).where(eq(systemTechnicalAccounts.account, "0000")).limit(1);
+  return created[0];
 }
 
 function normalizePanelIdentifier(value: string) {
@@ -435,6 +464,18 @@ export async function listIncidents(status?: string) {
     return db.select().from(incidents).where(eq(incidents.status, status as any)).orderBy(desc(incidents.createdAt));
   }
   return db.select().from(incidents).orderBy(desc(incidents.createdAt)).limit(100);
+}
+
+export async function listOpenQueueEvents() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ incident: incidents, event: alarmEvents })
+    .from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]))
+    .orderBy(desc(alarmEvents.receivedAt));
+  return rows.map(({ incident, event }) => ({ ...event, incidentId: incident.id, incidentStatus: incident.status }));
 }
 
 export async function updateIncident(id: number, data: Partial<InsertIncident>) {

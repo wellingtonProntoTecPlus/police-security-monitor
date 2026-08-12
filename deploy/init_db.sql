@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS incidents (
   alarmSystemId INT,
   clientId INT,
   operatorId INT,
-  status ENUM('waiting','attending','observing','dispatched','closed') NOT NULL DEFAULT 'waiting',
+  status ENUM('waiting','attending','observing','dispatched','maintenance','closed') NOT NULL DEFAULT 'waiting',
   priority ENUM('critical','high','medium','low') DEFAULT 'medium',
   notes TEXT,
   resolution TEXT,
@@ -285,6 +285,18 @@ CREATE TABLE IF NOT EXISTS finalizations (
   isActive TINYINT(1) NOT NULL DEFAULT 1,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS system_technical_accounts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  account VARCHAR(10) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  isActive TINYINT(1) NOT NULL DEFAULT 1,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO system_technical_accounts (account, name, description, isActive)
+VALUES ('0000', 'Conta do Sistema', 'Conta técnica para eventos recebidos sem identificação de cliente ou de central cadastrada.', 1);
 
 -- Códigos universais Contact ID
 INSERT IGNORE INTO contact_id_codes (code, qualifier, fabricante, isUniversal, description, tipo, cor, abre_tela, fecha_automatico, fecha_com_restauracao, codigo_restauracao, tempo_espera_segundos, prioridade, category, priority)

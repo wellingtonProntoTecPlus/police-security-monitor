@@ -44,6 +44,8 @@ DEALLOCATE PREPARE migration_statement;
 
 ALTER TABLE users MODIFY COLUMN role ENUM('user','admin','supervisor','operator','partner') NOT NULL DEFAULT 'operator';
 
+ALTER TABLE incidents MODIFY COLUMN status ENUM('waiting','attending','observing','dispatched','maintenance','closed') NOT NULL DEFAULT 'waiting';
+
 -- Colunas dos contatos utilizadas pelo cadastro atualizado.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
@@ -157,3 +159,15 @@ EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
 SELECT 'Atualização de schema concluída sem apagar dados.' AS resultado;
+
+CREATE TABLE IF NOT EXISTS system_technical_accounts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  account VARCHAR(10) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  isActive TINYINT(1) NOT NULL DEFAULT 1,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO system_technical_accounts (account, name, description, isActive)
+VALUES ('0000', 'Conta do Sistema', 'Conta técnica para eventos recebidos sem identificação de cliente ou de central cadastrada.', 1);

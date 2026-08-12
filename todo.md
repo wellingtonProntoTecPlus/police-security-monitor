@@ -235,10 +235,31 @@
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb
 
 ## Finalização Automática de Ocorrências
-- [ ] Finalizar e registrar apenas em Relatórios os eventos configurados para não abrir atendimento
-- [ ] Finalizar a ocorrência aberta ao receber a restauração correspondente
-- [ ] Registrar as descrições “Finalizada automaticamente” e “Finalizado com a restauração do evento” nos dois fluxos
+- [x] Finalizar e registrar apenas em Relatórios os eventos configurados para não abrir atendimento
+- [x] Finalizar a ocorrência aberta ao receber a restauração correspondente
+- [x] Registrar as descrições “Finalizada automaticamente” e “Finalizado com a restauração do evento” nos dois fluxos
 
 ## Alerta Sonoro Operacional
-- [ ] Garantir áudio audível ao entrar novo evento na fila Aguardando
-- [ ] Orientar a ativação inicial de áudio exigida pelos navegadores
+- [x] Garantir áudio audível ao entrar novo evento na fila Aguardando
+- [x] Orientar a ativação inicial de áudio exigida pelos navegadores
+
+## Ações Operacionais do Dashboard
+- [x] Permitir finalizar em massa os eventos pendentes de um mesmo cliente
+- [x] Tornar funcional o botão de Ocorrência Manual
+- [x] Exibir em janela as centrais online ao clicar no botão Online
+- [x] Exibir em janela as centrais offline ao clicar no botão Offline
+
+## Conta Técnica do Sistema
+- [x] Criar e manter a Conta do Sistema 0000 para eventos sem conta ou de central não cadastrada
+- [x] Direcionar para a Conta do Sistema 0000 os eventos recebidos sem identificação de cliente
+
+## Validação Operacional na VPS
+- [ ] Validar em eventos reais o áudio, finalização automática, finalização em massa, ocorrência manual, status Online/Offline e Conta do Sistema 0000
+- [ ] Confirmar no relatório a persistência da finalização por restauração com a frase exigida
+- [x] Persistir a Ocorrência Manual no backend no momento de sua criação
+- [x] Persistir formalmente a Conta do Sistema 0000 como conta técnica independente de clientes
+- [ ] Testar os modais Online e Offline com comunicação real de centrais na VPS
+- [x] Reconstruir as filas do dashboard a partir dos incidentes e status persistidos após recarregar a página
+- [x] Persistir o status Manutenção de forma reversível nas filas do dashboard
+- [ ] Validar na VPS o recarregamento das filas Aguardando, Atendimento, Observação, Tático e Manutenção
+- [ ] Validar na VPS a criação, o atendimento, a finalização e a presença da Ocorrência Manual no relatório

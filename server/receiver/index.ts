@@ -4,8 +4,9 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAutomaticIncident, createOccurrence, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription } from '../db';
+import { createAlarmEvent, createIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
+import { resolveSystemAccount } from './systemAccount';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -277,6 +278,15 @@ async function processEvent(evento: any, remoteIp: string) {
       console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);
     }
 
+    const accountResolution = resolveSystemAccount(evento.account, Boolean(system));
+    const receivedAccount = accountResolution.receivedAccount;
+    const effectiveAccount = accountResolution.account;
+    if (accountResolution.isSystemAccount) {
+      await ensureSystemTechnicalAccount();
+      clientName = "CONTA DO SISTEMA (0000)";
+      description = `CENTRAL NÃO CADASTRADA${receivedAccount ? ` — conta recebida ${receivedAccount}` : " — sem conta recebida"}: ${description}`;
+    }
+
     const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
     const shouldOpenAttendance = automaticAction !== "report_only";
     const shouldCloseWithRestoration = automaticAction === "track_for_restoration";
@@ -287,7 +297,7 @@ async function processEvent(evento: any, remoteIp: string) {
     try {
       savedEvent = await createAlarmEvent({
         alarmSystemId: system?.id || null,
-        account: evento.account,
+        account: effectiveAccount,
         brand: evento.brand,
         qualifier: evento.qualifier,
         eventCode: evento.eventCode,
@@ -297,7 +307,7 @@ async function processEvent(evento: any, remoteIp: string) {
         priority: priority as any,
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
-        rawData: evento.rawData,
+        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}`,
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       });
@@ -305,9 +315,25 @@ async function processEvent(evento: any, remoteIp: string) {
       console.warn(`[RECIP] Erro ao salvar evento no banco: ${e.message}`);
     }
 
+    let incident: { id: number } | null = null;
+    if (shouldOpenAttendance) {
+      try {
+        incident = await createIncident({
+          eventId: savedEvent.id,
+          alarmSystemId: system?.id || null,
+          clientId: system?.clientId || null,
+          status: "waiting",
+          priority: priority as "critical" | "high" | "medium" | "low",
+          notes: "Evento recebido e aguardando atendimento",
+        });
+      } catch (e: any) {
+        console.warn(`[RECIP] Erro ao criar incidente: ${e.message}`);
+      }
+    }
+
     if (!shouldOpenAttendance) {
       await createOccurrence({
-        account: evento.account,
+        account: effectiveAccount,
         eventCode: evento.eventCode,
         qualifier: evento.qualifier,
         partition: evento.partition,
@@ -323,12 +349,12 @@ async function processEvent(evento: any, remoteIp: string) {
         attendingTimeMs: 0,
         eventReceivedAt: new Date(),
       });
-      console.log(`[RECIP] ${evento.brand} | Conta ${evento.account} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
+      console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
       return;
     }
 
     if (automaticAction === "try_restoration") {
-      const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: evento.account, restorationCode: evento.eventCode });
+      const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: effectiveAccount, restorationCode: evento.eventCode });
       if (pending) {
         await finalizeIncidentWithRestoration(pending);
         if (eventCallback) {
@@ -336,7 +362,7 @@ async function processEvent(evento: any, remoteIp: string) {
             id: savedEvent.id,
             kind: "restoration_closed",
             originalEventId: pending.event.id,
-            account: evento.account,
+            account: effectiveAccount,
             brand: evento.brand,
             qualifier: evento.qualifier,
             eventCode: evento.eventCode,
@@ -346,18 +372,9 @@ async function processEvent(evento: any, remoteIp: string) {
             timestamp: new Date().toISOString(),
           });
         }
-        console.log(`[RECIP] ${evento.brand} | Conta ${evento.account} | ${evento.qualifier}${evento.eventCode} | Finalizado com a restauração do evento`);
+        console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | Finalizado com a restauração do evento`);
         return;
       }
-    }
-
-    if (shouldCloseWithRestoration) {
-      await createAutomaticIncident({
-        eventId: savedEvent.id,
-        alarmSystemId: system?.id,
-        clientId: system?.clientId,
-        priority: priority as "critical" | "high" | "medium" | "low",
-      });
     }
 
     // Emitir para o dashboard via callback
@@ -365,17 +382,19 @@ async function processEvent(evento: any, remoteIp: string) {
       eventCallback({
         id: savedEvent.id,
         ...evento,
+        account: effectiveAccount,
         description,
         priority,
         clientName: system ? undefined : clientName,
         clientId: system?.clientId,
         alarmSystemId: system?.id,
+        incidentId: incident?.id,
         remoteIp: remoteIp.replace('::ffff:', ''),
         timestamp: new Date().toISOString(),
       });
     }
 
-    console.log(`[RECIP] ${evento.brand} | Conta ${evento.account} | ${evento.qualifier}${evento.eventCode} | ${description}`);
+    console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${description}`);
   } catch (err: any) {
     console.error('[RECIP] Erro ao processar evento:', err.message);
   }

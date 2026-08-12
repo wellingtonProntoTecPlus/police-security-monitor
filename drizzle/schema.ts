@@ -229,6 +229,21 @@ export type AlarmEvent = typeof alarmEvents.$inferSelect;
 export type InsertAlarmEvent = typeof alarmEvents.$inferInsert;
 
 // ============================================================
+// CONTAS TÉCNICAS DO SISTEMA
+// ============================================================
+export const systemTechnicalAccounts = mysqlTable("system_technical_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  account: varchar("account", { length: 10 }).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SystemTechnicalAccount = typeof systemTechnicalAccounts.$inferSelect;
+export type InsertSystemTechnicalAccount = typeof systemTechnicalAccounts.$inferInsert;
+
+// ============================================================
 // OCORRÊNCIAS (Atendimento)
 // ============================================================
 export const incidents = mysqlTable("incidents", {
@@ -237,7 +252,7 @@ export const incidents = mysqlTable("incidents", {
   alarmSystemId: int("alarmSystemId"),
   clientId: int("clientId"),
   operatorId: int("operatorId"),
-  status: mysqlEnum("status", ["waiting", "attending", "observing", "dispatched", "closed"]).default("waiting").notNull(),
+  status: mysqlEnum("status", ["waiting", "attending", "observing", "dispatched", "maintenance", "closed"]).default("waiting").notNull(),
   priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium").notNull(),
   notes: text("notes"),
   resolution: text("resolution"),

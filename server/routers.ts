@@ -411,6 +411,39 @@ export const appRouter = router({
   alarmEvent: router({
     list: operatorProcedure.input(z.object({ limit: z.number().optional(), offset: z.number().optional() }).optional()).query(({ input }) => db.listAlarmEvents(input?.limit, input?.offset)),
     recent: operatorProcedure.input(z.object({ minutes: z.number().optional() }).optional()).query(({ input }) => db.getRecentEvents(input?.minutes)),
+    createManual: operatorProcedure.input(z.object({
+      account: z.string().min(1).max(10),
+      alarmSystemId: z.number().optional(),
+      clientId: z.number().optional(),
+      brand: z.string().min(1).max(50),
+      description: z.string().min(1).max(2000),
+      priority: z.enum(["critical", "high", "medium", "low"]),
+      receiverPort: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      const event = await db.createAlarmEvent({
+        account: input.account,
+        alarmSystemId: input.alarmSystemId || null,
+        brand: input.brand,
+        qualifier: "E",
+        eventCode: "MANUAL",
+        description: input.description,
+        priority: input.priority,
+        receiverPort: input.receiverPort || null,
+        remoteIp: "MANUAL",
+        rawData: "Ocorrência criada manualmente pelo operador",
+      });
+      await db.createIncident({
+        eventId: event.id,
+        alarmSystemId: input.alarmSystemId || null,
+        clientId: input.clientId || null,
+        status: "waiting",
+        priority: input.priority,
+        notes: "Ocorrência manual criada pelo operador",
+      });
+      const incident = await db.listIncidents("waiting");
+      const createdIncident = incident.find((item) => item.eventId === event.id);
+      return { ...event, incidentId: createdIncident?.id, incidentStatus: "waiting" as const };
+    }),
   }),
 
   // ============================================================
@@ -418,6 +451,7 @@ export const appRouter = router({
   // ============================================================
   incident: router({
     list: operatorProcedure.input(z.object({ status: z.string().optional() }).optional()).query(({ input }) => db.listIncidents(input?.status)),
+    openQueue: operatorProcedure.query(() => db.listOpenQueueEvents()),
     get: operatorProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getIncident(input.id)),
     create: operatorProcedure.input(z.object({
       eventId: z.number(),
@@ -428,7 +462,7 @@ export const appRouter = router({
     })).mutation(({ input, ctx }) => db.createIncident({ ...input, operatorId: ctx.user?.id || undefined })),
     update: operatorProcedure.input(z.object({
       id: z.number(),
-      status: z.enum(["waiting", "attending", "observing", "dispatched", "closed"]).optional(),
+      status: z.enum(["waiting", "attending", "observing", "dispatched", "maintenance", "closed"]).optional(),
       notes: z.string().optional(),
       resolution: z.string().optional(),
       operatorId: z.number().optional(),
@@ -489,6 +523,7 @@ export const appRouter = router({
   dashboard: router({
     stats: operatorProcedure.query(() => db.getDashboardStats()),
     armDisarmStatus: operatorProcedure.query(() => db.getArmDisarmStatus()),
+    connectionStatus: operatorProcedure.query(() => db.listSystemsConnectionStatus()),
   }),
   alarmPgm: router({
     list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {

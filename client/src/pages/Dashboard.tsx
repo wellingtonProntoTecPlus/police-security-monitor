@@ -21,6 +21,7 @@ type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "mainten
 
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
+  incidentId?: number;
   queueStatus: QueueStatus;
   queuedAt: number;
   clientName?: string;
@@ -72,6 +73,20 @@ const PRIORITY_BORDER: Record<string, string> = {
   low: "border-l-green-500",
 };
 
+function incidentStatusToQueueStatus(status?: string): QueueStatus {
+  if (status === "attending") return "attending";
+  if (status === "observing") return "observing";
+  if (status === "dispatched") return "tactical";
+  if (status === "maintenance") return "maintenance";
+  return "waiting";
+}
+
+function queueStatusToIncidentStatus(status: QueueStatus) {
+  if (status === "tactical") return "dispatched" as const;
+  if (status === "maintenance") return "maintenance" as const;
+  return status as "waiting" | "attending" | "observing";
+}
+
 // Cronômetro
 function Timer({ startTime }: { startTime: number }) {
   const [elapsed, setElapsed] = useState(0);
@@ -106,6 +121,12 @@ export default function Dashboard() {
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
+  const [connectionStatusModal, setConnectionStatusModal] = useState<'online' | 'offline' | null>(null);
+  const [manualOccurrenceOpen, setManualOccurrenceOpen] = useState(false);
+  const [manualAccount, setManualAccount] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualPriority, setManualPriority] = useState<"critical" | "high" | "medium" | "low">("medium");
+  const [bulkFinalizeOpen, setBulkFinalizeOpen] = useState(false);
   const [alertPlaying, setAlertPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioActivationNeeded, setAudioActivationNeeded] = useState(true);
@@ -118,16 +139,22 @@ export default function Dashboard() {
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
+  const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
+  const updateIncidentMut = trpc.incident.update.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
 
   const { connected, realtimeEvents } = useSocket();
 
   // Queries
-  const { data: dbEvents = [] } = trpc.alarmEvent.list.useQuery({ limit: 50 }, { refetchInterval: 15000 });
+  const { data: persistedQueue = [], isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, { refetchInterval: 15000 });
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: connectionSystems = [] } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
+
+  const onlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "online"), [connectionSystems]);
+  const offlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "offline"), [connectionSystems]);
 
   // Processar novos eventos em tempo real
   useEffect(() => {
@@ -153,7 +180,7 @@ export default function Dashboard() {
           ...ev,
           queueStatus: "waiting",
           queuedAt: Date.now(),
-          clientName: client ? (client.fantasyName || client.name) : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : 'CONTA NÃO CADASTRADA'),
+          clientName: client ? (client.fantasyName || client.name) : (ev.account === "0000" ? "CONTA DO SISTEMA (0000)" : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : "CONTA DO SISTEMA (0000)")),
           systemModel: system ? `${system.brand} ${system.model || ''}`.trim() : ev.brand,
           description: ev.description || 'EVENTO NÃO CADASTRADO',
         });
@@ -166,26 +193,26 @@ export default function Dashboard() {
     }
   }, [realtimeEvents, clientData, systemData]);
 
-  // Carregar eventos do banco na inicialização
+  // Reconstruir filas pelo status persistido dos incidentes após recarregar a página.
   useEffect(() => {
-    if (dbEvents.length > 0 && queues.length === 0) {
-      const initial: QueueEvent[] = dbEvents.filter((ev: any) => !ev.autoFinalized).map((ev: any) => {
+    if (!isPersistedQueueLoading && queues.length === 0) {
+      const initial: QueueEvent[] = persistedQueue.map((ev: any) => {
         const system = (systemData || []).find((s: any) => s.account === ev.account);
         const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
         const evKey = `${ev.account}-${ev.eventCode}-${ev.receivedAt}`;
         processedIds.current.add(evKey);
         return {
           ...ev,
-          queueStatus: "waiting" as QueueStatus,
+          queueStatus: incidentStatusToQueueStatus(ev.incidentStatus),
           queuedAt: new Date(ev.receivedAt).getTime(),
-          clientName: client ? (client.fantasyName || client.name) : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : 'CONTA NÃO CADASTRADA'),
+          clientName: client ? (client.fantasyName || client.name) : (ev.account === "0000" ? "CONTA DO SISTEMA (0000)" : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : "CONTA DO SISTEMA (0000)")),
           systemModel: system ? `${system.brand} ${system.model || ''}`.trim() : ev.brand,
           description: ev.description || 'EVENTO NÃO CADASTRADO',
         };
       });
       setQueues(initial);
     }
-  }, [dbEvents, clientData, systemData]);
+  }, [persistedQueue, isPersistedQueueLoading, clientData, systemData, queues.length]);
 
   // Função para tocar som de alerta por 5 segundos
   function startAlertSound() {
@@ -305,7 +332,10 @@ export default function Dashboard() {
     if (selectedEvent && selectedEvent.queuedAt === ev.queuedAt && selectedEvent.account === ev.account) {
       setSelectedEvent({ ...ev, queueStatus: newStatus });
     }
-  }, [selectedEvent]);
+    if (ev.incidentId) {
+      updateIncidentMut.mutate({ id: ev.incidentId, status: queueStatusToIncidentStatus(newStatus) });
+    }
+  }, [selectedEvent, updateIncidentMut]);
 
   // Finalizar evento
   // finalizeEvent definido abaixo de selectedClient/selectedSystem
@@ -391,6 +421,9 @@ export default function Dashboard() {
       startedAt: new Date(attendStartTime),
     }, {
       onSuccess: () => {
+        if (ev.incidentId) {
+          updateIncidentMut.mutate({ id: ev.incidentId, status: "closed", resolution: attendingNotes });
+        }
         setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
         setSelectedEvent(null);
         setAttendingNotes("");
@@ -403,7 +436,104 @@ export default function Dashboard() {
         toast.error("Erro ao salvar ocorrência: " + err.message);
       }
     });
-  }, [logs, attendStartTime, attendingNotes, selectedClient, selectedSystem, user, sendEmail, sendPush]);
+  }, [logs, attendStartTime, attendingNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, updateIncidentMut]);
+
+  const finalizeSameClientEvents = async (ev: QueueEvent) => {
+    if (!attendingNotes.trim()) {
+      toast.error("Preencha a descrição antes de finalizar os eventos em massa!");
+      return;
+    }
+    const relatedEvents = queues.filter((item) => item.account === ev.account);
+    if (relatedEvents.length < 2) {
+      toast.info("Não há outros eventos pendentes para esta conta.");
+      return;
+    }
+
+    const finalizedAt = new Date();
+    try {
+      await Promise.all(relatedEvents.flatMap((item) => [createOccurrenceMut.mutateAsync({
+        account: item.account,
+        eventCode: item.eventCode,
+        qualifier: item.qualifier || undefined,
+        partition: item.partition || undefined,
+        zoneUser: item.zoneUser || undefined,
+        description: item.description || undefined,
+        priority: item.priority || undefined,
+        brand: item.brand || item.systemModel || undefined,
+        clientId: selectedClient?.id || undefined,
+        clientName: item.clientName || undefined,
+        systemId: selectedSystem?.id || undefined,
+        partnerCompanyId: (selectedClient as any)?.partnerCompanyId || undefined,
+        operatorId: user?.id || undefined,
+        operatorName: user?.name || undefined,
+        observations: attendingNotes,
+        logs: JSON.stringify([`[${finalizedAt.toLocaleTimeString("pt-BR")}] Finalização em massa: ${relatedEvents.length} eventos da mesma conta`]),
+        attendingTimeMs: Math.max(0, finalizedAt.getTime() - attendStartTime),
+        sendEmail,
+        sendPush,
+        startedAt: new Date(attendStartTime),
+      }), ...(item.incidentId ? [updateIncidentMut.mutateAsync({ id: item.incidentId, status: "closed", resolution: attendingNotes })] : [])]));
+      setQueues((previous) => previous.filter((item) => item.account !== ev.account));
+      setSelectedEvent(null);
+      setAttendingNotes("");
+      setLogs([]);
+      setBulkFinalizeOpen(false);
+      toast.success(`${relatedEvents.length} eventos da conta ${ev.account} foram finalizados.`);
+    } catch (error: any) {
+      toast.error("Não foi possível finalizar todos os eventos: " + error.message);
+    }
+  };
+
+  async function createManualOccurrence() {
+    if (!manualDescription.trim()) {
+      toast.error("Informe a descrição da ocorrência manual.");
+      return;
+    }
+    const system = (systemData || []).find((item: any) => item.account === manualAccount);
+    const client = system ? (clientData || []).find((item: any) => item.id === system.clientId) : null;
+    const now = Date.now();
+    try {
+      const saved = await createManualEventMut.mutateAsync({
+        account: manualAccount || "0000",
+        alarmSystemId: system?.id,
+        clientId: client?.id,
+        brand: system?.brand || "MANUAL",
+        description: manualDescription.trim(),
+        priority: manualPriority,
+        receiverPort: system?.receiverPort || undefined,
+      });
+      const event: QueueEvent = {
+      id: saved.id || now,
+      incidentId: saved.incidentId,
+      account: manualAccount || "0000",
+      brand: system?.brand || "MANUAL",
+      qualifier: "E",
+      eventCode: "MANUAL",
+      partition: "",
+      zoneUser: "",
+      description: manualDescription.trim(),
+      priority: manualPriority,
+      remoteIp: "",
+      receiverPort: system?.receiverPort || 0,
+      timestamp: new Date(now).toISOString(),
+      alarmSystemId: system?.id,
+      clientId: client?.id,
+      clientName: client ? (client.fantasyName || client.name) : (manualAccount ? `CONTA NÃO CADASTRADA (${manualAccount})` : "CONTA DO SISTEMA (0000)"),
+      systemModel: system ? `${system.brand} ${system.model || ""}`.trim() : "OCORRÊNCIA MANUAL",
+      queueStatus: "waiting",
+      queuedAt: now,
+    };
+      setQueues((previous) => [event, ...previous]);
+      setManualOccurrenceOpen(false);
+      setManualAccount("");
+      setManualDescription("");
+      setManualPriority("medium");
+      startAlertSound();
+      toast.success("Ocorrência manual criada e salva na fila Aguardando.");
+    } catch (error: any) {
+      toast.error("Não foi possível criar a ocorrência manual: " + error.message);
+    }
+  }
 
   // Card do evento
   function EventCard({ ev }: { ev: QueueEvent }) {
@@ -495,7 +625,7 @@ export default function Dashboard() {
       <div className="flex flex-col h-[calc(100vh-1px)] overflow-hidden">
         {/* TOP BAR - Botões de Status */}
         <div className="h-12 min-h-12 border-b border-border bg-card flex items-center justify-between px-4">
-          <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={() => toast.info("Ocorrência Manual")}>
+          <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={() => setManualOccurrenceOpen(true)}>
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
           </Button>
           <div className="flex items-center gap-2">
@@ -519,11 +649,11 @@ export default function Dashboard() {
             <Button variant="outline" size="sm" className="border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => setArmDisarmModal('armed')}>
               <Shield className="h-3.5 w-3.5 mr-1" /> Armados ({armDisarmData?.armed?.length || 0})
             </Button>
-            <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white font-bold">
-              <Wifi className="h-3.5 w-3.5 mr-1" /> Online
+            <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white font-bold" onClick={() => setConnectionStatusModal("online")}>
+              <Wifi className="h-3.5 w-3.5 mr-1" /> Online ({onlineSystems.length})
             </Button>
-            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white font-bold">
-              <WifiOff className="h-3.5 w-3.5 mr-1" /> Offline
+            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white font-bold" onClick={() => setConnectionStatusModal("offline")}>
+              <WifiOff className="h-3.5 w-3.5 mr-1" /> Offline ({offlineSystems.length})
             </Button>
           </div>
         </div>
@@ -623,6 +753,11 @@ export default function Dashboard() {
                       <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(selectedEvent)}>
                         Finalizar
                       </Button>
+                      {queues.filter((item) => item.account === selectedEvent.account).length > 1 && (
+                        <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>
+                          Finalizar em massa ({queues.filter((item) => item.account === selectedEvent.account).length})
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => setSelectedFinalization("open")}>
                         Finalização Rápida
                       </Button>
@@ -774,6 +909,96 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Ocorrência Manual */}
+      {manualOccurrenceOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center" onClick={() => setManualOccurrenceOpen(false)}>
+          <div className="bg-card border border-border rounded-lg w-[480px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-lg text-foreground">Nova Ocorrência Manual</h3>
+                <p className="text-xs text-muted-foreground">Cria uma ocorrência diretamente na fila Aguardando.</p>
+              </div>
+              <button onClick={() => setManualOccurrenceOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <label className="block text-xs font-medium text-muted-foreground">
+                Conta / Cliente
+                <select value={manualAccount} onChange={(event) => setManualAccount(event.target.value)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground">
+                  <option value="">Conta do Sistema (0000)</option>
+                  {(systemData || []).map((system: any) => {
+                    const client = (clientData || []).find((item: any) => item.id === system.clientId);
+                    return <option key={system.id} value={system.account}>{system.account} — {client?.fantasyName || client?.name || system.brand}</option>;
+                  })}
+                </select>
+              </label>
+              <label className="block text-xs font-medium text-muted-foreground">
+                Prioridade
+                <select value={manualPriority} onChange={(event) => setManualPriority(event.target.value as typeof manualPriority)} className="mt-1 w-full h-9 rounded border border-border bg-background px-2 text-sm text-foreground">
+                  <option value="critical">Crítica</option>
+                  <option value="high">Alta</option>
+                  <option value="medium">Média</option>
+                  <option value="low">Baixa</option>
+                </select>
+              </label>
+              <Textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Descreva a ocorrência manual..." className="min-h-[100px]" />
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setManualOccurrenceOpen(false)}>Cancelar</Button>
+                <Button className="bg-yellow-600 hover:bg-yellow-700" onClick={createManualOccurrence}><Plus className="h-4 w-4 mr-1" /> Criar ocorrência</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Finalização em massa */}
+      {bulkFinalizeOpen && selectedEvent && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center" onClick={() => setBulkFinalizeOpen(false)}>
+          <div className="bg-card border border-orange-500/40 rounded-lg w-[440px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-lg text-orange-300">Finalizar eventos em massa</h3>
+              <button onClick={() => setBulkFinalizeOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="text-sm text-muted-foreground">Serão finalizados <strong className="text-foreground">{queues.filter((item) => item.account === selectedEvent.account).length} eventos</strong> da conta <strong className="text-foreground">{selectedEvent.account}</strong> com a mesma descrição informada nas observações.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setBulkFinalizeOpen(false)}>Cancelar</Button>
+              <Button className="bg-orange-600 hover:bg-orange-700" onClick={() => finalizeSameClientEvents(selectedEvent)}>Confirmar finalização</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lista de centrais por status */}
+      {connectionStatusModal && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center" onClick={() => setConnectionStatusModal(null)}>
+          <div className="bg-card border border-border rounded-lg w-[560px] max-h-[70vh] overflow-hidden shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className={`px-4 py-3 border-b border-border flex items-center justify-between ${connectionStatusModal === "online" ? "bg-green-500/10" : "bg-red-500/10"}`}>
+              <h3 className={`font-bold ${connectionStatusModal === "online" ? "text-green-400" : "text-red-400"}`}>
+                {connectionStatusModal === "online" ? `Centrais Online (${onlineSystems.length})` : `Centrais Offline (${offlineSystems.length})`}
+              </h3>
+              <button onClick={() => setConnectionStatusModal(null)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="overflow-y-auto max-h-[58vh] p-2">
+              {(connectionStatusModal === "online" ? onlineSystems : offlineSystems).map((system: any) => {
+                const client = (clientData || []).find((item: any) => item.id === system.clientId);
+                return (
+                  <div key={system.id} className="flex items-center justify-between px-3 py-2.5 border-b border-border/50 hover:bg-muted/30">
+                    <div>
+                      <p className="text-sm font-bold text-foreground">{client?.fantasyName || client?.name || "Cliente não identificado"}</p>
+                      <p className="text-xs text-muted-foreground">Conta {system.account} · {system.brand} {system.model || ""} · Porta {system.receiverPort || "não definida"}</p>
+                    </div>
+                    <div className="text-right">
+                      <Badge className={connectionStatusModal === "online" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}>{connectionStatusModal === "online" ? "ONLINE" : "OFFLINE"}</Badge>
+                      <p className="text-[11px] text-muted-foreground mt-1">{system.lastCommunication ? `Última comunicação: ${new Date(system.lastCommunication).toLocaleString("pt-BR")}` : "Sem comunicação registrada"}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              {(connectionStatusModal === "online" ? onlineSystems : offlineSystems).length === 0 && <p className="text-center text-muted-foreground py-8">Nenhuma central encontrada.</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Armados/Desarmados */}
       {armDisarmModal && (
