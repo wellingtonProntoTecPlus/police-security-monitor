@@ -81,6 +81,12 @@
 - [ ] Cadastrar novamente e validar os dois usuários do painel após a atualização da VPS
 - [ ] Reproduzir a criação de usuário do painel com logs da API e identificar a causa real da ausência de inserção em alarm_users
 - [ ] Corrigir o backend de criação e testar uma inserção real em alarm_users
+- [ ] Diagnosticar a nova tentativa de salvamento de usuário do painel que não apareceu na VPS
+- [ ] Corrigir o botão Salvar de Usuários do Painel que não emite sucesso, erro ou estado de salvamento
+- [ ] Sincronizar a VPS com a versão que exibe Conta e Marca no aviso de Usuários do Painel
+- [x] Publicar no GitHub o código atual de Usuários do Painel que ainda não chegou à VPS
+- [x] Enviar o commit 73994a4 diretamente ao remoto github usado pela VPS
+- [ ] Atualizar a tabela alarm_users da VPS para incluir os campos exigidos pelo cadastro atual
 - [x] Campos: Marca, Modelo, Versão da central
 - [x] Tipo de comunicação: Ethernet IP / GPRS / Ambos
 - [x] MAC últimos 6 dígitos (identificação no dashboard)

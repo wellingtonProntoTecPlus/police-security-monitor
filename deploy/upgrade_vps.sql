@@ -126,6 +126,31 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Campos adicionados ao cadastro de usuários programados nas centrais.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_users ADD COLUMN phone VARCHAR(20) NULL AFTER name',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_users' AND COLUMN_NAME = 'phone'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_users ADD COLUMN isActive TINYINT(1) NOT NULL DEFAULT 1 AFTER phone',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_users' AND COLUMN_NAME = 'isActive'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Preserva os contatos já cadastrados: cada contato legado é atribuído ao
 -- primeiro sistema cadastrado do seu cliente. Clientes sem sistema permanecem
 -- sem vínculo até que a primeira central seja criada.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 
 describe("persistência de usuários do painel", () => {
@@ -14,5 +15,11 @@ describe("persistência de usuários do painel", () => {
 
   it("falha se a gravação voltar vinculada a outra central", () => {
     expect(() => verifyPersistedAlarmUser({ id: 8, ...expected, alarmSystemId: 32 }, expected)).toThrow("vínculo diferente");
+  });
+
+  it("mantém a atualização da VPS compatível com telefone e status do usuário", () => {
+    const upgrade = readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN phone VARCHAR(20)");
+    expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN isActive TINYINT(1)");
   });
 });
