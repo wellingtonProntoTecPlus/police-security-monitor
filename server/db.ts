@@ -31,8 +31,15 @@ import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
+import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
+import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+
+/** Exclusivo para testes: permite validar os payloads persistidos sem depender da conexão externa. */
+export function setDbForTesting(db: ReturnType<typeof drizzle> | null) {
+  _db = db;
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -123,6 +130,7 @@ export async function createManagingCompany(data: InsertManagingCompany) {
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== '') cleanData[key] = value;
   }
+  Object.assign(cleanData, formatRegistrationFields(cleanData, ["name", "address", "city"]));
   if (!cleanData.name || !cleanData.cnpj) throw new Error("Nome e CNPJ são obrigatórios");
   const result = await db.insert(managingCompanies).values(cleanData as InsertManagingCompany);
   return { id: result[0].insertId };
@@ -136,6 +144,7 @@ export async function updateManagingCompany(id: number, data: Partial<InsertMana
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined) cleanData[key] = value;
   }
+  Object.assign(cleanData, formatRegistrationFields(cleanData, ["name", "address", "city"]));
   if (Object.keys(cleanData).length === 0) return;
   await db.update(managingCompanies).set(cleanData).where(eq(managingCompanies.id, id));
 }
@@ -167,6 +176,7 @@ export async function createPartnerCompany(data: InsertPartnerCompany) {
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== '') cleanData[key] = value;
   }
+  Object.assign(cleanData, formatRegistrationFields(cleanData, ["name", "address", "city"]));
   if (!cleanData.name || !cleanData.cnpj || !cleanData.managingCompanyId) throw new Error("Nome, CNPJ e Empresa Gestora são obrigatórios");
   const result = await db.insert(partnerCompanies).values(cleanData as InsertPartnerCompany);
   return { id: result[0].insertId };
@@ -180,6 +190,7 @@ export async function updatePartnerCompany(id: number, data: Partial<InsertPartn
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined) cleanData[key] = value;
   }
+  Object.assign(cleanData, formatRegistrationFields(cleanData, ["name", "address", "city"]));
   if (Object.keys(cleanData).length === 0) return;
   await db.update(partnerCompanies).set(cleanData).where(eq(partnerCompanies.id, id));
 }
@@ -196,14 +207,14 @@ export async function listTacticalMobiles(partnerCompanyId: number) {
 export async function createTacticalMobile(data: InsertTacticalMobile) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(tacticalMobiles).values(data);
+  const result = await db.insert(tacticalMobiles).values(formatRegistrationFields(data, ["name", "vehicle"]));
   return { id: result[0].insertId };
 }
 
 export async function updateTacticalMobile(id: number, data: Partial<InsertTacticalMobile>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(tacticalMobiles).set(data).where(eq(tacticalMobiles.id, id));
+  await db.update(tacticalMobiles).set(formatRegistrationFields(data, ["name", "vehicle"])).where(eq(tacticalMobiles.id, id));
 }
 
 export async function deleteTacticalMobile(id: number) {
@@ -234,14 +245,14 @@ export async function getClient(id: number) {
 export async function createClient(data: InsertClient) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(clients).values(data);
+  const result = await db.insert(clients).values(formatRegistrationFields(data, ["name", "fantasyName", "address", "complement", "neighborhood", "city"]));
   return { id: result[0].insertId };
 }
 
 export async function updateClient(id: number, data: Partial<InsertClient>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(clients).set(data).where(eq(clients.id, id));
+  await db.update(clients).set(formatRegistrationFields(data, ["name", "fantasyName", "address", "complement", "neighborhood", "city"])).where(eq(clients.id, id));
 }
 
 // ============================================================
@@ -261,14 +272,14 @@ export async function listClientContacts(clientId: number, alarmSystemId?: numbe
 export async function createClientContact(data: InsertClientContact) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(clientContacts).values(data);
+  const result = await db.insert(clientContacts).values(formatRegistrationFields(data, ["name", "role"]));
   return { id: result[0].insertId };
 }
 
 export async function updateClientContact(id: number, data: Partial<InsertClientContact>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(clientContacts).set(data).where(eq(clientContacts.id, id));
+  await db.update(clientContacts).set(formatRegistrationFields(data, ["name", "role"])).where(eq(clientContacts.id, id));
 }
 
 // ============================================================
@@ -451,8 +462,10 @@ export async function getAlarmSystem(id: number) {
 export async function createAlarmSystem(data: InsertAlarmSystem) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const formattedData = prepareAlarmSystemCreatePayload(data);
   const normalizedData: InsertAlarmSystem = {
-    ...data,
+    ...formattedData,
+    model: formattedData.model ? formatRegistrationText(formattedData.model) : null,
     account: normalizePanelIdentifier(data.account),
     macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null,
     imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null,
@@ -466,8 +479,10 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const current = await getAlarmSystem(id);
+  const formattedData = prepareAlarmSystemCreatePayload(data);
   const normalizedData: Partial<InsertAlarmSystem> = {
-    ...data,
+    ...formattedData,
+    ...(formattedData.model !== undefined ? { model: formattedData.model ? formatRegistrationText(formattedData.model) : null } : {}),
     ...(data.account !== undefined ? { account: normalizePanelIdentifier(data.account) } : {}),
     ...(data.macAddress !== undefined ? { macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null } : {}),
     ...(data.imeiGprs !== undefined ? { imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null } : {}),
@@ -490,7 +505,7 @@ export async function listAlarmZones(alarmSystemId: number) {
 export async function createAlarmZone(data: InsertAlarmZone) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmZones).values(data);
+  const result = await db.insert(alarmZones).values(formatRegistrationFields(data, ["name"]));
   return { id: result[0].insertId };
 }
 
@@ -506,13 +521,14 @@ export async function listAlarmUsers(alarmSystemId: number) {
 export async function createAlarmUser(data: InsertAlarmUser) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmUsers).values(data);
+  const normalizedData = formatRegistrationFields(data, ["name"]);
+  const result = await db.insert(alarmUsers).values(normalizedData);
   const insertedId = Number(result[0].insertId);
   const [saved] = await db.select().from(alarmUsers).where(eq(alarmUsers.id, insertedId)).limit(1);
   return verifyPersistedAlarmUser(saved, {
-    alarmSystemId: data.alarmSystemId,
-    userNumber: data.userNumber,
-    name: data.name,
+    alarmSystemId: normalizedData.alarmSystemId,
+    userNumber: normalizedData.userNumber,
+    name: normalizedData.name,
   });
 }
 
@@ -528,14 +544,58 @@ export async function listCameras(clientId: number) {
 export async function createCamera(data: InsertCamera) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(cameras).values(data);
+  const result = await db.insert(cameras).values(formatRegistrationFields(data, ["name", "location"]));
   return { id: result[0].insertId };
 }
 
 export async function updateCamera(id: number, data: Partial<InsertCamera>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(cameras).set(data).where(eq(cameras.id, id));
+  await db.update(cameras).set(formatRegistrationFields(data, ["name", "location"])).where(eq(cameras.id, id));
+}
+
+/** Padroniza registros antigos de forma idempotente, sem tocar em códigos e identificadores técnicos. */
+export async function normalizeExistingRegistrationText() {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const sources: Array<{ table: any; fields: string[] }> = [
+    { table: managingCompanies, fields: ["name", "address", "city"] },
+    { table: partnerCompanies, fields: ["name", "address", "city"] },
+    { table: tacticalMobiles, fields: ["name", "vehicle"] },
+    { table: clients, fields: ["name", "fantasyName", "address", "complement", "neighborhood", "city"] },
+    { table: clientContacts, fields: ["name", "role"] },
+    { table: alarmSystems, fields: ["model"] },
+    { table: alarmZones, fields: ["name"] },
+    { table: alarmUsers, fields: ["name"] },
+    { table: cameras, fields: ["name", "location"] },
+    { table: alarmPgms, fields: ["name"] },
+    { table: alarmSchedules, fields: ["name"] },
+    { table: clientProcedures, fields: ["title"] },
+    { table: partnerHolidays, fields: ["name"] },
+    { table: users, fields: ["name"] },
+    { table: finalizations, fields: ["title"] },
+  ];
+
+  let updated = 0;
+  for (const source of sources) {
+    const rows = await db.select().from(source.table);
+    for (const row of rows as Array<Record<string, unknown>>) {
+      const changes: Record<string, string> = {};
+      for (const field of source.fields) {
+        const current = row[field];
+        if (typeof current !== "string") continue;
+        const normalized = formatRegistrationText(current) ?? current;
+        if (normalized !== current) changes[field] = normalized;
+      }
+      if (Object.keys(changes).length > 0) {
+        await db.update(source.table).set(changes).where(eq(source.table.id, row.id as number));
+        updated += 1;
+      }
+    }
+  }
+
+  return updated;
 }
 
 // ============================================================
@@ -872,7 +932,7 @@ export async function listAlarmPgms(alarmSystemId: number) {
 export async function createAlarmPgm(data: InsertAlarmPgm) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmPgms).values(data);
+  const result = await db.insert(alarmPgms).values(formatRegistrationFields(data, ["name"]));
   return { id: result[0].insertId };
 }
 
@@ -888,14 +948,14 @@ export async function listAlarmSchedules(alarmSystemId: number) {
 export async function createAlarmSchedule(data: InsertAlarmSchedule) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmSchedules).values(data);
+  const result = await db.insert(alarmSchedules).values(formatRegistrationFields(data, ["name"]));
   return { id: result[0].insertId };
 }
 
 export async function updateAlarmSchedule(id: number, data: Partial<InsertAlarmSchedule>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(alarmSchedules).set(data).where(eq(alarmSchedules.id, id));
+  await db.update(alarmSchedules).set(formatRegistrationFields(data, ["name"])).where(eq(alarmSchedules.id, id));
 }
 
 // ============================================================
@@ -910,7 +970,7 @@ export async function listClientProcedures(clientId: number) {
 export async function createClientProcedure(data: InsertClientProcedure) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(clientProcedures).values(data);
+  const result = await db.insert(clientProcedures).values(prepareClientProcedurePayload(data));
   return { id: result[0].insertId };
 }
 
@@ -926,7 +986,7 @@ export async function listPartnerHolidays(partnerCompanyId: number) {
 export async function createPartnerHoliday(data: InsertPartnerHoliday) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(partnerHolidays).values(data);
+  const result = await db.insert(partnerHolidays).values(formatRegistrationFields(data, ["name"]));
   return { id: result[0].insertId };
 }
 
@@ -939,7 +999,7 @@ export async function deletePartnerHoliday(id: number) {
 export async function updatePartnerHoliday(id: number, data: Partial<InsertPartnerHoliday>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(partnerHolidays).set(data).where(eq(partnerHolidays.id, id));
+  await db.update(partnerHolidays).set(formatRegistrationFields(data, ["name"])).where(eq(partnerHolidays.id, id));
 }
 
 // ============================================================
@@ -1048,7 +1108,7 @@ export async function deleteClientContact(id: number) {
 
 export async function updateAlarmZone(id: number, data: Partial<InsertAlarmZone>) {
   const db = await getDb(); if (!db) return;
-  await db.update(alarmZones).set(data).where(eq(alarmZones.id, id));
+  await db.update(alarmZones).set(formatRegistrationFields(data, ["name"])).where(eq(alarmZones.id, id));
 }
 
 export async function deleteAlarmZone(id: number) {
@@ -1058,7 +1118,7 @@ export async function deleteAlarmZone(id: number) {
 
 export async function updateAlarmUser(id: number, data: Partial<InsertAlarmUser>) {
   const db = await getDb(); if (!db) return;
-  await db.update(alarmUsers).set(data).where(eq(alarmUsers.id, id));
+  await db.update(alarmUsers).set(formatRegistrationFields(data, ["name"])).where(eq(alarmUsers.id, id));
 }
 
 export async function deleteAlarmUser(id: number) {
@@ -1156,7 +1216,7 @@ export async function createSystemUser(data: { name: string; email: string; pass
   const openId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const values: Record<string, any> = {
     openId,
-    name: data.name,
+    name: prepareSystemUserCreatePayload({ name: data.name }).name,
     email: data.email,
     loginMethod: "local",
     role: data.role as any,
@@ -1183,7 +1243,7 @@ export async function updateUserLastSignedIn(userId: number) {
 export async function updateSystemUser(id: number, data: { name?: string; email?: string; password?: string; role?: string; partnerId?: number | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const values = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined && value !== ""));
+  const values = prepareSystemUserCreatePayload(Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined && value !== "")));
   if (Object.keys(values).length === 0) return { success: true };
   await db.update(users).set(values as any).where(eq(users.id, id));
   return { success: true };
@@ -1297,14 +1357,14 @@ export async function listFinalizations() {
 export async function createFinalization(data: InsertFinalization) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(finalizations).values(data);
+  const result = await db.insert(finalizations).values(prepareFinalizationPayload(data));
   return { id: result[0].insertId };
 }
 
 export async function updateFinalization(id: number, data: Partial<InsertFinalization>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(finalizations).set(data).where(eq(finalizations.id, id));
+  await db.update(finalizations).set(prepareFinalizationPayload(data)).where(eq(finalizations.id, id));
 }
 
 export async function deleteFinalization(id: number) {

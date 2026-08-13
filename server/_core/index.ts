@@ -10,6 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startReceivers, setEventCallback } from "../receiver/index";
+import { normalizeExistingRegistrationText } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -83,6 +84,10 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  normalizeExistingRegistrationText()
+    .then((updated) => console.log(`[Cadastros] ${updated} registro(s) padronizado(s) para iniciais maiúsculas`))
+    .catch((error) => console.warn("[Cadastros] Falha não crítica ao padronizar textos:", error));
 
   // Iniciar receptores de alarme Contact ID
   try {

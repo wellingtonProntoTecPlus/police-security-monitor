@@ -26,6 +26,16 @@
 - [x] Tela de cadastro de Empresa Gestora
 - [x] Tela de cadastro de Empresa Parceira (vinculada à gestora)
 - [x] Tela de cadastro de Clientes (PF/PJ, vinculado à parceira)
+- [ ] Padronizar nomes e descrições cadastrais com iniciais maiúsculas, preservando siglas e dados técnicos
+- [x] Aplicar a normalização aos CRUDs restantes, incluindo sistemas, usuários do sistema, finalizações e procedimentos
+- [x] Cobrir em testes os cadastros restantes e a preservação de siglas ou dados técnicos
+- [ ] Validar na VPS a padronização de registros existentes e novos
+- [x] Exercitar em teste integrado os CRUDs de sistemas, usuários do sistema, finalizações e procedimentos
+- [x] Confirmar em teste que MAC, IMEI, ISEP, conta, firmware e códigos não são alterados pelos fluxos de criação e edição
+- [x] Adicionar testes de CRUD que comprovem a normalização antes da persistência em cada cadastro restante
+- [x] Extrair fluxos de gravação testáveis com banco injetado para validar payloads persistidos
+- [x] Cobrir ISEP, firmware e códigos Contact ID nos payloads persistidos dos CRUDs reais
+- [x] Testar a preservação de ISEP na edição de sistema e dos códigos Contact ID na edição real
 - [x] Tela de contatos do cliente (telefone, WhatsApp, e-mail)
 - [x] Tela de sistema de alarme do cliente (central, marca, versão)
 - [x] Tela de setores/zonas do sistema
