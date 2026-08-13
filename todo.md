@@ -321,6 +321,22 @@
 - [ ] Restaurar a abertura de ocorrência para eventos que exigem atendimento
 - [ ] Validar na VPS o recebimento e a exibição de eventos reais após a correção
 
+## Recebimento Operacional Equilibrado
+- [x] Confirmar se o receptor TCP está recebendo novos eventos nas portas configuradas
+- [ ] Garantir que apenas eventos críticos configurados para abrir tela entrem nas filas
+
+## Atualização de Status após Reinício
+- [ ] Verificar por que o desarme da Conta 0001 não atualizou o dashboard
+- [ ] Restaurar a atualização de Armados e Desarmados após reinício do processo
+
+## Persistência Bloqueada de Incidentes
+- [ ] Identificar a restrição da tabela incidents que rejeita os eventos recebidos
+- [ ] Corrigir a gravação de incidentes para Arme, Desarme e alarmes
+
+## Compatibilidade de Colunas de Evento
+- [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico
+- [ ] Preencher alarmEventId junto com eventId em novos incidentes da VPS
+
 ## Visibilidade de Filas Operacionais
 - [x] Manter a ocorrência que iniciou a manutenção visível na fila Em Manutenção
 - [ ] Manter ocorrências em observação visíveis na fila Em Observação até o prazo ou ação do operador

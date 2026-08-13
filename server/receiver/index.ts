@@ -336,7 +336,8 @@ async function processEvent(evento: any, remoteIp: string) {
         savedEvent = await createAlarmEvent(eventData);
       }
     } catch (e: any) {
-      console.error(`[RECIP] Evento não emitido: falha ao persistir evento/incidente: ${e.message}`);
+      const databaseError = e?.cause?.message || e?.cause?.sqlMessage || e?.message;
+      console.error(`[RECIP] Evento não emitido: falha ao persistir evento/incidente: ${databaseError}`);
       return;
     }
 
