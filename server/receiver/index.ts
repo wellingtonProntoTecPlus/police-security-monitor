@@ -7,6 +7,7 @@ import net from 'net';
 import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
+import { formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
 import { resolveSystemAccount } from './systemAccount';
 
 // Configuração dos receptores por marca/porta
@@ -97,7 +98,7 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
     case 0x24: { // EVENTO
       const evento = parseStandardEvent(hex, brand, port);
       if (evento) {
-        await processEvent(evento, socket.remoteAddress || '');
+        await processEvent(evento, socket.remoteAddress || '', getSafeCaptureSummary(socket));
         // ACK
         const resp = Buffer.alloc(10);
         resp[0] = 0x7B; resp[1] = 0x0A; resp[2] = evento.seq;
@@ -154,7 +155,7 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
       rawData: data.toString('hex').toUpperCase(),
     };
 
-    await processEvent(eventoObj, socket.remoteAddress || '');
+    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket));
     socket.write(Buffer.from([0xFE]));
     return;
   }
@@ -204,7 +205,7 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
         rawData: data.toString('hex').toUpperCase(),
       };
 
-      await processEvent(eventoObj, socket.remoteAddress || '');
+      await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket));
       socket.write(Buffer.from([0x02, 0x04, 0xC1, 0x80, 0xDA]));
       break;
     }
@@ -238,14 +239,14 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
       rawData: texto,
     };
 
-    await processEvent(eventoObj, socket.remoteAddress || '');
+    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket));
     socket.write('@');
     return;
   }
 }
 
 // Processa e salva o evento
-async function processEvent(evento: any, remoteIp: string) {
+async function processEvent(evento: any, remoteIp: string, captureSummary = "") {
   try {
     // Buscar descrição do código
     let description = `Evento ${evento.eventCode}`;
@@ -264,19 +265,21 @@ async function processEvent(evento: any, remoteIp: string) {
       console.warn(`[RECIP] Código não cadastrado ${evento.eventCode}: ${e.message}`);
     }
 
-    // Os protocolos Contact ID atualmente recebidos transmitem a Conta Contact ID.
-    // Marca e porta ajudam a desambiguar painéis com contas coincidentes.
-    // MAC, IMEI e ID ISEP serão usados somente quando o protocolo do fabricante
-    // fornecer esses campos separadamente, nunca substituindo a conta.
+    // Durante a coleta, Compatec, Vetti e Radioenge não podem ser associados
+    // somente pela conta. As capturas permitem mapear MAC/IMEI depois, sem risco
+    // de direcionar um evento para outro cliente que use a mesma conta.
+    const captureMode = isSafeCaptureEnabled(evento.brand);
     let system: any = null;
     let clientName = `CONTA NÃO CADASTRADA (${evento.account})`;
-    try {
-      system = await getAlarmSystemByReceivedAccount(evento.account, evento.brand, evento.receiverPort);
-      if (system) {
-        clientName = `Sistema ${system.account}`;
+    if (!captureMode) {
+      try {
+        system = await getAlarmSystemByReceivedAccount(evento.account, evento.brand, evento.receiverPort);
+        if (system) {
+          clientName = `Sistema ${system.account}`;
+        }
+      } catch (e: any) {
+        console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);
       }
-    } catch (e: any) {
-      console.warn(`[RECIP] Não encontrou sistema para conta ${evento.account}: ${e.message}`);
     }
 
     const accountResolution = resolveSystemAccount(evento.account, Boolean(system));
@@ -285,7 +288,8 @@ async function processEvent(evento: any, remoteIp: string) {
     if (accountResolution.isSystemAccount) {
       await ensureSystemTechnicalAccount();
       clientName = "CONTA DO SISTEMA (0000)";
-      description = `CENTRAL NÃO CADASTRADA${receivedAccount ? ` — conta recebida ${receivedAccount}` : " — sem conta recebida"}: ${description}`;
+      const captureDescription = captureMode ? "CENTRAL EM CAPTURA SEGURA — identificação MAC/IMEI pendente" : "CENTRAL NÃO CADASTRADA";
+      description = `${captureDescription}${receivedAccount ? ` — conta recebida ${receivedAccount}` : " — sem conta recebida"}: ${description}`;
     }
 
     const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
@@ -315,7 +319,7 @@ async function processEvent(evento: any, remoteIp: string) {
         priority: priority as any,
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
-        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}`,
+        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}${captureSummary ? `\n${captureSummary}` : ""}`,
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
@@ -427,6 +431,15 @@ export function startReceivers() {
 
         socket.on('data', async (data) => {
           try {
+            if (isSafeCaptureEnabled(brand)) {
+              const frame = recordSafeCaptureFrame(socket, {
+                brand,
+                receiverPort: port,
+                remoteIp: socket.remoteAddress || "",
+                payload: data,
+              });
+              if (frame) console.log(formatSafeCaptureLog(frame));
+            }
             if (brand === 'VETTI') {
               await handleVetti(socket, data, port);
             } else if (brand === 'INTELBRAS') {

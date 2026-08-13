@@ -229,7 +229,11 @@
 - [x] Cadastrar IMEI GPRS de seis dígitos por sistema de alarme
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
 - [x] Permitir selecionar a porta receptora conforme a fabricante da central
+- [ ] Garantir a identificação inequívoca quando fabricantes diferentes usam a mesma Conta Contact ID
+- [ ] Identificar painéis IP principalmente por MAC ou IMEI e, em ViaWeb, por ID ISEP
+- [ ] Permitir contas Contact ID repetidas entre parceiras sem usar fabricante ou porta como chave principal
 - [ ] Adaptar os parsers por fabricante para extrair o identificador transmitido pela central e localizar corretamente o sistema
+- [x] Capturar com segurança os pacotes de conexão e eventos de Compatec, Vetti e Radioenge para mapear o identificador transmitido
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb
@@ -348,6 +352,7 @@
 - [x] Ampliar a busca de clientes para nome, nome fantasia e documento
 - [x] Criar cadastro de Tático Móvel vinculado à empresa parceira
 - [x] Tornar visíveis e fáceis de localizar os cadastros de Tático Móvel e credenciais de contato
+- [ ] Corrigir a divergência entre a revisão instalada na VPS e a versão atual do repositório
 
 ## Compatibilidade de Colunas de Evento
 - [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico
