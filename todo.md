@@ -330,8 +330,11 @@
 - [ ] Restaurar a atualização de Armados e Desarmados após reinício do processo
 
 ## Persistência Bloqueada de Incidentes
-- [ ] Identificar a restrição da tabela incidents que rejeita os eventos recebidos
+- [x] Identificar a restrição da tabela incidents que rejeita os eventos recebidos
 - [ ] Corrigir a gravação de incidentes para Arme, Desarme e alarmes
+
+## Colunas Operacionais Ausentes
+- [x] Adicionar dispatchedAt e demais colunas de incidentes ausentes na VPS
 
 ## Compatibilidade de Colunas de Evento
 - [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico

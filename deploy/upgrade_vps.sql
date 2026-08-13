@@ -259,6 +259,19 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Campos usados pelas filas de atendimento tático e observação.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE incidents ADD COLUMN dispatchedAt TIMESTAMP NULL',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'incidents' AND COLUMN_NAME = 'dispatchedAt'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Garante que um evento possua uma única ocorrência persistida.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
