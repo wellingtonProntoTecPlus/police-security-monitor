@@ -56,6 +56,7 @@ vi.mock("@/lib/trpc", () => ({
     },
     dashboard: {
       armDisarmStatus: { useQuery: () => ({ data: { armed: [], disarmed: [] } }) },
+      recentAutoFinalizedArmDisarm: { useQuery: () => ({ data: [{ account: "0336", brand: "VETTI", stateLabel: "ARMADO", description: "Arme", eventCode: "401", receivedAt: new Date("2026-08-13T13:08:00.000Z") }] }) },
       connectionStatus: { useQuery: () => ({ data: [] }) },
     },
     camera: { list: { useQuery: () => ({ data: [] }) } },
@@ -155,5 +156,12 @@ describe("Dashboard — Ocorrência Manual", () => {
 
     expect(screen.getByRole("heading", { name: "Programar Manutenção do Sistema" })).toBeTruthy();
     expect(screen.getAllByLabelText(/início|fim/i)).toHaveLength(2);
+  });
+
+  it("exibe a confirmação de Arme ou Desarme recebida e finalizada automaticamente", () => {
+    render(<Dashboard />);
+
+    expect(screen.getByText("Última confirmação automática")).toBeTruthy();
+    expect(screen.getByText(/ARMADO · Conta 0336 · VETTI · Arme/)).toBeTruthy();
   });
 });

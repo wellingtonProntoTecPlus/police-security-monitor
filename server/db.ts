@@ -1220,6 +1220,33 @@ export async function getArmDisarmStatus() {
   
   return { armed, disarmed };
 }
+
+export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const armDisarmCodes = ["401", "407", "408", "409", "441", "701"];
+  const rows = await db.select({
+    id: alarmEvents.id,
+    account: alarmEvents.account,
+    brand: alarmEvents.brand,
+    qualifier: alarmEvents.qualifier,
+    eventCode: alarmEvents.eventCode,
+    description: alarmEvents.description,
+    receivedAt: alarmEvents.receivedAt,
+  }).from(alarmEvents)
+    .where(and(
+      eq(alarmEvents.autoFinalized, true),
+      inArray(alarmEvents.eventCode, armDisarmCodes),
+    ))
+    .orderBy(desc(alarmEvents.receivedAt))
+    .limit(limit);
+
+  return rows.map((event) => ({
+    ...event,
+    stateLabel: event.qualifier === "R" ? "ARMADO" : "DESARMADO",
+  }));
+}
 // ============================================================
 // FINALIZATIONS (textos de finalização automática)
 // ============================================================

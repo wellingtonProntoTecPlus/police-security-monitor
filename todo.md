@@ -167,6 +167,8 @@
 - [x] Botão "Desarmados" (vermelho) com contador real
 - [x] Botão "Armados" (verde) com contador real
 - [x] Modal com lista de clientes armados/desarmados ao clicar no botão
+- [x] Exibir no dashboard a confirmação recente de Arme e Desarme recebidos e finalizados automaticamente
+- [ ] Validar na VPS que E401/R401 aparecem como confirmação operacional visível sem entrar nas filas de atendimento
 
 ## Correções e Melhorias Solicitadas (10/08)
 - [x] Áudio de alerta: som por 5 segundos ao chegar evento, para ao clicar no evento
@@ -230,6 +232,7 @@
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
 - [x] Permitir selecionar a porta receptora conforme a fabricante da central
 - [x] Corrigir a leitura da Conta Contact ID Vetti para que a central da conta 0336 não seja exibida como 0A03
+- [ ] Diagnosticar e restaurar a chegada de eventos Arme e Desarme da Vetti após a atualização
 - [ ] Garantir a identificação inequívoca quando fabricantes diferentes usam a mesma Conta Contact ID
 - [ ] Identificar painéis IP principalmente por MAC ou IMEI e, em ViaWeb, por ID ISEP
 - [ ] Permitir contas Contact ID repetidas entre parceiras sem usar fabricante ou porta como chave principal

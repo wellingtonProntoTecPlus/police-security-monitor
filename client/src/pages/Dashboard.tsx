@@ -177,6 +177,7 @@ export default function Dashboard() {
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 15000 });
   const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
   const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
@@ -885,6 +886,26 @@ export default function Dashboard() {
               <WifiOff className="h-3.5 w-3.5 mr-1" /> Offline ({offlineSystems.length})
             </Button>
           </div>
+        </div>
+
+        <div className="min-h-7 border-b border-emerald-500/20 bg-emerald-500/5 px-4 flex items-center overflow-hidden" aria-live="polite">
+          {recentAutoFinalizedArmDisarm?.[0] ? (
+            <div className="flex min-w-0 items-center gap-2 text-xs text-emerald-200">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+              <span className="shrink-0 font-bold">Última confirmação automática</span>
+              <span className="truncate">
+                {recentAutoFinalizedArmDisarm[0].stateLabel} · Conta {recentAutoFinalizedArmDisarm[0].account} · {recentAutoFinalizedArmDisarm[0].brand} · {recentAutoFinalizedArmDisarm[0].description || `Evento ${recentAutoFinalizedArmDisarm[0].eventCode}`}
+              </span>
+              <span className="shrink-0 text-emerald-300/80">
+                {recentAutoFinalizedArmDisarm[0].receivedAt ? new Date(recentAutoFinalizedArmDisarm[0].receivedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ""}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
+              Nenhuma confirmação automática recente de Arme ou Desarme
+            </div>
+          )}
         </div>
 
         {/* MAIN CONTENT */}

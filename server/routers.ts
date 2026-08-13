@@ -628,6 +628,7 @@ export const appRouter = router({
   dashboard: router({
     stats: operatorProcedure.query(() => db.getDashboardStats()),
     armDisarmStatus: operatorProcedure.query(() => db.getArmDisarmStatus()),
+    recentAutoFinalizedArmDisarm: operatorProcedure.query(() => db.listRecentAutoFinalizedArmDisarmConfirmations()),
     connectionStatus: operatorProcedure.query(() => db.listSystemsConnectionStatus()),
   }),
   alarmPgm: router({
