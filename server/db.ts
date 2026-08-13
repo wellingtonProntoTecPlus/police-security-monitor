@@ -28,6 +28,7 @@ import { finalizations, InsertFinalization } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { findCapturedPanelCandidates, resolveUniqueCapturedPanelCandidate, type SafeCaptureFrame } from "./receiver/safeCapture";
 import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
+import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1178,31 +1179,23 @@ export async function getArmDisarmStatus() {
     ))
     .orderBy(desc(alarmEvents.receivedAt));
   
-  // Agrupar por conta: pegar o último evento de cada conta
-  const accountStatus = new Map<string, { account: string; qualifier: string; receivedAt: Date | null; alarmSystemId: number | null }>();
-  for (const ev of lastEvents) {
-    if (!accountStatus.has(ev.account)) {
-      accountStatus.set(ev.account, {
-        account: ev.account,
-        qualifier: ev.qualifier,
-        receivedAt: ev.receivedAt,
-        alarmSystemId: ev.alarmSystemId,
-      });
-    }
-  }
+  const systems = await db.select().from(alarmSystems);
+  const systemsById = new Map(systems.map((system) => [system.id, system]));
+  const latestStatuses = getLatestArmDisarmStatusBySystem(lastEvents, systems);
   
   const armed: any[] = [];
   const disarmed: any[] = [];
 
-  for (const [account, status] of Array.from(accountStatus.entries())) {
+  for (const status of latestStatuses) {
+    const { account } = status;
     let clientName = `Conta ${account}`;
     let clientId: number | null = null;
     let systemId = status.alarmSystemId;
     
     if (status.alarmSystemId) {
-      const systemInfo = await db.select().from(alarmSystems).where(eq(alarmSystems.id, status.alarmSystemId)).limit(1);
-      if (systemInfo.length > 0 && systemInfo[0].clientId) {
-        const clientInfo = await db.select().from(clients).where(eq(clients.id, systemInfo[0].clientId)).limit(1);
+      const systemInfo = systemsById.get(status.alarmSystemId);
+      if (systemInfo?.clientId) {
+        const clientInfo = await db.select().from(clients).where(eq(clients.id, systemInfo.clientId)).limit(1);
         if (clientInfo.length > 0) {
           clientName = clientInfo[0].name;
           clientId = clientInfo[0].id;

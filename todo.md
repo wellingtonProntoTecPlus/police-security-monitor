@@ -172,6 +172,7 @@
 - [x] Modal com lista de clientes armados/desarmados ao clicar no botão
 - [x] Exibir no dashboard a confirmação recente de Arme e Desarme recebidos e finalizados automaticamente
 - [x] Validar na VPS que E401/R401 aparecem como confirmação operacional visível sem entrar nas filas de atendimento
+- [x] Normalizar registros Vetti antigos para a conta real do sistema nos indicadores Armados/Desarmados
 
 ## Correções e Melhorias Solicitadas (10/08)
 - [x] Áudio de alerta: som por 5 segundos ao chegar evento, para ao clicar no evento
