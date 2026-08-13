@@ -171,7 +171,7 @@
 - [x] Botão "Armados" (verde) com contador real
 - [x] Modal com lista de clientes armados/desarmados ao clicar no botão
 - [x] Exibir no dashboard a confirmação recente de Arme e Desarme recebidos e finalizados automaticamente
-- [ ] Validar na VPS que E401/R401 aparecem como confirmação operacional visível sem entrar nas filas de atendimento
+- [x] Validar na VPS que E401/R401 aparecem como confirmação operacional visível sem entrar nas filas de atendimento
 
 ## Correções e Melhorias Solicitadas (10/08)
 - [x] Áudio de alerta: som por 5 segundos ao chegar evento, para ao clicar no evento
@@ -236,7 +236,7 @@
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
 - [x] Permitir selecionar a porta receptora conforme a fabricante da central
 - [x] Corrigir a leitura da Conta Contact ID Vetti para que a central da conta 0336 não seja exibida como 0A03
-- [ ] Diagnosticar e restaurar a chegada de eventos Arme e Desarme da Vetti após a atualização
+- [x] Diagnosticar e restaurar a chegada de eventos Arme e Desarme da Vetti após a atualização
 - [ ] Garantir a identificação inequívoca quando fabricantes diferentes usam a mesma Conta Contact ID
 - [ ] Identificar painéis IP principalmente por MAC ou IMEI e, em ViaWeb, por ID ISEP
 - [ ] Permitir contas Contact ID repetidas entre parceiras sem usar fabricante ou porta como chave principal
@@ -246,6 +246,7 @@
 - [x] Detectar com segurança o MAC de Vetti e Radioenge nos formatos capturados em teste real
 - [ ] Identificar o sexto caractere MAC ou quadro complementar da Compatec antes de permitir associação automática
 - [ ] Cobrir em testes a detecção por IMEI e a regra de não associação da Compatec incompleta
+- [ ] Consolidar transmissões duplicadas da Compatec geradas por um único comando operacional
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb
@@ -268,6 +269,10 @@
 ## Conta Técnica do Sistema
 - [x] Criar e manter a Conta do Sistema 0000 para eventos sem conta ou de central não cadastrada
 - [x] Direcionar para a Conta do Sistema 0000 os eventos recebidos sem identificação de cliente
+- [x] Manter eventos da Conta do Sistema 0000 somente em relatórios e fora dos indicadores do dashboard
+- [x] Impedir que eventos da Conta do Sistema 0000 apareçam nas filas e cards operacionais do dashboard
+- [x] Cobrir em teste que a Conta do Sistema não entra em indicadores ou filas e permanece consultável em relatórios
+- [x] Testar funcionalmente o plano de persistência da Conta do Sistema sem incidente aberto ou emissão ao dashboard
 
 ## Validação Operacional na VPS
 - [ ] Validar em eventos reais o áudio, finalização automática, finalização em massa, ocorrência manual, status Online/Offline e Conta do Sistema 0000

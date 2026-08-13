@@ -1,4 +1,4 @@
-import { eq, and, or, desc, sql, like, inArray, gte, lte } from "drizzle-orm";
+import { eq, and, or, desc, sql, like, inArray, gte, lte, ne, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -1172,7 +1172,11 @@ export async function getArmDisarmStatus() {
   const armDisarmCodes = ['401', '407', '408', '409', '441', '701'];
   
   const lastEvents = await db.select().from(alarmEvents)
-    .where(inArray(alarmEvents.eventCode, armDisarmCodes))
+    .where(and(
+      inArray(alarmEvents.eventCode, armDisarmCodes),
+      ne(alarmEvents.account, "0000"),
+      isNotNull(alarmEvents.alarmSystemId),
+    ))
     .orderBy(desc(alarmEvents.receivedAt));
   
   // Agrupar por conta: pegar o último evento de cada conta
@@ -1243,6 +1247,8 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
     .where(and(
       eq(alarmEvents.autoFinalized, true),
       inArray(alarmEvents.eventCode, armDisarmCodes),
+      ne(alarmEvents.account, "0000"),
+      isNotNull(alarmEvents.alarmSystemId),
     ))
     .orderBy(desc(alarmEvents.receivedAt))
     .limit(limit);

@@ -11,3 +11,24 @@ export function resolveSystemAccount(receivedAccount: string | null | undefined,
   }
   return { account: "0000", receivedAccount: normalized, isSystemAccount: true };
 }
+
+export function shouldOpenOperationalAttendance(input: {
+  isSystemAccount: boolean;
+  automaticAction: "queue" | "report_only" | "track_for_restoration" | "try_restoration";
+  systemInMaintenance: boolean;
+}) {
+  return getOperationalDeliveryPlan(input).shouldOpenAttendance;
+}
+
+export function getOperationalDeliveryPlan(input: {
+  isSystemAccount: boolean;
+  automaticAction: "queue" | "report_only" | "track_for_restoration" | "try_restoration";
+  systemInMaintenance: boolean;
+}) {
+  const shouldOpenAttendance = !input.isSystemAccount && input.automaticAction !== "report_only" && !input.systemInMaintenance;
+  return {
+    shouldOpenAttendance,
+    shouldPersistReport: !shouldOpenAttendance,
+    shouldEmitDashboard: shouldOpenAttendance,
+  };
+}

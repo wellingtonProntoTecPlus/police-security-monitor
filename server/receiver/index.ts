@@ -9,7 +9,7 @@ import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
 import { parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
-import { resolveSystemAccount } from './systemAccount';
+import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -314,8 +314,15 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     if (systemInMaintenance) {
       description = `${maintenanceMessage} — ${description}`;
     }
-    const shouldOpenAttendance = automaticAction !== "report_only" && !systemInMaintenance;
-    const automaticFinalizationMessage = systemInMaintenance ? maintenanceMessage : "Finalizada automaticamente";
+    const deliveryPlan = getOperationalDeliveryPlan({
+      isSystemAccount: accountResolution.isSystemAccount,
+      automaticAction,
+      systemInMaintenance,
+    });
+    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance;
+    const automaticFinalizationMessage = accountResolution.isSystemAccount
+      ? "Registrada na Conta do Sistema (0000) para conferência no relatório"
+      : systemInMaintenance ? maintenanceMessage : "Finalizada automaticamente";
 
     // Salvar o evento e a ocorrência aberta juntos antes de emitir ao dashboard.
     // Nunca use Date.now() como ID de reserva: isso criaria um card temporário que
@@ -361,7 +368,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       return;
     }
 
-    if (!shouldOpenAttendance) {
+    if (deliveryPlan.shouldPersistReport) {
       await createOccurrence({
         account: effectiveAccount,
         eventCode: evento.eventCode,
@@ -413,7 +420,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     // Emitir para o dashboard via callback
-    if (eventCallback) {
+    if (deliveryPlan.shouldEmitDashboard && eventCallback) {
       eventCallback({
         id: savedEvent.id,
         ...evento,
