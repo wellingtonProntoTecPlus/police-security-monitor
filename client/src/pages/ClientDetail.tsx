@@ -223,10 +223,17 @@ export default function ClientDetail() {
 
           {/* SISTEMAS DE ALARME */}
           <TabsContent value="systems" className="mt-4 space-y-4">
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span>
+                  <strong className="text-foreground">{systems.length === 0 ? "Este cliente ainda não possui sistema cadastrado." : `Este cliente possui ${systems.length} ${systems.length === 1 ? "sistema cadastrado" : "sistemas cadastrados"}.`}</strong>{" "}
+                  Cada sistema é independente e possui sua própria Conta Contact ID, central, MAC/IMEI, porta e zonas.
+                </span>
+              </div>
               <Dialog open={showSystemForm} onOpenChange={setShowSystemForm}>
                 <DialogTrigger asChild>
-                  <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Adicionar Sistema</Button>
+                  <Button size="sm"><Plus className="h-4 w-4 mr-1" /> {systems.length > 0 ? "Adicionar outro sistema" : "Adicionar sistema"}</Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader><DialogTitle>Novo Sistema de Alarme</DialogTitle></DialogHeader>
@@ -277,13 +284,13 @@ export default function ClientDetail() {
             </div>
             <ScrollArea className="h-[400px]">
               <div className="grid gap-3">
-                {systems.map((system: any) => (
+                {systems.map((system: any, index: number) => (
                   <Card key={system.id} className={`border-l-4 ${system.isOnline ? 'border-l-green-500' : 'border-l-red-500'}`}>
                     <CardContent className="p-4 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Shield className="h-5 w-5 text-primary" />
                         <div>
-                          <p className="font-bold text-foreground font-mono">Conta: {system.account}</p>
+                          <p className="font-bold text-foreground font-mono">Sistema {index + 1} · Conta: {system.account}</p>
                           <p className="text-sm text-muted-foreground">{system.brand} - {system.model || "Modelo não informado"}</p>
                           <p className="text-xs text-muted-foreground font-mono">{system.brand === "VIAWEB" ? `ISEP: ${system.isepId || "Gerado ao salvar edição"} · ` : ""}MAC: {system.macAddress || "—"} · IMEI: {system.imeiGprs || "—"}</p>
                         </div>

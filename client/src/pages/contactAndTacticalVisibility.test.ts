@@ -21,4 +21,12 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("Selecionar esta parceira para cadastrar Tático Móvel e feriados");
     expect(source).toContain("Tático Móvel");
   });
+
+  it("explica o cadastro de vários sistemas independentes no cliente", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("Cada sistema é independente");
+    expect(source).toContain("Adicionar outro sistema");
+    expect(source).toContain("Sistema {index + 1} · Conta:");
+  });
 });

@@ -72,6 +72,7 @@
 
 ## Cadastro de Sistema de Alarme (Completo)
 - [x] Buscar empresa parceira e cliente no cadastro de sistema
+- [x] Tornar explícito e funcional o cadastro de múltiplos sistemas por cliente
 - [x] Campos: Marca, Modelo, Versão da central
 - [x] Tipo de comunicação: Ethernet IP / GPRS / Ambos
 - [x] MAC últimos 6 dígitos (identificação no dashboard)
@@ -213,6 +214,7 @@
 
 ## Complementos de Relatórios
 - [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend
+- [ ] Exibir o cliente correto no relatório de eventos identificados por MAC ou IMEI
 
 ## Correção de Carga Contact ID na VPS
 - [x] Corrigir a carga para exibir os códigos Compatec, Vetti e Universais nos fabricantes corretos
