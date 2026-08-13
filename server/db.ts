@@ -26,6 +26,7 @@ import {
 } from "../drizzle/schema";
 import { finalizations, InsertFinalization } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { findCapturedPanelCandidates, type SafeCaptureFrame } from "./receiver/safeCapture";
 import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -413,6 +414,24 @@ export async function getAlarmSystemByPanelIdentifier(identifier: string, identi
 
   const fallback = await db.select().from(alarmSystems).where(eq(identifierColumn, normalized)).limit(1);
   return fallback[0];
+}
+
+export async function getAlarmSystemByCapturedPanelIdentifier(input: { brand: string; frames: SafeCaptureFrame[] }) {
+  const db = await getDb();
+  if (!db || input.frames.length === 0) return undefined;
+
+  const systems = await db.select().from(alarmSystems).where(eq(alarmSystems.brand, input.brand as any));
+  const candidates = findCapturedPanelCandidates(input.brand, input.frames, systems);
+  const uniqueSystemIds = Array.from(new Set(candidates.map((candidate) => candidate.systemId)));
+  if (uniqueSystemIds.length !== 1) return undefined;
+
+  const found = systems.find((system) => system.id === uniqueSystemIds[0]);
+  if (!found) return undefined;
+
+  const now = new Date();
+  await db.update(alarmSystems).set({ isOnline: true, lastCommunication: now }).where(eq(alarmSystems.id, found.id));
+  const candidate = candidates.find((item) => item.systemId === found.id)!;
+  return { ...found, isOnline: true, lastCommunication: now, capturedIdentifier: candidate };
 }
 
 export async function getAlarmSystem(id: number) {

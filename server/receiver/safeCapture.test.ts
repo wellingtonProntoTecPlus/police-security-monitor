@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from "./safeCapture";
+import { findCapturedPanelCandidates, formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from "./safeCapture";
 
 describe("captura segura de pacotes", () => {
   it("registra o pacote em hexadecimal com fabricante, porta e origem", () => {
@@ -38,5 +38,20 @@ describe("captura segura de pacotes", () => {
     expect(isSafeCaptureEnabled("VETTI")).toBe(true);
     expect(isSafeCaptureEnabled("RADIOENGE")).toBe(true);
     expect(isSafeCaptureEnabled("JFL")).toBe(false);
+  });
+
+  it("reconhece os seis caracteres MAC confirmados para Vetti e Radioenge", () => {
+    const systems = [
+      { id: 1, macAddress: "2DE4A8" },
+      { id: 2, macAddress: "600C81" },
+    ];
+
+    expect(findCapturedPanelCandidates("VETTI", [{
+      brand: "VETTI", receiverPort: 9161, remoteIp: "198.51.100.10", capturedAt: "2026-08-13T12:00:00.000Z", totalBytes: 10, payloadHex: "0209C0420002DE4A8D80", truncated: false,
+    }], systems)).toEqual([{ systemId: 1, identifierType: "mac_hex", identifier: "2DE4A8" }]);
+
+    expect(findCapturedPanelCandidates("RADIOENGE", [{
+      brand: "RADIOENGE", receiverPort: 9035, remoteIp: "198.51.100.10", capturedAt: "2026-08-13T12:00:00.000Z", totalBytes: 14, payloadHex: "7B66002139393036323934363537", truncated: false,
+    }], systems)).toEqual([{ systemId: 2, identifierType: "mac_decimal", identifier: "6294657" }]);
   });
 });

@@ -234,6 +234,10 @@
 - [ ] Permitir contas Contact ID repetidas entre parceiras sem usar fabricante ou porta como chave principal
 - [ ] Adaptar os parsers por fabricante para extrair o identificador transmitido pela central e localizar corretamente o sistema
 - [x] Capturar com segurança os pacotes de conexão e eventos de Compatec, Vetti e Radioenge para mapear o identificador transmitido
+- [ ] Detectar nos pacotes capturados candidatos MAC ou IMEI já cadastrados, sem atribuir o evento automaticamente
+- [x] Detectar com segurança o MAC de Vetti e Radioenge nos formatos capturados em teste real
+- [ ] Identificar o sexto caractere MAC ou quadro complementar da Compatec antes de permitir associação automática
+- [ ] Cobrir em testes a detecção por IMEI e a regra de não associação da Compatec incompleta
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb

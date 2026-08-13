@@ -6,6 +6,14 @@ O receptor atual extrai a Conta Contact ID dos pacotes de evento. A consulta pri
 
 Os campos MAC, IMEI e ID ISEP existem no cadastro de sistemas, porém os parsers atuais não extraem esses identificadores dos pacotes recebidos. Portanto, o sistema ainda não pode afirmar que identifica um painel por MAC, IMEI ou ISEP.
 
+## Captura operacional de 13/08
+
+| Fabricante | Conta de teste | MAC informado | Evidência no pacote | Conclusão |
+|---|---:|---|---|---|
+| Vetti | 0336 | FC-0F-E7-2D-E4-A8 | O login contém `2DE4A8`, os seis últimos caracteres do MAC. | O login Vetti transmite o sufixo MAC em hexadecimal. |
+| Radioenge | 0335 | 00-12-F8-60-0C-81 | A conexão contém `6294657`, a representação decimal de `600C81`, os seis últimos caracteres do MAC. | A conexão Radioenge transmite o sufixo MAC convertido para decimal. |
+| Compatec | 0334 | F0-24-F9-C1-BD-CB | A conexão curta contém `C1BDC`, que corresponde aos cinco primeiros caracteres do sufixo `C1BDCB`. | Há forte indício de um identificador de MAC abreviado; é necessário capturar outra conexão Compatec para confirmar o sexto caractere ou o quadro complementar. |
+
 ## Regra operacional proposta
 
 | Tipo de painel | Identificador principal | Dado operacional complementar |

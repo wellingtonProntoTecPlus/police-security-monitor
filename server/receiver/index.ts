@@ -4,10 +4,10 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
-import { formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
+import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
 import { resolveSystemAccount } from './systemAccount';
 
 // Configuração dos receptores por marca/porta
@@ -98,7 +98,7 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
     case 0x24: { // EVENTO
       const evento = parseStandardEvent(hex, brand, port);
       if (evento) {
-        await processEvent(evento, socket.remoteAddress || '', getSafeCaptureSummary(socket));
+        await processEvent(evento, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket));
         // ACK
         const resp = Buffer.alloc(10);
         resp[0] = 0x7B; resp[1] = 0x0A; resp[2] = evento.seq;
@@ -155,7 +155,7 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
       rawData: data.toString('hex').toUpperCase(),
     };
 
-    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket));
+    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket));
     socket.write(Buffer.from([0xFE]));
     return;
   }
@@ -205,7 +205,7 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
         rawData: data.toString('hex').toUpperCase(),
       };
 
-      await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket));
+      await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket));
       socket.write(Buffer.from([0x02, 0x04, 0xC1, 0x80, 0xDA]));
       break;
     }
@@ -239,14 +239,14 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
       rawData: texto,
     };
 
-    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket));
+    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket));
     socket.write('@');
     return;
   }
 }
 
 // Processa e salva o evento
-async function processEvent(evento: any, remoteIp: string, captureSummary = "") {
+async function processEvent(evento: any, remoteIp: string, captureSummary = "", captureFrames = [] as ReturnType<typeof getSafeCaptureFrames>) {
   try {
     // Buscar descrição do código
     let description = `Evento ${evento.eventCode}`;
@@ -271,7 +271,13 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "") 
     const captureMode = isSafeCaptureEnabled(evento.brand);
     let system: any = null;
     let clientName = `CONTA NÃO CADASTRADA (${evento.account})`;
-    if (!captureMode) {
+    if (captureMode) {
+      system = await getAlarmSystemByCapturedPanelIdentifier({ brand: evento.brand, frames: captureFrames });
+      if (system) {
+        clientName = `Sistema ${system.account}`;
+        console.log(`[RECIP] ${evento.brand} identificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}`);
+      }
+    } else {
       try {
         system = await getAlarmSystemByReceivedAccount(evento.account, evento.brand, evento.receiverPort);
         if (system) {
@@ -319,7 +325,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "") 
         priority: priority as any,
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
-        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}${captureSummary ? `\n${captureSummary}` : ""}`,
+        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}${system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       };

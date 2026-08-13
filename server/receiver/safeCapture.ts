@@ -8,6 +8,12 @@ export type SafeCaptureFrame = {
   truncated: boolean;
 };
 
+export type CapturedPanelCandidate = {
+  systemId: number;
+  identifierType: "mac_hex" | "mac_decimal";
+  identifier: string;
+};
+
 const MAX_CAPTURED_FRAMES_PER_CONNECTION = 12;
 const MAX_CAPTURED_BYTES_PER_FRAME = 128;
 
@@ -51,4 +57,46 @@ export function getSafeCaptureSummary(socket: object) {
     const truncation = frame.truncated ? " (cortado em 128 bytes)" : "";
     return `[Captura segura ${index + 1} | ${frame.capturedAt} | ${frame.brand}:${frame.receiverPort} | ${frame.totalBytes} bytes${truncation}] HEX ${frame.payloadHex}`;
   }).join("\n");
+}
+
+export function getSafeCaptureFrames(socket: object) {
+  return framesBySocket.get(socket) || [];
+}
+
+function normalizeIdentifier(value: string | null | undefined) {
+  return (value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Identifica somente formatos que foram confirmados com uma captura real.
+ * Compatec permanece sem candidato até ser identificado o sexto caractere do MAC.
+ */
+export function findCapturedPanelCandidates(
+  brand: string,
+  frames: SafeCaptureFrame[],
+  systems: Array<{ id: number; macAddress?: string | null; imeiGprs?: string | null }>,
+): CapturedPanelCandidate[] {
+  const normalizedBrand = brand.trim().toUpperCase();
+  const packetHex = frames.map((frame) => frame.payloadHex).join("");
+  const packetText = frames.map((frame) => Buffer.from(frame.payloadHex, "hex").toString("latin1")).join("");
+  const candidates: CapturedPanelCandidate[] = [];
+
+  for (const system of systems) {
+    const identifier = normalizeIdentifier(system.macAddress || system.imeiGprs);
+    if (identifier.length !== 6) continue;
+
+    if (normalizedBrand === "VETTI" && packetHex.includes(identifier)) {
+      candidates.push({ systemId: system.id, identifierType: "mac_hex", identifier });
+      continue;
+    }
+
+    if (normalizedBrand === "RADIOENGE") {
+      const decimalIdentifier = Number.parseInt(identifier, 16).toString(10);
+      if (packetText.includes(decimalIdentifier)) {
+        candidates.push({ systemId: system.id, identifierType: "mac_decimal", identifier: decimalIdentifier });
+      }
+    }
+  }
+
+  return candidates;
 }
