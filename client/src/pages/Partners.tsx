@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2, Pencil } from "lucide-react";
+import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2, Pencil, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 function maskCnpj(v: string) {
@@ -56,9 +56,14 @@ export default function Partners() {
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
   const [editingPartner, setEditingPartner] = useState<any>(null);
   const [editingHoliday, setEditingHoliday] = useState<any>(null);
+  const [tacticalForm, setTacticalForm] = useState({ name: "", phone: "", whatsapp: "", vehicle: "", plate: "", notes: "" });
 
   const { data: partners = [], refetch } = trpc.partnerCompany.list.useQuery(undefined);
   const { data: holidays = [], refetch: refetchHolidays } = trpc.partnerHoliday.list.useQuery(
+    { partnerCompanyId: selectedPartnerId || 0 },
+    { enabled: !!selectedPartnerId }
+  );
+  const { data: tacticalMobiles = [], refetch: refetchTacticalMobiles } = trpc.tacticalMobile.list.useQuery(
     { partnerCompanyId: selectedPartnerId || 0 },
     { enabled: !!selectedPartnerId }
   );
@@ -84,6 +89,8 @@ export default function Partners() {
   const createHolidayMut = trpc.partnerHoliday.create.useMutation({ onSuccess: () => { refetchHolidays(); setHolidayName(""); setHolidayDate(""); toast.success("Feriado adicionado!"); } });
   const updateHolidayMut = trpc.partnerHoliday.update.useMutation({ onSuccess: () => { refetchHolidays(); setEditingHoliday(null); toast.success("Feriado atualizado!"); } });
   const deleteHolidayMut = trpc.partnerHoliday.delete.useMutation({ onSuccess: () => { refetchHolidays(); toast.success("Feriado removido!"); } });
+  const createTacticalMobile = trpc.tacticalMobile.create.useMutation({ onSuccess: () => { refetchTacticalMobiles(); setTacticalForm({ name: "", phone: "", whatsapp: "", vehicle: "", plate: "", notes: "" }); toast.success("Tático móvel cadastrado!"); }, onError: (err) => toast.error(err.message) });
+  const deleteTacticalMobile = trpc.tacticalMobile.delete.useMutation({ onSuccess: () => { refetchTacticalMobiles(); toast.success("Tático móvel removido!"); } });
 
   const deletePartnerMut = trpc.partnerCompany.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Parceira excluída!"); }, onError: (err: any) => toast.error("Erro: " + err.message) });
   const filteredPartners = partners.filter((p: any) =>
@@ -324,7 +331,7 @@ export default function Partners() {
           </div>
 
           {/* Painel de Feriados */}
-          <div className="col-span-4">
+          <div className="col-span-4 space-y-6">
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 mb-4">
@@ -379,6 +386,23 @@ export default function Partners() {
                     </div>
                   </>
                 )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 mb-4"><Shield className="h-5 w-5 text-primary" /><h3 className="font-bold text-foreground">Tático Móvel</h3></div>
+                {!selectedPartnerId ? <p className="text-sm text-muted-foreground">Selecione uma parceira para cadastrar o Tático Móvel</p> : <>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <Input placeholder="Nome da equipe ou agente *" value={tacticalForm.name} onChange={(e) => setTacticalForm({ ...tacticalForm, name: e.target.value })} />
+                    <Input placeholder="Veículo" value={tacticalForm.vehicle} onChange={(e) => setTacticalForm({ ...tacticalForm, vehicle: e.target.value })} />
+                    <Input placeholder="Telefone" value={tacticalForm.phone} onChange={(e) => setTacticalForm({ ...tacticalForm, phone: maskPhone(e.target.value) })} />
+                    <Input placeholder="WhatsApp" value={tacticalForm.whatsapp} onChange={(e) => setTacticalForm({ ...tacticalForm, whatsapp: maskPhone(e.target.value) })} />
+                    <Input className="col-span-2" placeholder="Veículo / placa" value={tacticalForm.plate} onChange={(e) => setTacticalForm({ ...tacticalForm, plate: e.target.value.toUpperCase() })} />
+                    <Input className="col-span-2" placeholder="Observações" value={tacticalForm.notes} onChange={(e) => setTacticalForm({ ...tacticalForm, notes: e.target.value })} />
+                  </div>
+                  <Button size="sm" className="w-full mb-3" onClick={() => { if (!tacticalForm.name.trim()) { toast.error("Informe o nome da equipe ou agente"); return; } createTacticalMobile.mutate({ partnerCompanyId: selectedPartnerId, ...tacticalForm }); }}><Plus className="h-4 w-4 mr-1" /> Adicionar Tático</Button>
+                  <div className="space-y-2 max-h-[220px] overflow-auto">{tacticalMobiles.length === 0 ? <p className="text-xs text-muted-foreground">Nenhum Tático Móvel cadastrado</p> : tacticalMobiles.map((t: any) => <div key={t.id} className="flex justify-between gap-2 rounded bg-secondary/30 px-3 py-2"><div><p className="text-sm font-medium">{t.name}</p><p className="text-xs text-muted-foreground">{[t.vehicle, t.plate, t.phone || t.whatsapp].filter(Boolean).join(" · ") || "Sem dados adicionais"}</p></div><Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir este Tático Móvel?")) deleteTacticalMobile.mutate({ id: t.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button></div>)}</div>
+                </>}
               </CardContent>
             </Card>
           </div>

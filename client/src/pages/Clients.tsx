@@ -157,11 +157,17 @@ export default function Clients() {
     }
   }
 
-  const filteredClients = clients.filter((c: any) =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.fantasyName && c.fantasyName.toLowerCase().includes(search.toLowerCase())) ||
-    c.document.includes(search.replace(/\D/g, ""))
-  );
+  const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+  const numericSearch = search.replace(/\D/g, "");
+  const filteredClients = clients.filter((c: any) => {
+    if (!normalizedSearch) return true;
+    const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("pt-BR");
+    return textFields.includes(normalizedSearch)
+      || (numericSearch.length > 0 && String(c.document || "").replace(/\D/g, "").includes(numericSearch));
+  });
 
   function handleSubmit() {
     if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }

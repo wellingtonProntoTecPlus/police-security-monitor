@@ -4,6 +4,7 @@ import {
   InsertUser, users,
   managingCompanies, InsertManagingCompany,
   partnerCompanies, InsertPartnerCompany,
+  tacticalMobiles, InsertTacticalMobile,
   clients, InsertClient,
   clientContacts, InsertClientContact,
   alarmSystems, InsertAlarmSystem,
@@ -177,6 +178,34 @@ export async function updatePartnerCompany(id: number, data: Partial<InsertPartn
   }
   if (Object.keys(cleanData).length === 0) return;
   await db.update(partnerCompanies).set(cleanData).where(eq(partnerCompanies.id, id));
+}
+
+// ============================================================
+// TÁTICO MÓVEL
+// ============================================================
+export async function listTacticalMobiles(partnerCompanyId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tacticalMobiles).where(eq(tacticalMobiles.partnerCompanyId, partnerCompanyId)).orderBy(tacticalMobiles.name);
+}
+
+export async function createTacticalMobile(data: InsertTacticalMobile) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(tacticalMobiles).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function updateTacticalMobile(id: number, data: Partial<InsertTacticalMobile>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(tacticalMobiles).set(data).where(eq(tacticalMobiles.id, id));
+}
+
+export async function deleteTacticalMobile(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(tacticalMobiles).where(eq(tacticalMobiles.id, id));
 }
 
 // ============================================================

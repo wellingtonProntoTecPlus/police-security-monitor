@@ -70,6 +70,26 @@ export type PartnerCompany = typeof partnerCompanies.$inferSelect;
 export type InsertPartnerCompany = typeof partnerCompanies.$inferInsert;
 
 // ============================================================
+// TÁTICO MÓVEL DAS EMPRESAS PARCEIRAS
+// ============================================================
+export const tacticalMobiles = mysqlTable("tactical_mobiles", {
+  id: int("id").autoincrement().primaryKey(),
+  partnerCompanyId: int("partnerCompanyId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  whatsapp: varchar("whatsapp", { length: 20 }),
+  vehicle: varchar("vehicle", { length: 120 }),
+  plate: varchar("plate", { length: 12 }),
+  notes: text("notes"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TacticalMobile = typeof tacticalMobiles.$inferSelect;
+export type InsertTacticalMobile = typeof tacticalMobiles.$inferInsert;
+
+// ============================================================
 // CLIENTES MONITORADOS
 // ============================================================
 export const clients = mysqlTable("clients", {

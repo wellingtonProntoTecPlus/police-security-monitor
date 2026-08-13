@@ -196,6 +196,30 @@ export const appRouter = router({
 
   // ============================================================
   // CLIENTS
+  tacticalMobile: router({
+    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerCompanyScope(ctx, input.partnerCompanyId);
+      return db.listTacticalMobiles(input.partnerCompanyId);
+    }),
+    create: operatorProcedure.input(z.object({
+      partnerCompanyId: z.number(), name: z.string().min(1), phone: z.string().optional(), whatsapp: z.string().optional(),
+      vehicle: z.string().optional(), plate: z.string().optional(), notes: z.string().optional(), isActive: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerCompanyScope(ctx, input.partnerCompanyId);
+      return db.createTacticalMobile(input);
+    }),
+    update: operatorProcedure.input(z.object({
+      id: z.number(), name: z.string().min(1).optional(), phone: z.string().optional(), whatsapp: z.string().optional(),
+      vehicle: z.string().optional(), plate: z.string().optional(), notes: z.string().optional(), isActive: z.boolean().optional(),
+    })).mutation(({ input }) => { const { id, ...data } = input; return db.updateTacticalMobile(id, data); }),
+    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteTacticalMobile(input.id)),
+  }),
+
+  // ============================================================
+  // TÁTICO MÓVEL
+
+  // ============================================================
+  // CLIENTS
   // ============================================================
   monitoredClient: router({
     list: protectedProcedure.input(z.object({ partnerCompanyId: z.number().optional() }).optional()).query(({ input, ctx }) => {
@@ -275,6 +299,9 @@ export const appRouter = router({
       whatsapp: z.string().optional(),
       email: z.string().optional(),
       role: z.string().optional(),
+      password: z.string().max(50).optional(),
+      counterPassword: z.string().max(50).optional(),
+      coercionPassword: z.string().max(50).optional(),
       priority: z.number().optional(),
     })).mutation(({ input }) => db.createClientContact(input)),
     update: operatorProcedure.input(z.object({
@@ -284,6 +311,9 @@ export const appRouter = router({
       whatsapp: z.string().optional(),
       email: z.string().optional(),
       role: z.string().optional(),
+      password: z.string().max(50).optional(),
+      counterPassword: z.string().max(50).optional(),
+      coercionPassword: z.string().max(50).optional(),
       priority: z.number().optional(),
       isActive: z.boolean().optional(),
     })).mutation(({ input }) => {

@@ -30,6 +30,21 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Equipes e agentes de Tático Móvel vinculados à empresa parceira.
+CREATE TABLE IF NOT EXISTS tactical_mobiles (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  partnerCompanyId INT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  phone VARCHAR(20),
+  whatsapp VARCHAR(20),
+  vehicle VARCHAR(120),
+  plate VARCHAR(12),
+  notes TEXT,
+  isActive TINYINT(1) NOT NULL DEFAULT 1,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 -- Coluna de criação usada ao finalizar ocorrências.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

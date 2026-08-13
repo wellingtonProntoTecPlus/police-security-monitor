@@ -37,9 +37,10 @@ export default function ClientDetail() {
   const { data: systems = [], refetch: refetchSystems } = trpc.alarmSystem.list.useQuery({ clientId }, { enabled: !!clientId });
   const { data: cameras = [], refetch: refetchCameras } = trpc.camera.list.useQuery({ clientId }, { enabled: !!clientId });
 
-  // Zonas - buscar do primeiro sistema
-  const firstSystemId = systems[0]?.id;
-  const { data: zones = [], refetch: refetchZones } = trpc.alarmZone.list.useQuery({ alarmSystemId: firstSystemId || 0 }, { enabled: !!firstSystemId });
+  // Zonas são vinculadas ao sistema selecionado do cliente.
+  const [zoneSystemId, setZoneSystemId] = useState<number | undefined>(undefined);
+  const activeZoneSystemId = zoneSystemId || systems[0]?.id;
+  const { data: zones = [], refetch: refetchZones } = trpc.alarmZone.list.useQuery({ alarmSystemId: activeZoneSystemId || 0 }, { enabled: !!activeZoneSystemId });
 
   // Mutations
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
@@ -63,7 +64,7 @@ export default function ClientDetail() {
   const [editingContact, setEditingContact] = useState<any>(null);
   const [editingSystem, setEditingSystem] = useState<any>(null);
   const [editingZone, setEditingZone] = useState<any>(null);
-  const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "" });
+  const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" });
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
     macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061,
@@ -143,8 +144,11 @@ export default function ClientDetail() {
                     <div><Label>WhatsApp</Label><Input value={contactForm.whatsapp} onChange={(e) => setContactForm({ ...contactForm, whatsapp: maskPhone(e.target.value) })} placeholder="(00) 00000-0000" /></div>
                     <div><Label>E-mail</Label><Input value={contactForm.email} onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })} /></div>
                     <div><Label>Função</Label><Input placeholder="Ex: Proprietário" value={contactForm.role} onChange={(e) => setContactForm({ ...contactForm, role: e.target.value })} /></div>
+                    <div><Label>Senha</Label><Input value={contactForm.password} onChange={(e) => setContactForm({ ...contactForm, password: e.target.value })} /></div>
+                    <div><Label>Contra senha</Label><Input value={contactForm.counterPassword} onChange={(e) => setContactForm({ ...contactForm, counterPassword: e.target.value })} /></div>
+                    <div className="col-span-2"><Label>Senha de coação</Label><Input value={contactForm.coercionPassword} onChange={(e) => setContactForm({ ...contactForm, coercionPassword: e.target.value })} /></div>
                   </div>
-                  <Button className="mt-3" onClick={() => { if (!contactForm.name) { toast.error("Nome é obrigatório"); return; } createContact.mutate({ clientId, ...contactForm }); setShowContactForm(false); setContactForm({ name: "", phone: "", whatsapp: "", email: "", role: "" }); }}>Salvar</Button>
+                  <Button className="mt-3" onClick={() => { if (!contactForm.name) { toast.error("Nome é obrigatório"); return; } createContact.mutate({ clientId, ...contactForm }); setShowContactForm(false); setContactForm({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" }); }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
             </div>
@@ -164,6 +168,7 @@ export default function ClientDetail() {
                         {contact.phone && <span><Phone className="h-3 w-3 inline mr-1" />{contact.phone}</span>}
                         {contact.whatsapp && <span className="text-green-400">WA: {contact.whatsapp}</span>}
                         {contact.email && <span><Mail className="h-3 w-3 inline mr-1" />{contact.email}</span>}
+                        {(contact.password || contact.counterPassword || contact.coercionPassword) && <span className="text-amber-400">Credenciais cadastradas</span>}
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingContact({ ...contact })} title="Editar contato">
                             <Pencil className="h-3.5 w-3.5" />
@@ -189,10 +194,13 @@ export default function ClientDetail() {
                     <div><Label>WhatsApp</Label><Input value={editingContact.whatsapp || ""} onChange={(e) => setEditingContact({ ...editingContact, whatsapp: maskPhone(e.target.value) })} /></div>
                     <div><Label>E-mail</Label><Input value={editingContact.email || ""} onChange={(e) => setEditingContact({ ...editingContact, email: e.target.value })} /></div>
                     <div><Label>Função</Label><Input value={editingContact.role || ""} onChange={(e) => setEditingContact({ ...editingContact, role: e.target.value })} /></div>
+                    <div><Label>Senha</Label><Input value={editingContact.password || ""} onChange={(e) => setEditingContact({ ...editingContact, password: e.target.value })} /></div>
+                    <div><Label>Contra senha</Label><Input value={editingContact.counterPassword || ""} onChange={(e) => setEditingContact({ ...editingContact, counterPassword: e.target.value })} /></div>
+                    <div className="col-span-2"><Label>Senha de coação</Label><Input value={editingContact.coercionPassword || ""} onChange={(e) => setEditingContact({ ...editingContact, coercionPassword: e.target.value })} /></div>
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingContact.name?.trim()) { toast.error("Nome é obrigatório"); return; }
-                    updateContact.mutate({ id: editingContact.id, name: editingContact.name, phone: editingContact.phone || "", whatsapp: editingContact.whatsapp || "", email: editingContact.email || "", role: editingContact.role || "" });
+                    updateContact.mutate({ id: editingContact.id, name: editingContact.name, phone: editingContact.phone || "", whatsapp: editingContact.whatsapp || "", email: editingContact.email || "", role: editingContact.role || "", password: editingContact.password || "", counterPassword: editingContact.counterPassword || "", coercionPassword: editingContact.coercionPassword || "" });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>
@@ -308,10 +316,11 @@ export default function ClientDetail() {
 
           {/* ZONAS / SETORES */}
           <TabsContent value="zones" className="mt-4 space-y-4">
-            {!firstSystemId ? (
+            {!activeZoneSystemId ? (
               <p className="text-muted-foreground text-center py-8">Cadastre um sistema de alarme primeiro para adicionar zonas/setores</p>
             ) : (
               <>
+                {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para zonas</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeZoneSystemId)} onChange={(e) => setZoneSystemId(Number(e.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
                 <div className="flex justify-end">
                   <Dialog open={showZoneForm} onOpenChange={setShowZoneForm}>
                     <DialogTrigger asChild>
@@ -338,7 +347,7 @@ export default function ClientDetail() {
                         </div>
                         <div><Label>Partição</Label><Input type="number" min={1} max={8} value={zoneForm.partition} onChange={(e) => setZoneForm({ ...zoneForm, partition: Number(e.target.value) })} /></div>
                       </div>
-                      <Button className="mt-3" onClick={() => { if (!zoneForm.name) { toast.error("Nome é obrigatório"); return; } createZone.mutate({ alarmSystemId: firstSystemId, ...zoneForm }); setShowZoneForm(false); setZoneForm({ zoneNumber: zoneForm.zoneNumber + 1, name: "", type: "perimeter", partition: 1 }); }}>Salvar</Button>
+                      <Button className="mt-3" onClick={() => { if (!zoneForm.name) { toast.error("Nome é obrigatório"); return; } createZone.mutate({ alarmSystemId: activeZoneSystemId, ...zoneForm }); setShowZoneForm(false); setZoneForm({ zoneNumber: zoneForm.zoneNumber + 1, name: "", type: "perimeter", partition: 1 }); }}>Salvar</Button>
                     </DialogContent>
                   </Dialog>
                 </div>

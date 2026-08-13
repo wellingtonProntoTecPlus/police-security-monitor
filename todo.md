@@ -336,6 +336,18 @@
 ## Colunas Operacionais Ausentes
 - [x] Adicionar dispatchedAt e demais colunas de incidentes ausentes na VPS
 
+## Confirmação da Atualização de Banco
+- [ ] Confirmar que a coluna dispatchedAt foi criada na VPS após a atualização
+
+## Correção Direta de Coluna
+- [ ] Criar diretamente a coluna dispatchedAt ausente na tabela incidents da VPS
+
+## Cadastro Operacional de Clientes e Parceiras
+- [x] Incluir zonas e setores vinculados ao sistema de alarme do cliente
+- [x] Incluir senha e contra senha nos contatos de clientes
+- [x] Ampliar a busca de clientes para nome, nome fantasia e documento
+- [x] Criar cadastro de Tático Móvel vinculado à empresa parceira
+
 ## Compatibilidade de Colunas de Evento
 - [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico
 - [ ] Preencher alarmEventId junto com eventId em novos incidentes da VPS
