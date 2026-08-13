@@ -29,6 +29,7 @@ import { ENV } from './_core/env';
 import { findCapturedPanelCandidates, resolveUniqueCapturedPanelCandidate, type SafeCaptureFrame } from "./receiver/safeCapture";
 import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
+import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -967,18 +968,45 @@ export async function createOccurrenceAndCloseIncident(incidentId: number, occur
 export async function listOccurrences(opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string; operatorName?: string }) {
   const db = await getDb();
   if (!db) return [];
+  return listOccurrencesWithDb(db, opts);
+}
+
+export async function listOccurrencesWithDb(db: any, opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string; operatorName?: string }) {
   const conditions = [];
   if (opts?.account?.trim()) conditions.push(like(occurrences.account, `%${opts.account.trim()}%`));
   if (opts?.operatorName?.trim()) conditions.push(like(occurrences.operatorName, `%${opts.operatorName.trim()}%`));
   if (opts?.clientId) conditions.push(eq(occurrences.clientId, opts.clientId));
-  if (opts?.partnerCompanyId) conditions.push(eq(occurrences.partnerCompanyId, opts.partnerCompanyId));
   if (opts?.dateFrom) conditions.push(gte(occurrences.finalizedAt, new Date(`${opts.dateFrom}T00:00:00`)));
   if (opts?.dateTo) conditions.push(lte(occurrences.finalizedAt, new Date(`${opts.dateTo}T23:59:59.999`)));
   let query = db.select().from(occurrences);
   if (conditions.length) query = query.where(and(...conditions)) as any;
-  query = query.orderBy(desc(occurrences.finalizedAt)).limit(opts?.limit || 100) as any;
-  if (opts?.offset) query = query.offset(opts.offset) as any;
-  return query;
+  query = query.orderBy(desc(occurrences.finalizedAt)) as any;
+  const rows = await query;
+  const systemIds: number[] = Array.from(new Set(
+    rows.map((row: any) => row.systemId).filter((id: unknown): id is number => typeof id === "number"),
+  ));
+  const directClientIds: number[] = rows
+    .map((row: any) => row.clientId)
+    .filter((id: unknown): id is number => typeof id === "number");
+  const systems = systemIds.length
+    ? await db.select().from(alarmSystems).where(inArray(alarmSystems.id, systemIds))
+    : [];
+  const systemClientIds: number[] = systems
+    .map((system: { clientId: number | null }) => system.clientId)
+    .filter((id: number | null): id is number => typeof id === "number");
+  const clientIds: number[] = Array.from(new Set([
+    ...directClientIds,
+    ...systemClientIds,
+  ]));
+  const reportClients = clientIds.length
+    ? await db.select().from(clients).where(inArray(clients.id, clientIds))
+    : [];
+
+  const enrichedRows = enrichOccurrenceReportClients(rows, systems, reportClients);
+  const scopedRows = filterOccurrenceReportRowsByPartner(enrichedRows, opts?.partnerCompanyId);
+  const offset = opts?.offset || 0;
+  const limit = opts?.limit || 100;
+  return scopedRows.slice(offset, offset + limit);
 }
 
 export async function getOccurrenceById(id: number) {

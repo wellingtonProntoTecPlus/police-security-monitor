@@ -4,12 +4,14 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getContactIdDescription, isSystemInMaintenance } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getClient, getContactIdDescription, isSystemInMaintenance } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
 import { parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
+import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
+import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -369,22 +371,26 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     if (deliveryPlan.shouldPersistReport) {
-      await createOccurrence({
-        account: effectiveAccount,
-        eventCode: evento.eventCode,
-        qualifier: evento.qualifier,
-        partition: evento.partition,
-        zoneUser: evento.zoneUser,
-        description,
-        priority,
-        brand: evento.brand,
-        clientId: system?.clientId || null,
-        systemId: system?.id || null,
-        operatorName: "Sistema",
-        observations: automaticFinalizationMessage,
-        logs: JSON.stringify([`[${new Date().toLocaleTimeString("pt-BR")}] ${automaticFinalizationMessage}`]),
-        attendingTimeMs: 0,
-        eventReceivedAt: new Date(),
+      const client = system?.clientId ? await getClient(system.clientId) : undefined;
+      await persistAutomaticOccurrence({
+        create: createOccurrence,
+        system,
+        client,
+        occurrence: {
+          account: effectiveAccount,
+          eventCode: evento.eventCode,
+          qualifier: evento.qualifier,
+          partition: evento.partition,
+          zoneUser: evento.zoneUser,
+          description,
+          priority,
+          brand: evento.brand,
+          operatorName: "Sistema",
+          observations: automaticFinalizationMessage,
+          logs: JSON.stringify([`[${new Date().toLocaleTimeString("pt-BR")}] ${automaticFinalizationMessage}`]),
+          attendingTimeMs: 0,
+          eventReceivedAt: new Date(),
+        },
       });
       console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
       return;

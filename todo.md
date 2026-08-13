@@ -217,7 +217,14 @@
 
 ## Complementos de Relatórios
 - [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend
-- [ ] Exibir o cliente correto no relatório de eventos identificados por MAC ou IMEI
+- [x] Exibir o cliente correto no relatório de eventos identificados por MAC ou IMEI
+- [x] Resolver o cliente do relatório por alarmSystemId nos eventos finalizados automaticamente
+- [x] Enriquecer linhas já existentes do relatório pelo sistema e cliente vinculados
+- [x] Testar o fluxo integrado de evento automático identificado até sua exibição com cliente no relatório
+- [x] Preservar registros legados enriquecíveis no escopo de usuários parceiros
+- [x] Simular a persistência de uma ocorrência automática e validar a listagem enriquecida no relatório
+- [x] Exercitar a função listOccurrences em teste integrado com banco temporário ou mock de consulta
+- [ ] Validar na VPS o cliente exibido em um evento real identificado por MAC ou IMEI
 
 ## Correção de Carga Contact ID na VPS
 - [x] Corrigir a carga para exibir os códigos Compatec, Vetti e Universais nos fabricantes corretos

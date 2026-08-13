@@ -62,7 +62,7 @@ describe("Conta do Sistema", () => {
     expect(receiver).toContain("getOperationalDeliveryPlan({");
     expect(receiver).toContain("Registrada na Conta do Sistema (0000) para conferência no relatório");
     expect(receiver).toContain("if (deliveryPlan.shouldPersistReport) {");
-    expect(receiver).toContain("await createOccurrence({");
+    expect(receiver).toContain("await persistAutomaticOccurrence({");
     expect(receiver).toContain("if (deliveryPlan.shouldEmitDashboard && eventCallback)");
   });
 });
