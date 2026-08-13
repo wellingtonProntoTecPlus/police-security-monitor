@@ -112,6 +112,32 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Contatos passam a pertencer ao sistema de alarme para que um cliente possa
+-- manter listas operacionais independentes em cada central.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE client_contacts ADD COLUMN alarmSystemId INT NULL AFTER clientId',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'client_contacts' AND COLUMN_NAME = 'alarmSystemId'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+-- Preserva os contatos já cadastrados: cada contato legado é atribuído ao
+-- primeiro sistema cadastrado do seu cliente. Clientes sem sistema permanecem
+-- sem vínculo até que a primeira central seja criada.
+UPDATE client_contacts contacts
+INNER JOIN (
+  SELECT clientId, MIN(id) AS firstSystemId
+  FROM alarm_systems
+  GROUP BY clientId
+) systems ON systems.clientId = contacts.clientId
+SET contacts.alarmSystemId = systems.firstSystemId
+WHERE contacts.alarmSystemId IS NULL;
+
 -- Identificadores físicos e lógicos do painel de alarme.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

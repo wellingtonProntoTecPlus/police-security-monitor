@@ -244,9 +244,14 @@ export async function updateClient(id: number, data: Partial<InsertClient>) {
 // ============================================================
 // CLIENT CONTACTS
 // ============================================================
-export async function listClientContacts(clientId: number) {
+export async function listClientContacts(clientId: number, alarmSystemId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (alarmSystemId) {
+    return db.select().from(clientContacts)
+      .where(and(eq(clientContacts.clientId, clientId), eq(clientContacts.alarmSystemId, alarmSystemId)))
+      .orderBy(clientContacts.priority);
+  }
   return db.select().from(clientContacts).where(eq(clientContacts.clientId, clientId)).orderBy(clientContacts.priority);
 }
 

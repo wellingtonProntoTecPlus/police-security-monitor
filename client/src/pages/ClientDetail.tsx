@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { User, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil } from "lucide-react";
+import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 
@@ -33,14 +33,15 @@ export default function ClientDetail() {
   const clientId = Number(params?.id);
 
   const { data: client } = trpc.monitoredClient.get.useQuery({ id: clientId }, { enabled: !!clientId });
-  const { data: contacts = [], refetch: refetchContacts } = trpc.clientContact.list.useQuery({ clientId }, { enabled: !!clientId });
   const { data: systems = [], refetch: refetchSystems } = trpc.alarmSystem.list.useQuery({ clientId }, { enabled: !!clientId });
   const { data: cameras = [], refetch: refetchCameras } = trpc.camera.list.useQuery({ clientId }, { enabled: !!clientId });
 
-  // Zonas são vinculadas ao sistema selecionado do cliente.
-  const [zoneSystemId, setZoneSystemId] = useState<number | undefined>(undefined);
-  const activeZoneSystemId = zoneSystemId || systems[0]?.id;
-  const { data: zones = [], refetch: refetchZones } = trpc.alarmZone.list.useQuery({ alarmSystemId: activeZoneSystemId || 0 }, { enabled: !!activeZoneSystemId });
+  // Dados operacionais são sempre vinculados ao sistema selecionado do cliente.
+  const [operationalSystemId, setOperationalSystemId] = useState<number | undefined>(undefined);
+  const activeSystemId = operationalSystemId || systems[0]?.id;
+  const { data: contacts = [], refetch: refetchContacts } = trpc.clientContact.list.useQuery({ clientId, alarmSystemId: activeSystemId }, { enabled: !!clientId && !!activeSystemId });
+  const { data: zones = [], refetch: refetchZones } = trpc.alarmZone.list.useQuery({ alarmSystemId: activeSystemId || 0 }, { enabled: !!activeSystemId });
+  const { data: alarmUsers = [], refetch: refetchAlarmUsers } = trpc.alarmUser.list.useQuery({ alarmSystemId: activeSystemId || 0 }, { enabled: !!activeSystemId });
 
   // Mutations
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
@@ -55,6 +56,9 @@ export default function ClientDetail() {
   const createZone = trpc.alarmZone.create.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona adicionada!"); } });
   const deleteZone = trpc.alarmZone.delete.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona excluída!"); } });
   const updateZone = trpc.alarmZone.update.useMutation({ onSuccess: () => { refetchZones(); setEditingZone(null); toast.success("Zona atualizada!"); } });
+  const createAlarmUser = trpc.alarmUser.create.useMutation({ onSuccess: () => { refetchAlarmUsers(); toast.success("Usuário do painel adicionado!"); } });
+  const updateAlarmUser = trpc.alarmUser.update.useMutation({ onSuccess: () => { refetchAlarmUsers(); setEditingAlarmUser(null); toast.success("Usuário do painel atualizado!"); } });
+  const deleteAlarmUser = trpc.alarmUser.delete.useMutation({ onSuccess: () => { refetchAlarmUsers(); toast.success("Usuário do painel excluído!"); } });
 
   // Form states
   const [showContactForm, setShowContactForm] = useState(false);
@@ -64,6 +68,8 @@ export default function ClientDetail() {
   const [editingContact, setEditingContact] = useState<any>(null);
   const [editingSystem, setEditingSystem] = useState<any>(null);
   const [editingZone, setEditingZone] = useState<any>(null);
+  const [showAlarmUserForm, setShowAlarmUserForm] = useState(false);
+  const [editingAlarmUser, setEditingAlarmUser] = useState<any>(null);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" });
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
@@ -72,6 +78,7 @@ export default function ClientDetail() {
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
   const [zoneForm, setZoneForm] = useState({ zoneNumber: 1, name: "", type: "perimeter" as any, partition: 1 });
+  const [alarmUserForm, setAlarmUserForm] = useState({ userNumber: 1, name: "", phone: "" });
 
   if (!client) {
     return (
@@ -102,6 +109,7 @@ export default function ClientDetail() {
             <TabsTrigger value="info">Informações</TabsTrigger>
             <TabsTrigger value="contacts">Contatos e Credenciais ({contacts.length})</TabsTrigger>
             <TabsTrigger value="systems">Sistemas ({systems.length})</TabsTrigger>
+            <TabsTrigger value="users">Usuários do Painel ({alarmUsers.length})</TabsTrigger>
             <TabsTrigger value="zones">Zonas/Setores ({zones.length})</TabsTrigger>
             <TabsTrigger value="cameras">Câmeras ({cameras.length})</TabsTrigger>
           </TabsList>
@@ -131,6 +139,7 @@ export default function ClientDetail() {
 
           {/* CONTATOS */}
           <TabsContent value="contacts" className="mt-4 space-y-4">
+            {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para contatos</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(e) => setOperationalSystemId(Number(e.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
             <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
               <div className="flex items-start gap-2 text-sm text-muted-foreground">
                 <Shield className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
@@ -157,7 +166,7 @@ export default function ClientDetail() {
                       </div>
                     </div>
                   </div>
-                  <Button className="mt-3" onClick={() => { if (!contactForm.name) { toast.error("Nome é obrigatório"); return; } createContact.mutate({ clientId, ...contactForm }); setShowContactForm(false); setContactForm({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" }); }}>Salvar</Button>
+                  <Button className="mt-3" onClick={() => { if (!contactForm.name || !activeSystemId) { toast.error("Nome e sistema são obrigatórios"); return; } createContact.mutate({ clientId, alarmSystemId: activeSystemId, ...contactForm }); setShowContactForm(false); setContactForm({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" }); }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
             </div>
@@ -214,7 +223,7 @@ export default function ClientDetail() {
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingContact.name?.trim()) { toast.error("Nome é obrigatório"); return; }
-                    updateContact.mutate({ id: editingContact.id, name: editingContact.name, phone: editingContact.phone || "", whatsapp: editingContact.whatsapp || "", email: editingContact.email || "", role: editingContact.role || "", password: editingContact.password || "", counterPassword: editingContact.counterPassword || "", coercionPassword: editingContact.coercionPassword || "" });
+                    updateContact.mutate({ id: editingContact.id, alarmSystemId: activeSystemId, name: editingContact.name, phone: editingContact.phone || "", whatsapp: editingContact.whatsapp || "", email: editingContact.email || "", role: editingContact.role || "", password: editingContact.password || "", counterPassword: editingContact.counterPassword || "", coercionPassword: editingContact.coercionPassword || "" });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>
@@ -335,13 +344,23 @@ export default function ClientDetail() {
             )}
           </TabsContent>
 
+          {/* USUÁRIOS DO PAINEL */}
+          <TabsContent value="users" className="mt-4 space-y-4">
+            {!activeSystemId ? <p className="text-muted-foreground text-center py-8">Cadastre um sistema de alarme antes de incluir usuários do painel.</p> : <>
+              {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para usuários</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(e) => setOperationalSystemId(Number(e.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
+              <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 p-3"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Users className="h-4 w-4 text-primary" />Usuários programados somente na central selecionada.</div><Dialog open={showAlarmUserForm} onOpenChange={setShowAlarmUserForm}><DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" />Adicionar Usuário</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Novo Usuário do Painel</DialogTitle></DialogHeader><div className="grid grid-cols-2 gap-3"><div><Label>Nº do usuário *</Label><Input type="number" min={1} value={alarmUserForm.userNumber} onChange={(e) => setAlarmUserForm({ ...alarmUserForm, userNumber: Number(e.target.value) })} /></div><div><Label>Nome *</Label><Input value={alarmUserForm.name} onChange={(e) => setAlarmUserForm({ ...alarmUserForm, name: e.target.value })} /></div><div className="col-span-2"><Label>Telefone</Label><Input value={alarmUserForm.phone} onChange={(e) => setAlarmUserForm({ ...alarmUserForm, phone: maskPhone(e.target.value) })} /></div></div><Button className="mt-3" onClick={() => { if (!activeSystemId || !alarmUserForm.name.trim()) { toast.error("Número, nome e sistema são obrigatórios"); return; } createAlarmUser.mutate({ alarmSystemId: activeSystemId, ...alarmUserForm }); setShowAlarmUserForm(false); setAlarmUserForm({ userNumber: alarmUserForm.userNumber + 1, name: "", phone: "" }); }}>Salvar</Button></DialogContent></Dialog></div>
+              <div className="grid gap-3">{alarmUsers.map((alarmUser: any) => <Card key={alarmUser.id}><CardContent className="p-4 flex items-center justify-between"><div className="flex items-center gap-3"><Users className="h-5 w-5 text-primary" /><div><p className="font-bold">Usuário {alarmUser.userNumber} · {alarmUser.name}</p><p className="text-sm text-muted-foreground">{alarmUser.phone || "Telefone não informado"}</p></div></div><div className="flex gap-1"><Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingAlarmUser({ ...alarmUser })}><Pencil className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir este usuário do painel?")) deleteAlarmUser.mutate({ id: alarmUser.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button></div></CardContent></Card>)}{alarmUsers.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum usuário cadastrado para este sistema</p>}</div>
+              {editingAlarmUser && <Dialog open={!!editingAlarmUser} onOpenChange={() => setEditingAlarmUser(null)}><DialogContent><DialogHeader><DialogTitle>Editar Usuário do Painel</DialogTitle></DialogHeader><div className="grid grid-cols-2 gap-3"><div><Label>Nº do usuário *</Label><Input type="number" min={1} value={editingAlarmUser.userNumber || 1} onChange={(e) => setEditingAlarmUser({ ...editingAlarmUser, userNumber: Number(e.target.value) })} /></div><div><Label>Nome *</Label><Input value={editingAlarmUser.name || ""} onChange={(e) => setEditingAlarmUser({ ...editingAlarmUser, name: e.target.value })} /></div><div className="col-span-2"><Label>Telefone</Label><Input value={editingAlarmUser.phone || ""} onChange={(e) => setEditingAlarmUser({ ...editingAlarmUser, phone: maskPhone(e.target.value) })} /></div></div><Button className="mt-3" onClick={() => { if (!editingAlarmUser.name?.trim()) { toast.error("Nome é obrigatório"); return; } updateAlarmUser.mutate({ id: editingAlarmUser.id, userNumber: Number(editingAlarmUser.userNumber), name: editingAlarmUser.name, phone: editingAlarmUser.phone || "" }); }}>Salvar Alterações</Button></DialogContent></Dialog>}
+            </>}
+          </TabsContent>
+
           {/* ZONAS / SETORES */}
           <TabsContent value="zones" className="mt-4 space-y-4">
-            {!activeZoneSystemId ? (
+            {!activeSystemId ? (
               <p className="text-muted-foreground text-center py-8">Cadastre um sistema de alarme primeiro para adicionar zonas/setores</p>
             ) : (
               <>
-                {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para zonas</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeZoneSystemId)} onChange={(e) => setZoneSystemId(Number(e.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
+                {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para zonas</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(e) => setOperationalSystemId(Number(e.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
                 <div className="flex justify-end">
                   <Dialog open={showZoneForm} onOpenChange={setShowZoneForm}>
                     <DialogTrigger asChild>
@@ -368,7 +387,7 @@ export default function ClientDetail() {
                         </div>
                         <div><Label>Partição</Label><Input type="number" min={1} max={8} value={zoneForm.partition} onChange={(e) => setZoneForm({ ...zoneForm, partition: Number(e.target.value) })} /></div>
                       </div>
-                      <Button className="mt-3" onClick={() => { if (!zoneForm.name) { toast.error("Nome é obrigatório"); return; } createZone.mutate({ alarmSystemId: activeZoneSystemId, ...zoneForm }); setShowZoneForm(false); setZoneForm({ zoneNumber: zoneForm.zoneNumber + 1, name: "", type: "perimeter", partition: 1 }); }}>Salvar</Button>
+                      <Button className="mt-3" onClick={() => { if (!zoneForm.name || !activeSystemId) { toast.error("Nome e sistema são obrigatórios"); return; } createZone.mutate({ alarmSystemId: activeSystemId, ...zoneForm }); setShowZoneForm(false); setZoneForm({ zoneNumber: zoneForm.zoneNumber + 1, name: "", type: "perimeter", partition: 1 }); }}>Salvar</Button>
                     </DialogContent>
                   </Dialog>
                 </div>

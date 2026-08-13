@@ -126,6 +126,7 @@ export type InsertClient = typeof clients.$inferInsert;
 export const clientContacts = mysqlTable("client_contacts", {
   id: int("id").autoincrement().primaryKey(),
   clientId: int("clientId").notNull(),
+  alarmSystemId: int("alarmSystemId"),
   name: varchar("name", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 20 }),
   whatsapp: varchar("whatsapp", { length: 20 }),

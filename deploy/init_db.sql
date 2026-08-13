@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS client_contacts (
   id INT AUTO_INCREMENT PRIMARY KEY,
   clientId INT NOT NULL,
+  alarmSystemId INT,
   name VARCHAR(255) NOT NULL,
   phone VARCHAR(20),
   whatsapp VARCHAR(20),

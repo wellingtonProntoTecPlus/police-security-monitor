@@ -29,4 +29,13 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("Adicionar outro sistema");
     expect(source).toContain("Sistema {index + 1} · Conta:");
   });
+
+  it("vincula contatos e usuários ao sistema de alarme selecionado", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("Sistema para contatos");
+    expect(source).toContain("Usuários do Painel");
+    expect(source).toContain("Usuários programados somente na central selecionada");
+    expect(source).toContain("alarmSystemId: activeSystemId");
+  });
 });

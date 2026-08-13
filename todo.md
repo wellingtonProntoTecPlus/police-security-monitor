@@ -73,6 +73,8 @@
 ## Cadastro de Sistema de Alarme (Completo)
 - [x] Buscar empresa parceira e cliente no cadastro de sistema
 - [x] Tornar explícito e funcional o cadastro de múltiplos sistemas por cliente
+- [x] Vincular contatos, zonas e usuários do painel ao sistema de alarme selecionado
+- [x] Preservar e migrar com segurança os contatos existentes para o primeiro sistema de cada cliente
 - [x] Campos: Marca, Modelo, Versão da central
 - [x] Tipo de comunicação: Ethernet IP / GPRS / Ambos
 - [x] MAC últimos 6 dígitos (identificação no dashboard)

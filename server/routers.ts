@@ -288,12 +288,14 @@ export const appRouter = router({
   // CLIENT CONTACTS
   // ============================================================
   clientContact: router({
-    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+    list: protectedProcedure.input(z.object({ clientId: z.number(), alarmSystemId: z.number().optional() })).query(async ({ input, ctx }) => {
       await assertPartnerClientScope(ctx, input.clientId);
-      return db.listClientContacts(input.clientId);
+      if (input.alarmSystemId) await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listClientContacts(input.clientId, input.alarmSystemId);
     }),
     create: operatorProcedure.input(z.object({
       clientId: z.number(),
+      alarmSystemId: z.number(),
       name: z.string().min(1),
       phone: z.string().optional(),
       whatsapp: z.string().optional(),
@@ -306,6 +308,7 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createClientContact(input)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
+      alarmSystemId: z.number().optional(),
       name: z.string().optional(),
       phone: z.string().optional(),
       whatsapp: z.string().optional(),
