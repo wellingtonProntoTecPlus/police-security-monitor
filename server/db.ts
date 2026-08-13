@@ -30,6 +30,7 @@ import { findCapturedPanelCandidates, resolveUniqueCapturedPanelCandidate, type 
 import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
+import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -506,7 +507,13 @@ export async function createAlarmUser(data: InsertAlarmUser) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const result = await db.insert(alarmUsers).values(data);
-  return { id: result[0].insertId };
+  const insertedId = Number(result[0].insertId);
+  const [saved] = await db.select().from(alarmUsers).where(eq(alarmUsers.id, insertedId)).limit(1);
+  return verifyPersistedAlarmUser(saved, {
+    alarmSystemId: data.alarmSystemId,
+    userNumber: data.userNumber,
+    name: data.name,
+  });
 }
 
 // ============================================================

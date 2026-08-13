@@ -38,4 +38,13 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("Usuários programados somente na central selecionada");
     expect(source).toContain("alarmSystemId: activeSystemId");
   });
+
+  it("só fecha o formulário de usuário depois que a gravação é confirmada", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("await createAlarmUser.mutateAsync");
+    expect(source).toContain("Não foi possível salvar o usuário do painel");
+    expect(source).toContain("createAlarmUser.isPending ? \"Salvando...\" : \"Salvar\"");
+    expect(source).toContain("Conta {activeSystem?.account || \"—\"}");
+  });
 });

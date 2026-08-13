@@ -75,6 +75,12 @@
 - [x] Tornar explícito e funcional o cadastro de múltiplos sistemas por cliente
 - [x] Vincular contatos, zonas e usuários do painel ao sistema de alarme selecionado
 - [x] Preservar e migrar com segurança os contatos existentes para o primeiro sistema de cada cliente
+- [x] Investigar usuários do painel recém-cadastrados que não aparecem na central selecionada
+- [ ] Recuperar e vincular os dois usuários do painel recém-cadastrados à central correta
+- [ ] Corrigir a falha de persistência que deixa a tabela alarm_users vazia após salvar
+- [ ] Cadastrar novamente e validar os dois usuários do painel após a atualização da VPS
+- [ ] Reproduzir a criação de usuário do painel com logs da API e identificar a causa real da ausência de inserção em alarm_users
+- [ ] Corrigir o backend de criação e testar uma inserção real em alarm_users
 - [x] Campos: Marca, Modelo, Versão da central
 - [x] Tipo de comunicação: Ethernet IP / GPRS / Ambos
 - [x] MAC últimos 6 dígitos (identificação no dashboard)
@@ -224,7 +230,7 @@
 - [x] Preservar registros legados enriquecíveis no escopo de usuários parceiros
 - [x] Simular a persistência de uma ocorrência automática e validar a listagem enriquecida no relatório
 - [x] Exercitar a função listOccurrences em teste integrado com banco temporário ou mock de consulta
-- [ ] Validar na VPS o cliente exibido em um evento real identificado por MAC ou IMEI
+- [x] Validar na VPS o cliente exibido em um evento real identificado por MAC ou IMEI
 
 ## Correção de Carga Contact ID na VPS
 - [x] Corrigir a carga para exibir os códigos Compatec, Vetti e Universais nos fabricantes corretos
@@ -256,9 +262,9 @@
 - [ ] Cobrir em testes a detecção por IMEI e a regra de não associação da Compatec incompleta
 - [ ] Consolidar transmissões duplicadas da Compatec geradas por um único comando operacional
 - [x] Comprovar no pacote Compatec se o MAC completo ou outro identificador exclusivo é transmitido
-- [ ] Associar eventos Compatec ao sistema pelo MAC completo recebido no quadro de conexão
+- [x] Associar eventos Compatec ao sistema pelo MAC completo recebido no quadro de conexão
 - [ ] Testar de forma integrada a resolução de um quadro Compatec pelo MAC e o vínculo ao sistema correto
-- [ ] Validar na VPS que o evento Compatec identificado deixa de cair na Conta do Sistema 0000
+- [x] Validar na VPS que o evento Compatec identificado deixa de cair na Conta do Sistema 0000
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb

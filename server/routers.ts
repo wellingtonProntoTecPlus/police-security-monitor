@@ -455,7 +455,10 @@ export const appRouter = router({
       userNumber: z.number(),
       name: z.string().min(1),
       phone: z.string().optional(),
-    })).mutation(({ input }) => db.createAlarmUser(input)),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.createAlarmUser(input);
+    }),
     update: operatorProcedure.input(z.object({
       id: z.number(),
       userNumber: z.number().optional(),
