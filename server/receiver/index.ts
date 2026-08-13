@@ -8,6 +8,7 @@ import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, e
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
+import { parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { resolveSystemAccount } from './systemAccount';
 
 // Configuração dos receptores por marca/porta
@@ -167,6 +168,8 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
 }
 
 // Driver Vetti
+const vettiLoginIdentityBySocket = new WeakMap<object, VettiLoginIdentity>();
+
 async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
   if (!Buffer.isBuffer(data) || data.length < 3) return;
 
@@ -175,6 +178,13 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
 
   switch (fr) {
     case 0xC0: // LOGIN
+      {
+        const loginIdentity = parseVettiLoginIdentity(data);
+        if (loginIdentity) {
+          vettiLoginIdentityBySocket.set(socket, loginIdentity);
+          console.log(`[RECIP] VETTI login | Conta ${loginIdentity.account} | MAC ${loginIdentity.macSuffix}`);
+        }
+      }
       socket.write(Buffer.from([0x02, 0x04, 0xC0, 0x80, 0xCF]));
       break;
     case 0xC2: // LOGIN 2
@@ -188,7 +198,7 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
         socket.write(Buffer.from([0x02, 0x04, 0xC1, 0x80, 0xDA]));
         break;
       }
-      const conta = hex2(data[4]) + hex2(data[5]);
+      const conta = resolveVettiEventAccount(data, vettiLoginIdentityBySocket.get(socket));
       const qualificador = cidDigit(data[10]);
       const evento = cidDigit(data[11]) + cidDigit(data[12]) + cidDigit(data[13]);
       const particao = cidDigit(data[14]) + cidDigit(data[15]);

@@ -14,6 +14,8 @@ Os campos MAC, IMEI e ID ISEP existem no cadastro de sistemas, porém os parsers
 | Radioenge | 0335 | 00-12-F8-60-0C-81 | A conexão contém `6294657`, a representação decimal de `600C81`, os seis últimos caracteres do MAC. | A conexão Radioenge transmite o sufixo MAC convertido para decimal. |
 | Compatec | 0334 | F0-24-F9-C1-BD-CB | A conexão curta contém `C1BDC`, que corresponde aos cinco primeiros caracteres do sufixo `C1BDCB`. | Há forte indício de um identificador de MAC abreviado; é necessário capturar outra conexão Compatec para confirmar o sexto caractere ou o quadro complementar. |
 
+No quadro de login Vetti `0209C04203362DE4A88F`, os bytes `03 36` são a Conta Contact ID `0336` e os bytes `2D E4 A8` são o sufixo MAC. Os campos `0A 03` do quadro de evento C1 não são a conta. O receptor guarda a identidade do login por conexão e aplica `0336` aos eventos seguintes daquela central.
+
 ## Regra operacional proposta
 
 | Tipo de painel | Identificador principal | Dado operacional complementar |

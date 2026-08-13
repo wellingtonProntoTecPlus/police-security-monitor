@@ -229,6 +229,7 @@
 - [x] Cadastrar IMEI GPRS de seis dígitos por sistema de alarme
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
 - [x] Permitir selecionar a porta receptora conforme a fabricante da central
+- [x] Corrigir a leitura da Conta Contact ID Vetti para que a central da conta 0336 não seja exibida como 0A03
 - [ ] Garantir a identificação inequívoca quando fabricantes diferentes usam a mesma Conta Contact ID
 - [ ] Identificar painéis IP principalmente por MAC ou IMEI e, em ViaWeb, por ID ISEP
 - [ ] Permitir contas Contact ID repetidas entre parceiras sem usar fabricante ou porta como chave principal
