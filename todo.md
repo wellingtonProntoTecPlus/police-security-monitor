@@ -244,9 +244,13 @@
 - [x] Capturar com segurança os pacotes de conexão e eventos de Compatec, Vetti e Radioenge para mapear o identificador transmitido
 - [ ] Detectar nos pacotes capturados candidatos MAC ou IMEI já cadastrados, sem atribuir o evento automaticamente
 - [x] Detectar com segurança o MAC de Vetti e Radioenge nos formatos capturados em teste real
-- [ ] Identificar o sexto caractere MAC ou quadro complementar da Compatec antes de permitir associação automática
+- [x] Identificar o sexto caractere MAC ou quadro complementar da Compatec antes de permitir associação automática
 - [ ] Cobrir em testes a detecção por IMEI e a regra de não associação da Compatec incompleta
 - [ ] Consolidar transmissões duplicadas da Compatec geradas por um único comando operacional
+- [x] Comprovar no pacote Compatec se o MAC completo ou outro identificador exclusivo é transmitido
+- [ ] Associar eventos Compatec ao sistema pelo MAC completo recebido no quadro de conexão
+- [ ] Testar de forma integrada a resolução de um quadro Compatec pelo MAC e o vínculo ao sistema correto
+- [ ] Validar na VPS que o evento Compatec identificado deixa de cair na Conta do Sistema 0000
 - [ ] Documentar e testar, por fabricante, o campo de protocolo usado para conta, MAC, IMEI ou ID ISEP
 - [x] Garantir que o ID ISEP permaneça separado da Conta Contact ID em todos os cadastros e orientações técnicas
 - [x] Restringir geração, exibição e identificação por ID ISEP exclusivamente às centrais ViaWeb

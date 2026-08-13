@@ -10,7 +10,7 @@ export type SafeCaptureFrame = {
 
 export type CapturedPanelCandidate = {
   systemId: number;
-  identifierType: "mac_hex" | "mac_decimal";
+  identifierType: "mac_hex" | "mac_decimal" | "mac_ascii";
   identifier: string;
 };
 
@@ -69,7 +69,6 @@ function normalizeIdentifier(value: string | null | undefined) {
 
 /**
  * Identifica somente formatos que foram confirmados com uma captura real.
- * Compatec permanece sem candidato até ser identificado o sexto caractere do MAC.
  */
 export function findCapturedPanelCandidates(
   brand: string,
@@ -90,6 +89,11 @@ export function findCapturedPanelCandidates(
       continue;
     }
 
+    if (normalizedBrand === "COMPATEC" && packetText.includes(`*${identifier}`)) {
+      candidates.push({ systemId: system.id, identifierType: "mac_ascii", identifier });
+      continue;
+    }
+
     if (normalizedBrand === "RADIOENGE") {
       const decimalIdentifier = Number.parseInt(identifier, 16).toString(10);
       if (packetText.includes(decimalIdentifier)) {
@@ -99,4 +103,10 @@ export function findCapturedPanelCandidates(
   }
 
   return candidates;
+}
+
+export function resolveUniqueCapturedPanelCandidate(candidates: CapturedPanelCandidate[]) {
+  const uniqueSystemIds = Array.from(new Set(candidates.map((candidate) => candidate.systemId)));
+  if (uniqueSystemIds.length !== 1) return undefined;
+  return candidates.find((candidate) => candidate.systemId === uniqueSystemIds[0]);
 }
