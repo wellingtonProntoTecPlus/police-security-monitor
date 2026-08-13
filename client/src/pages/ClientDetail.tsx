@@ -100,7 +100,7 @@ export default function ClientDetail() {
         <Tabs defaultValue="info" className="w-full">
           <TabsList>
             <TabsTrigger value="info">Informações</TabsTrigger>
-            <TabsTrigger value="contacts">Contatos ({contacts.length})</TabsTrigger>
+            <TabsTrigger value="contacts">Contatos e Credenciais ({contacts.length})</TabsTrigger>
             <TabsTrigger value="systems">Sistemas ({systems.length})</TabsTrigger>
             <TabsTrigger value="zones">Zonas/Setores ({zones.length})</TabsTrigger>
             <TabsTrigger value="cameras">Câmeras ({cameras.length})</TabsTrigger>
@@ -131,12 +131,16 @@ export default function ClientDetail() {
 
           {/* CONTATOS */}
           <TabsContent value="contacts" className="mt-4 space-y-4">
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                <Shield className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
+                <span>Ao adicionar ou editar um contato, informe na seção <strong className="text-foreground">Credenciais de Segurança</strong> a Senha, a Contra senha e, se houver, a Senha de coação.</span>
+              </div>
               <Dialog open={showContactForm} onOpenChange={setShowContactForm}>
                 <DialogTrigger asChild>
                   <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Adicionar Contato</Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                   <DialogHeader><DialogTitle>Novo Contato</DialogTitle></DialogHeader>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2"><Label>Nome *</Label><Input value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} /></div>
@@ -144,9 +148,14 @@ export default function ClientDetail() {
                     <div><Label>WhatsApp</Label><Input value={contactForm.whatsapp} onChange={(e) => setContactForm({ ...contactForm, whatsapp: maskPhone(e.target.value) })} placeholder="(00) 00000-0000" /></div>
                     <div><Label>E-mail</Label><Input value={contactForm.email} onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })} /></div>
                     <div><Label>Função</Label><Input placeholder="Ex: Proprietário" value={contactForm.role} onChange={(e) => setContactForm({ ...contactForm, role: e.target.value })} /></div>
-                    <div><Label>Senha</Label><Input value={contactForm.password} onChange={(e) => setContactForm({ ...contactForm, password: e.target.value })} /></div>
-                    <div><Label>Contra senha</Label><Input value={contactForm.counterPassword} onChange={(e) => setContactForm({ ...contactForm, counterPassword: e.target.value })} /></div>
-                    <div className="col-span-2"><Label>Senha de coação</Label><Input value={contactForm.coercionPassword} onChange={(e) => setContactForm({ ...contactForm, coercionPassword: e.target.value })} /></div>
+                    <div className="col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                      <div className="mb-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-400" /><div><p className="text-sm font-semibold text-foreground">Credenciais de Segurança</p><p className="text-xs text-muted-foreground">Dados usados pelo operador para confirmar a identidade do contato.</p></div></div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Senha</Label><Input value={contactForm.password} onChange={(e) => setContactForm({ ...contactForm, password: e.target.value })} /></div>
+                        <div><Label>Contra senha</Label><Input value={contactForm.counterPassword} onChange={(e) => setContactForm({ ...contactForm, counterPassword: e.target.value })} /></div>
+                        <div className="col-span-2"><Label>Senha de coação</Label><Input value={contactForm.coercionPassword} onChange={(e) => setContactForm({ ...contactForm, coercionPassword: e.target.value })} /></div>
+                      </div>
+                    </div>
                   </div>
                   <Button className="mt-3" onClick={() => { if (!contactForm.name) { toast.error("Nome é obrigatório"); return; } createContact.mutate({ clientId, ...contactForm }); setShowContactForm(false); setContactForm({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" }); }}>Salvar</Button>
                 </DialogContent>
@@ -186,7 +195,7 @@ export default function ClientDetail() {
             </ScrollArea>
             {editingContact && (
               <Dialog open={!!editingContact} onOpenChange={() => setEditingContact(null)}>
-                <DialogContent>
+                <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                   <DialogHeader><DialogTitle>Editar Contato</DialogTitle></DialogHeader>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2"><Label>Nome *</Label><Input value={editingContact.name || ""} onChange={(e) => setEditingContact({ ...editingContact, name: e.target.value })} /></div>
@@ -194,9 +203,14 @@ export default function ClientDetail() {
                     <div><Label>WhatsApp</Label><Input value={editingContact.whatsapp || ""} onChange={(e) => setEditingContact({ ...editingContact, whatsapp: maskPhone(e.target.value) })} /></div>
                     <div><Label>E-mail</Label><Input value={editingContact.email || ""} onChange={(e) => setEditingContact({ ...editingContact, email: e.target.value })} /></div>
                     <div><Label>Função</Label><Input value={editingContact.role || ""} onChange={(e) => setEditingContact({ ...editingContact, role: e.target.value })} /></div>
-                    <div><Label>Senha</Label><Input value={editingContact.password || ""} onChange={(e) => setEditingContact({ ...editingContact, password: e.target.value })} /></div>
-                    <div><Label>Contra senha</Label><Input value={editingContact.counterPassword || ""} onChange={(e) => setEditingContact({ ...editingContact, counterPassword: e.target.value })} /></div>
-                    <div className="col-span-2"><Label>Senha de coação</Label><Input value={editingContact.coercionPassword || ""} onChange={(e) => setEditingContact({ ...editingContact, coercionPassword: e.target.value })} /></div>
+                    <div className="col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                      <div className="mb-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-400" /><div><p className="text-sm font-semibold text-foreground">Credenciais de Segurança</p><p className="text-xs text-muted-foreground">Atualize os dados de validação utilizados pelo operador.</p></div></div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><Label>Senha</Label><Input value={editingContact.password || ""} onChange={(e) => setEditingContact({ ...editingContact, password: e.target.value })} /></div>
+                        <div><Label>Contra senha</Label><Input value={editingContact.counterPassword || ""} onChange={(e) => setEditingContact({ ...editingContact, counterPassword: e.target.value })} /></div>
+                        <div className="col-span-2"><Label>Senha de coação</Label><Input value={editingContact.coercionPassword || ""} onChange={(e) => setEditingContact({ ...editingContact, coercionPassword: e.target.value })} /></div>
+                      </div>
+                    </div>
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingContact.name?.trim()) { toast.error("Nome é obrigatório"); return; }

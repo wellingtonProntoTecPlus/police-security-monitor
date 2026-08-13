@@ -96,6 +96,7 @@ export default function Partners() {
   const filteredPartners = partners.filter((p: any) =>
     p.name.toLowerCase().includes(search.toLowerCase()) || p.cnpj.includes(search.replace(/\D/g, ""))
   );
+  const selectedPartner = partners.find((partner: any) => partner.id === selectedPartnerId);
 
   async function handleCepSearch(cep: string) {
     setForm(prev => ({ ...prev, zipCode: maskCep(cep) }));
@@ -289,19 +290,19 @@ export default function Partners() {
         <div className="grid grid-cols-12 gap-6">
           <div className="col-span-8">
             <div className="bg-card border border-border rounded-lg overflow-hidden">
-              <div className="grid grid-cols-[1fr_160px_140px_140px_100px_84px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+              <div className="grid grid-cols-[1fr_160px_140px_140px_100px_116px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
                 <span>Razão Social</span>
                 <span>CNPJ</span>
                 <span>Telefone</span>
                 <span>Cidade/UF</span>
                 <span>Status</span>
-                <span>Ações</span>
+                <span>Configurar</span>
               </div>
               {filteredPartners.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">Nenhuma empresa parceira encontrada</div>
               ) : (
                 filteredPartners.map((partner: any) => (
-                  <div key={partner.id} onClick={() => setSelectedPartnerId(partner.id)} className={`grid grid-cols-[1fr_160px_140px_140px_100px_84px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center cursor-pointer ${selectedPartnerId === partner.id ? 'bg-primary/10' : ''}`}>
+                  <div key={partner.id} onClick={() => setSelectedPartnerId(partner.id)} className={`grid grid-cols-[1fr_160px_140px_140px_100px_116px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center cursor-pointer ${selectedPartnerId === partner.id ? 'bg-primary/10' : ''}`}>
                     <div className="flex items-center gap-2 min-w-0">
                       {partner.logoUrl ? <img src={partner.logoUrl} alt="" className="h-7 w-7 rounded object-contain border border-border shrink-0" /> : <Building2 className="h-4 w-4 text-primary shrink-0" />}
                       <span className="font-medium text-foreground truncate">{partner.name}</span>
@@ -313,6 +314,9 @@ export default function Partners() {
                     {partner.isActive ? "Ativa" : "Inativa"}
                   </Badge>
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-400 hover:text-amber-300" onClick={() => setSelectedPartnerId(partner.id)} title="Selecionar esta parceira para cadastrar Tático Móvel e feriados">
+                      <Shield className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300" onClick={() => openPartnerForm(partner)} title="Editar parceira">
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -332,6 +336,21 @@ export default function Partners() {
 
           {/* Painel de Feriados */}
           <div className="col-span-4 space-y-6">
+            <Card className="border-primary/50 bg-primary/5">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Shield className="h-5 w-5 mt-0.5 text-amber-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold text-foreground">Configuração da Parceira</p>
+                    {selectedPartner ? (
+                      <p className="text-sm text-muted-foreground">Parceira selecionada: <strong className="text-foreground">{selectedPartner.name}</strong>. Cadastre abaixo os feriados e o Tático Móvel desta empresa.</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Clique sobre uma parceira da lista, ou no ícone de escudo amarelo, para liberar os cadastros de Feriados e Tático Móvel.</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 mb-4">
@@ -390,7 +409,8 @@ export default function Partners() {
             </Card>
             <Card>
               <CardContent className="p-5">
-                <div className="flex items-center gap-2 mb-4"><Shield className="h-5 w-5 text-primary" /><h3 className="font-bold text-foreground">Tático Móvel</h3></div>
+                <div className="flex items-center gap-2 mb-1"><Shield className="h-5 w-5 text-amber-400" /><h3 className="font-bold text-foreground">Tático Móvel</h3></div>
+                <p className="text-xs text-muted-foreground mb-4">Cadastre a equipe ou agente que atende as ocorrências desta parceira.</p>
                 {!selectedPartnerId ? <p className="text-sm text-muted-foreground">Selecione uma parceira para cadastrar o Tático Móvel</p> : <>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <Input placeholder="Nome da equipe ou agente *" value={tacticalForm.name} onChange={(e) => setTacticalForm({ ...tacticalForm, name: e.target.value })} />

@@ -347,6 +347,7 @@
 - [x] Incluir senha e contra senha nos contatos de clientes
 - [x] Ampliar a busca de clientes para nome, nome fantasia e documento
 - [x] Criar cadastro de Tático Móvel vinculado à empresa parceira
+- [x] Tornar visíveis e fáceis de localizar os cadastros de Tático Móvel e credenciais de contato
 
 ## Compatibilidade de Colunas de Evento
 - [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico
