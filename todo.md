@@ -127,6 +127,13 @@
 - [x] Visualização de câmeras do cliente (botão)
 - [x] Alerta sonoro para eventos críticos
 - [x] Fluxo de status: Aguardando → Em Atendimento → Observação/Despacho → Finalizado
+- [ ] Identificar com precisão as centrais online e offline por comunicação real
+- [ ] Atualizar Online e Offline exclusivamente pelo Keep Alive recebido de cada central
+- [ ] Medir e registrar o intervalo real entre Keep Alives por central antes de definir o tempo de Offline
+- [x] Persistir amostras de Keep Alive para calcular frequência por central e fabricante
+- [x] Medir o intervalo de Keep Alive usando lastKeepAliveAt como referência exclusiva, sem misturar outras comunicações
+- [x] Adicionar teste em que há evento entre dois Keep Alives para preservar o intervalo real de supervisão
+- [ ] Validar na VPS que a amostragem permite calcular a frequência real por central e fabricante
 
 ## Player HLS para Câmeras
 - [x] Instalar hls.js no projeto

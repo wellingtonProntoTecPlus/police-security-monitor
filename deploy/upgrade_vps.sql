@@ -350,3 +350,37 @@ SET @statement = (
 PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
+
+-- Métricas de supervisão por Keep Alive. Não alteram nem removem dados existentes.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN lastKeepAliveAt TIMESTAMP NULL',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'lastKeepAliveAt'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN lastKeepAliveIntervalMs INT NULL',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'lastKeepAliveIntervalMs'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+CREATE TABLE IF NOT EXISTS system_keep_alive_samples (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  brand VARCHAR(30) NOT NULL,
+  receivedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  intervalMs INT NULL,
+  INDEX system_keep_alive_samples_system_received (alarmSystemId, receivedAt)
+);

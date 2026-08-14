@@ -15,6 +15,7 @@ import {
   incidents, InsertIncident,
   contactIdCodes,
   systemTechnicalAccounts,
+  systemKeepAliveSamples,
 } from "../drizzle/schema";
 import {
   alarmPgms, InsertAlarmPgm,
@@ -33,6 +34,7 @@ import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } fr
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
+import { measureKeepAlive } from "./keepAliveTracking";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -376,6 +378,30 @@ export async function listSystemsConnectionStatus() {
     ...system,
     connectionStatus: Boolean(system.isOnline && system.lastCommunication && system.lastCommunication >= cutoff) ? "online" : "offline",
   }));
+}
+
+export async function recordSystemKeepAlive(systemId: number, receivedAt = new Date()) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [system] = await db.select().from(alarmSystems).where(eq(alarmSystems.id, systemId)).limit(1);
+  if (!system) return undefined;
+
+  // Outros eventos podem atualizar lastCommunication. A frequência de supervisão
+  // deve considerar exclusivamente o sinal Keep Alive anterior da mesma central.
+  const measurement = measureKeepAlive(system.lastKeepAliveAt, receivedAt);
+  await db.update(alarmSystems).set({
+    isOnline: true,
+    lastCommunication: receivedAt,
+    lastKeepAliveAt: receivedAt,
+    lastKeepAliveIntervalMs: measurement.intervalMs,
+  }).where(eq(alarmSystems.id, systemId));
+  await db.insert(systemKeepAliveSamples).values({
+    alarmSystemId: systemId,
+    brand: system.brand,
+    receivedAt,
+    intervalMs: measurement.intervalMs,
+  });
+  return { system, ...measurement };
 }
 
 export async function ensureSystemTechnicalAccount() {

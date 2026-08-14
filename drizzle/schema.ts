@@ -166,6 +166,8 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   isActive: boolean("isActive").default(true).notNull(),
   isOnline: boolean("isOnline").default(false).notNull(),
   lastCommunication: timestamp("lastCommunication"),
+  lastKeepAliveAt: timestamp("lastKeepAliveAt"),
+  lastKeepAliveIntervalMs: int("lastKeepAliveIntervalMs"),
   maintenanceStartAt: timestamp("maintenanceStartAt"),
   maintenanceEndAt: timestamp("maintenanceEndAt"),
   maintenanceNotes: text("maintenanceNotes"),
@@ -176,6 +178,19 @@ export const alarmSystems = mysqlTable("alarm_systems", {
 
 export type AlarmSystem = typeof alarmSystems.$inferSelect;
 export type InsertAlarmSystem = typeof alarmSystems.$inferInsert;
+
+// ============================================================
+// AMOSTRAS DE KEEP ALIVE POR CENTRAL
+// ============================================================
+export const systemKeepAliveSamples = mysqlTable("system_keep_alive_samples", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  brand: varchar("brand", { length: 30 }).notNull(),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+  intervalMs: int("intervalMs"),
+});
+
+export type SystemKeepAliveSample = typeof systemKeepAliveSamples.$inferSelect;
 
 // ============================================================
 // ZONAS/SETORES DO SISTEMA DE ALARME

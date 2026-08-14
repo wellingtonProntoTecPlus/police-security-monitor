@@ -30,3 +30,16 @@ A Conta Contact ID poderá ser repetida entre parceiras. Um evento só poderá s
 A documentação da ViaWeb informa que o VIAWEB Receiver recebe os eventos dos equipamentos e os repassa ao software de monitoramento; também menciona múltiplos meios online em uma única conta ID ISEP e recursos anti-clonagem. Isso reforça que a integração ViaWeb deve respeitar seu identificador próprio e protocolo/receptor autorizado.
 
 Fonte: https://www.viawebsystem.com.br/guias/conteudo/index.php?doc=VIAWEBReceiverPlataformaAlarmeNET
+
+## Sinais Keep Alive usados para status operacional
+
+O status Online/Offline deve ser determinado por comunicação de supervisão, e não por eventos de Arme, Desarme ou disparo. A implementação atual já reconhece alguns sinais de protocolo, mas ainda não persiste o horário desses sinais no sistema cadastrado.
+
+| Fabricante ou protocolo | Sinal reconhecido pelo receptor | Situação atual | Regra necessária |
+|---|---|---|---|
+| JFL e Radioenge (7B) | Comando `0x40` | Recebe e responde ao Keep Alive | Atualizar o último contato do painel identificado na conexão |
+| Vetti | Quadro `0xAB` | Recebe e responde ao Keep Alive | Atualizar o último contato do login MAC associado ao socket |
+| Compatec | Quadro `@` | Recebe e responde ao quadro de supervisão | Confirmar a identidade MAC da conexão e atualizar o último contato |
+| Intelbras | Supervisão ainda a confirmar no pacote recebido | Apenas eventos e alguns quadros auxiliares tratados | Manter captura até confirmar o quadro de Keep Alive |
+
+O manual Radioenge localizado para esta investigação informa que o Keep Alive é enviado a cada 30 segundos ao software de automação. O intervalo de expiração operacional deverá ser configurado de forma conservadora e validado com os painéis reais antes de classificar uma central como Offline.

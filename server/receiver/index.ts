@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getClient, getContactIdDescription, isSystemInMaintenance } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, isSystemInMaintenance, recordSystemKeepAlive } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
@@ -12,6 +12,7 @@ import { parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdent
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
+import { formatKeepAliveInterval } from '../keepAliveTracking';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -30,9 +31,31 @@ const RECEIVERS_CONFIG = [
 type EventCallback = (event: any) => void;
 
 let eventCallback: EventCallback | null = null;
+const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
 
 export function setEventCallback(cb: EventCallback) {
   eventCallback = cb;
+}
+
+function rememberSystem(socket: net.Socket, system: any) {
+  if (system?.id) identifiedSystemBySocket.set(socket, { id: system.id, account: system.account, brand: system.brand });
+}
+
+async function recordKeepAlive(socket: net.Socket, brand: string, port: number, signal: string) {
+  let known = identifiedSystemBySocket.get(socket);
+  if (!known && isSafeCaptureEnabled(brand)) {
+    const system = await getAlarmSystemByCapturedPanelIdentifier({ brand, frames: getSafeCaptureFrames(socket) });
+    if (system) {
+      rememberSystem(socket, system);
+      known = identifiedSystemBySocket.get(socket);
+    }
+  }
+  if (!known) {
+    console.log(`[KEEPALIVE] ${brand} porta ${port} | ${signal} | central ainda não identificada`);
+    return;
+  }
+  const measurement = await recordSystemKeepAlive(known.id);
+  if (measurement) console.log(`[KEEPALIVE] ${brand} | Conta ${known.account} | ${signal} | ${formatKeepAliveInterval(measurement.intervalMs)}`);
 }
 
 function calcularChecksum(buffer: Buffer<ArrayBuffer>): Buffer<ArrayBuffer> {
@@ -93,6 +116,7 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
       break;
     }
     case 0x40: { // KEEP ALIVE
+      await recordKeepAlive(socket, brand, port, "0x40");
       let resp = Buffer.from([0x7B, 0x06, seq, 0x40, 0x05, 0x00]);
       resp = calcularChecksum(resp);
       socket.write(resp);
@@ -184,6 +208,8 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
         const loginIdentity = parseVettiLoginIdentity(data);
         if (loginIdentity) {
           vettiLoginIdentityBySocket.set(socket, loginIdentity);
+          const system = await getAlarmSystemByPanelIdentifier(loginIdentity.macSuffix, "mac", "VETTI", port);
+          if (system) rememberSystem(socket, system);
           console.log(`[RECIP] VETTI login | Conta ${loginIdentity.account} | MAC ${loginIdentity.macSuffix}`);
         }
       }
@@ -193,6 +219,7 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
       socket.write(Buffer.from([0x02, 0x04, 0xC2, 0x80, 0xE5, 0x04]));
       break;
     case 0xAB: // KEEP ALIVE
+      await recordKeepAlive(socket, "VETTI", port, "0xAB");
       socket.write(Buffer.from([0x02, 0x04, 0xAB, 0x80, 0xAD]));
       break;
     case 0xC1: { // EVENTO CONTACT-ID
@@ -228,9 +255,15 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
 async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
   const texto = data.toString('latin1');
 
-  if (texto.startsWith('*')) { socket.write('+'); return; }
+  if (texto.startsWith('*')) {
+    const macSuffix = texto.substring(1).trim().toUpperCase();
+    const system = await getAlarmSystemByPanelIdentifier(macSuffix, "mac", "COMPATEC", port);
+    if (system) rememberSystem(socket, system);
+    socket.write('+');
+    return;
+  }
   if (texto.startsWith('#')) { socket.write('@'); return; }
-  if (texto === '@') { socket.write('@'); return; }
+  if (texto === '@') { await recordKeepAlive(socket, "COMPATEC", port, "@"); socket.write('@'); return; }
 
   if (texto.startsWith('$')) {
     const payload = texto.substring(1, texto.length - 2);

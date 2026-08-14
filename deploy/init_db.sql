@@ -115,8 +115,19 @@ CREATE TABLE IF NOT EXISTS alarm_systems (
   isActive TINYINT(1) NOT NULL DEFAULT 1,
   isOnline TINYINT(1) NOT NULL DEFAULT 0,
   lastCommunication TIMESTAMP,
+  lastKeepAliveAt TIMESTAMP NULL,
+  lastKeepAliveIntervalMs INT NULL,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS system_keep_alive_samples (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  brand VARCHAR(30) NOT NULL,
+  receivedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  intervalMs INT NULL,
+  INDEX system_keep_alive_samples_system_received (alarmSystemId, receivedAt)
 );
 
 CREATE TABLE IF NOT EXISTS alarm_zones (
