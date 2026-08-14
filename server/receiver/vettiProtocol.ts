@@ -7,6 +7,11 @@ function hex2(value: number) {
   return value.toString(16).padStart(2, "0").toUpperCase();
 }
 
+/** A captura real da Vetti mostrou F7 isolado como sinal de supervisão, sem ACK adicional. */
+export function isVettiKeepAliveFrame(data: Buffer) {
+  return Buffer.isBuffer(data) && data.length === 1 && data[0] === 0xF7;
+}
+
 /** O quadro de login C0 contém Conta e os seis últimos caracteres do MAC. */
 export function parseVettiLoginIdentity(data: Buffer): VettiLoginIdentity | undefined {
   if (!Buffer.isBuffer(data) || data.length < 9 || data[2] !== 0xC0) return undefined;

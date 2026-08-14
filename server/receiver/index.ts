@@ -8,7 +8,7 @@ import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, e
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
-import { parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
+import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
@@ -197,7 +197,12 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
 const vettiLoginIdentityBySocket = new WeakMap<object, VettiLoginIdentity>();
 
 async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
-  if (!Buffer.isBuffer(data) || data.length < 3) return;
+  if (!Buffer.isBuffer(data) || data.length === 0) return;
+  if (isVettiKeepAliveFrame(data)) {
+    await recordKeepAlive(socket, "VETTI", port, "0xF7");
+    return;
+  }
+  if (data.length < 3) return;
 
   const fr = data.readUInt8(2);
   const cidDigit = (byte: number) => byte === 0x0A ? '0' : byte.toString(16).toUpperCase();

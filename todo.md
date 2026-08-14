@@ -134,6 +134,10 @@
 - [x] Medir o intervalo de Keep Alive usando lastKeepAliveAt como referência exclusiva, sem misturar outras comunicações
 - [x] Adicionar teste em que há evento entre dois Keep Alives para preservar o intervalo real de supervisão
 - [ ] Validar na VPS que a amostragem permite calcular a frequência real por central e fabricante
+- [x] Diagnosticar na VPS os sinais brutos de supervisão das duas Radioenge e da Vetti quando ainda não houver amostras persistidas
+- [x] Registrar o quadro Vetti F7 como Keep Alive sem enviar resposta adicional à central
+- [x] Registrar no documento técnico a evidência bruta dos sinais de supervisão observados na VPS
+- [ ] Validar na VPS a geração de amostras persistidas para 0041, 0335 e 0336 após reconhecer o F7 da Vetti
 
 ## Player HLS para Câmeras
 - [x] Instalar hls.js no projeto

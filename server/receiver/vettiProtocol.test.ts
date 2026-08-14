@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseVettiLoginIdentity, resolveVettiEventAccount } from "./vettiProtocol";
+import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount } from "./vettiProtocol";
 
 describe("protocolo Vetti", () => {
+  it("reconhece F7 isolado como Keep Alive sem confundir com quadro de login", () => {
+    expect(isVettiKeepAliveFrame(Buffer.from([0xF7]))).toBe(true);
+    expect(isVettiKeepAliveFrame(Buffer.from([0x02, 0x09, 0xC0, 0x42]))).toBe(false);
+  });
+
   it("extrai conta e MAC do login C0 confirmado na central da conta 0336", () => {
     const login = Buffer.from("0209C04203362DE4A88F", "hex");
 

@@ -33,13 +33,26 @@ Fonte: https://www.viawebsystem.com.br/guias/conteudo/index.php?doc=VIAWEBReceiv
 
 ## Sinais Keep Alive usados para status operacional
 
-O status Online/Offline deve ser determinado por comunicação de supervisão, e não por eventos de Arme, Desarme ou disparo. A implementação atual já reconhece alguns sinais de protocolo, mas ainda não persiste o horário desses sinais no sistema cadastrado.
+O status Online/Offline deve ser determinado por comunicação de supervisão, e não por eventos de Arme, Desarme ou disparo. O receptor persiste cada sinal reconhecido em `system_keep_alive_samples` e atualiza a última supervisão da central identificada. A expiração continuará pendente da medição de múltiplos intervalos reais.
 
 | Fabricante ou protocolo | Sinal reconhecido pelo receptor | Situação atual | Regra necessária |
 |---|---|---|---|
 | JFL e Radioenge (7B) | Comando `0x40` | Recebe e responde ao Keep Alive | Atualizar o último contato do painel identificado na conexão |
-| Vetti | Quadro `0xAB` | Recebe e responde ao Keep Alive | Atualizar o último contato do login MAC associado ao socket |
+| Vetti | Quadro `0xAB` e sinal curto `F7` | `0xAB` recebe resposta; `F7` é registrado sem resposta adicional | Atualizar o último contato do login MAC associado ao socket |
 | Compatec | Quadro `@` | Recebe e responde ao quadro de supervisão | Confirmar a identidade MAC da conexão e atualizar o último contato |
 | Intelbras | Supervisão ainda a confirmar no pacote recebido | Apenas eventos e alguns quadros auxiliares tratados | Manter captura até confirmar o quadro de Keep Alive |
 
 O manual Radioenge localizado para esta investigação informa que o Keep Alive é enviado a cada 30 segundos ao software de automação. O intervalo de expiração operacional deverá ser configurado de forma conservadora e validado com os painéis reais antes de classificar uma central como Offline.
+
+## Evidência operacional da VPS — 13/08
+
+Após a atualização de coleta de supervisão, o log do processo `police-central` confirmou as conexões reais abaixo. A Compatec não apresentou conexão ou quadro de supervisão durante a verificação e, portanto, foi considerada offline neste instante.
+
+| Central | Porta | Origem observada | Quadro de supervisão | Associação confirmada |
+|---|---:|---|---|---|
+| Radioenge conta 0335 | 9035 | 189.101.32.9 | `7B0503403D` (`0x40`) | Keep Alive registrado pelo socket identificado |
+| Radioenge conta 0041 | 9035 | 191.248.170.53 | `7B0502403C` (`0x40`) | Keep Alive registrado pelo socket identificado |
+| Vetti conta 0336 | 9161 | 189.101.32.9 | `F7` isolado | Login `0209C04203362DE4A88F` confirmou MAC `2DE4A8`; `F7` será tratado como Keep Alive sem ACK |
+| Compatec conta 0334 | 9112 | Não observada | Não observada | Offline no momento da captura |
+
+Os dois primeiros sinais Radioenge foram registrados como “primeiro Keep Alive observado”, o que é esperado logo após reiniciar o processo: ainda não existe sinal anterior para calcular o intervalo. A próxima etapa é acumular novas amostras para cada central e obter os intervalos reais persistidos.
