@@ -1,0 +1,1 @@
+ALTER TABLE `alarm_systems` MODIFY COLUMN `keepAliveOfflineAfterMinutes` int NOT NULL DEFAULT 60;

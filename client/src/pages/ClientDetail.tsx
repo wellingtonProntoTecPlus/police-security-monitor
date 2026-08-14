@@ -83,6 +83,7 @@ export default function ClientDetail() {
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
     macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061,
+    keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 60,
   });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
@@ -258,7 +259,7 @@ export default function ClientDetail() {
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label>Conta (Contact ID) *</Label><Input placeholder="0001" value={systemForm.account} onChange={(e) => setSystemForm({ ...systemForm, account: e.target.value })} /></div>
                     <div>
-                      <Label>Marca</Label>
+                      <Label>Marca da central</Label>
                       <Select value={systemForm.brand} onValueChange={(v) => setSystemForm({ ...systemForm, brand: v, receiverPort: portsForBrand(v)[0] || 0 })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -290,12 +291,28 @@ export default function ClientDetail() {
                       </Select>
                     </div>
                   </div>
+                  <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-200">Configurações de Keep Alive</p>
+                        <p className="text-xs text-muted-foreground">Este painel será acompanhado pelo sinal de supervisão, sem usar eventos de alarme.</p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer">
+                        <input type="checkbox" checked={systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveMonitoringEnabled: event.target.checked })} /> Monitorar
+                      </label>
+                    </div>
+                    <div className="mt-3">
+                      <Label>Tempo para considerar Offline (minutos)</Label>
+                      <Input type="number" min={1} max={1440} disabled={!systemForm.keepAliveMonitoringEnabled} value={systemForm.keepAliveOfflineAfterMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 60) })} />
+                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 minutos. Ajuste apenas quando a central exigir uma tolerância diferente.</p>
+                    </div>
+                  </div>
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
                   <Button className="mt-3" onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     createSystem.mutate({ clientId, ...systemForm });
                     setShowSystemForm(false);
-                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061 });
+                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 60 });
                   }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
@@ -342,11 +359,27 @@ export default function ClientDetail() {
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} value={editingSystem.macAddress || ""} onChange={(e) => setEditingSystem({ ...editingSystem, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} value={editingSystem.imeiGprs || ""} onChange={(e) => setEditingSystem({ ...editingSystem, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     {editingSystem.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value={editingSystem.isepId || "Será gerado ao salvar"} disabled /></div>}
-                    <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select></div>
+                    <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">A porta é sugerida ao selecionar a central e pode ser ajustada manualmente.</p></div>
+                  </div>
+                  <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-200">Configurações de Keep Alive</p>
+                        <p className="text-xs text-muted-foreground">A ausência do Keep Alive informa se esta central está Online ou Offline.</p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer">
+                        <input type="checkbox" checked={editingSystem.keepAliveMonitoringEnabled !== false} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveMonitoringEnabled: event.target.checked })} /> Monitorar
+                      </label>
+                    </div>
+                    <div className="mt-3">
+                      <Label>Tempo para considerar Offline (minutos)</Label>
+                      <Input type="number" min={1} max={1440} disabled={editingSystem.keepAliveMonitoringEnabled === false} value={editingSystem.keepAliveOfflineAfterMinutes ?? 60} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 60) })} />
+                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 minutos. O valor é exclusivo desta central.</p>
+                    </div>
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
-                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", receiverPort: Number(editingSystem.receiverPort) || 0 });
+                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 60 });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>

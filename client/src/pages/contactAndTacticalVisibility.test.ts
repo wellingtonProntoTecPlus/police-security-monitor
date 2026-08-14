@@ -30,6 +30,16 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("Sistema {index + 1} · Conta:");
   });
 
+  it("mantém Keep Alive e porta sugerida no cadastro de cada central", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("Configurações de Keep Alive");
+    expect(source).toContain("Padrão: 60 minutos");
+    expect(source).toContain("receiverPort: portsForBrand(v)[0] || 0");
+    expect(source).toContain("A porta é sugerida ao selecionar a central");
+    expect(source).toContain("onValueChange={(value) => setSystemForm({ ...systemForm, receiverPort: Number(value) })}");
+  });
+
   it("vincula contatos e usuários ao sistema de alarme selecionado", () => {
     const source = projectFile("client/src/pages/ClientDetail.tsx");
 

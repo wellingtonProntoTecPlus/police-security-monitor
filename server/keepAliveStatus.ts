@@ -23,9 +23,13 @@ export function calculateKeepAliveCutoffMs(intervals: Array<number | null | unde
 export function getKeepAliveConnectionStatus(input: {
   lastKeepAliveAt?: Date | null;
   intervals?: Array<number | null | undefined>;
+  configuredOfflineAfterMinutes?: number | null;
   now?: Date;
 }) {
-  const cutoffMs = calculateKeepAliveCutoffMs(input.intervals || []);
+  const configuredCutoffMs = Number.isFinite(input.configuredOfflineAfterMinutes) && (input.configuredOfflineAfterMinutes || 0) > 0
+    ? Number(input.configuredOfflineAfterMinutes) * 60 * 1000
+    : undefined;
+  const cutoffMs = configuredCutoffMs || calculateKeepAliveCutoffMs(input.intervals || []);
   const lastKeepAliveAt = input.lastKeepAliveAt;
   if (!lastKeepAliveAt || Number.isNaN(lastKeepAliveAt.getTime())) {
     return { connectionStatus: "offline" as const, cutoffMs };

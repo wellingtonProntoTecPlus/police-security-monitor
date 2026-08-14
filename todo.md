@@ -143,6 +143,14 @@
 - [ ] Publicar e atualizar a VPS com a regra de status por Keep Alive calculada por sistema
 - [ ] Validar na VPS que Online e Offline usam apenas lastKeepAliveAt, sem depender de eventos de alarme
 - [ ] Testar a transição real para Offline após exceder o limite calculado por sistema
+- [ ] Adicionar por sistema as opções de gerar falha de Keep Alive, prazo para alerta de painel desconectado e repetição do alerta
+- [x] Inserir a seção Configurações de Keep Alive no formulário de criação e edição de cada Sistema de Alarme
+- [x] Preencher 60 minutos como padrão da configuração de Keep Alive em sistemas novos e existentes sem prazo definido
+- [x] Preencher automaticamente a porta receptora sugerida ao selecionar a marca da central, preservando edição manual
+- [ ] Criar uma única ocorrência de painel desconectado quando o Keep Alive expirar, sem alertas recorrentes automáticos
+- [ ] Manter a ocorrência de desconexão em Observação até a finalização manual após o retorno Online
+- [ ] Exibir nos modais Online e Offline as listas informativas das centrais e suas ocorrências em acompanhamento
+- [ ] Preservar histórico de contatos, observações e operador entre turnos para a próxima operadora continuar o atendimento
 - [x] Diagnosticar o retorno HTML transitório da pré-visualização e confirmar a recuperação das consultas da API
 - [x] Identificar e documentar a causa raiz do retorno HTML inesperado da pré-visualização
 - [x] Reproduzir e validar a ausência do erro de pré-visualização com a consulta e a resposta JSON esperada

@@ -359,6 +359,8 @@ export const appRouter = router({
       ipAddress: z.string().optional(),
       installDate: z.date().optional(),
       batteryDate: z.date().optional(),
+      keepAliveMonitoringEnabled: z.boolean().optional(),
+      keepAliveOfflineAfterMinutes: z.number().int().min(1).max(1440).optional(),
     })).mutation(({ input }) => db.createAlarmSystem(input)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
@@ -376,6 +378,8 @@ export const appRouter = router({
       isActive: z.boolean().optional(),
       installDate: z.date().optional(),
       batteryDate: z.date().optional(),
+      keepAliveMonitoringEnabled: z.boolean().optional(),
+      keepAliveOfflineAfterMinutes: z.number().int().min(1).max(1440).optional(),
     })).mutation(({ input }) => {
       const { id, ...data } = input;
       return db.updateAlarmSystem(id, data);

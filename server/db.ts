@@ -394,9 +394,13 @@ export async function listSystemsConnectionStatus() {
   }
 
   return systems.map((system) => {
+    if (!system.keepAliveMonitoringEnabled) {
+      return { ...system, connectionStatus: "not_monitored" as const, cutoffMs: null };
+    }
     const status = getKeepAliveConnectionStatus({
       lastKeepAliveAt: system.lastKeepAliveAt,
       intervals: intervalsBySystem.get(system.id),
+      configuredOfflineAfterMinutes: system.keepAliveOfflineAfterMinutes,
     });
     return { ...system, ...status };
   });
