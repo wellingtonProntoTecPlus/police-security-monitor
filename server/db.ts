@@ -35,6 +35,7 @@ import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
+import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -373,11 +374,32 @@ export async function endSystemMaintenance(systemId: number) {
 
 export async function listSystemsConnectionStatus() {
   const systems = await listAlarmSystems();
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
-  return systems.map((system) => ({
-    ...system,
-    connectionStatus: Boolean(system.isOnline && system.lastCommunication && system.lastCommunication >= cutoff) ? "online" : "offline",
-  }));
+  const db = await getDb();
+  if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const }));
+
+  const systemIds = systems.map((system) => system.id);
+  const samples = await db.select({
+    alarmSystemId: systemKeepAliveSamples.alarmSystemId,
+    intervalMs: systemKeepAliveSamples.intervalMs,
+  }).from(systemKeepAliveSamples)
+    .where(inArray(systemKeepAliveSamples.alarmSystemId, systemIds))
+    .orderBy(desc(systemKeepAliveSamples.receivedAt))
+    .limit(Math.max(systemIds.length * 30, 30));
+
+  const intervalsBySystem = new Map<number, Array<number | null>>();
+  for (const sample of samples) {
+    const current = intervalsBySystem.get(sample.alarmSystemId) || [];
+    current.push(sample.intervalMs);
+    intervalsBySystem.set(sample.alarmSystemId, current);
+  }
+
+  return systems.map((system) => {
+    const status = getKeepAliveConnectionStatus({
+      lastKeepAliveAt: system.lastKeepAliveAt,
+      intervals: intervalsBySystem.get(system.id),
+    });
+    return { ...system, ...status };
+  });
 }
 
 export async function recordSystemKeepAlive(systemId: number, receivedAt = new Date()) {

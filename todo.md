@@ -127,17 +127,25 @@
 - [x] Visualização de câmeras do cliente (botão)
 - [x] Alerta sonoro para eventos críticos
 - [x] Fluxo de status: Aguardando → Em Atendimento → Observação/Despacho → Finalizado
-- [ ] Identificar com precisão as centrais online e offline por comunicação real
-- [ ] Atualizar Online e Offline exclusivamente pelo Keep Alive recebido de cada central
-- [ ] Medir e registrar o intervalo real entre Keep Alives por central antes de definir o tempo de Offline
+- [x] Identificar com precisão as centrais online e offline por comunicação real
+- [x] Atualizar Online e Offline exclusivamente pelo Keep Alive recebido de cada central
+- [x] Medir e registrar o intervalo real entre Keep Alives por central antes de definir o tempo de Offline
 - [x] Persistir amostras de Keep Alive para calcular frequência por central e fabricante
 - [x] Medir o intervalo de Keep Alive usando lastKeepAliveAt como referência exclusiva, sem misturar outras comunicações
 - [x] Adicionar teste em que há evento entre dois Keep Alives para preservar o intervalo real de supervisão
-- [ ] Validar na VPS que a amostragem permite calcular a frequência real por central e fabricante
+- [x] Validar na VPS que a amostragem permite calcular a frequência real por central e fabricante
 - [x] Diagnosticar na VPS os sinais brutos de supervisão das duas Radioenge e da Vetti quando ainda não houver amostras persistidas
 - [x] Registrar o quadro Vetti F7 como Keep Alive sem enviar resposta adicional à central
 - [x] Registrar no documento técnico a evidência bruta dos sinais de supervisão observados na VPS
-- [ ] Validar na VPS a geração de amostras persistidas para 0041, 0335 e 0336 após reconhecer o F7 da Vetti
+- [x] Validar na VPS a geração de amostras persistidas para 0041, 0335 e 0336 após reconhecer o F7 da Vetti
+- [x] Confirmar e medir as amostras de Keep Alive da Compatec 0334 após a reconexão
+- [x] Aplicar limite Offline seguro por sistema usando as amostras reais de Keep Alive
+- [ ] Publicar e atualizar a VPS com a regra de status por Keep Alive calculada por sistema
+- [ ] Validar na VPS que Online e Offline usam apenas lastKeepAliveAt, sem depender de eventos de alarme
+- [ ] Testar a transição real para Offline após exceder o limite calculado por sistema
+- [x] Diagnosticar o retorno HTML transitório da pré-visualização e confirmar a recuperação das consultas da API
+- [x] Identificar e documentar a causa raiz do retorno HTML inesperado da pré-visualização
+- [x] Reproduzir e validar a ausência do erro de pré-visualização com a consulta e a resposta JSON esperada
 
 ## Player HLS para Câmeras
 - [x] Instalar hls.js no projeto

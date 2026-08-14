@@ -53,6 +53,23 @@ Após a atualização de coleta de supervisão, o log do processo `police-centra
 | Radioenge conta 0335 | 9035 | 189.101.32.9 | `7B0503403D` (`0x40`) | Keep Alive registrado pelo socket identificado |
 | Radioenge conta 0041 | 9035 | 191.248.170.53 | `7B0502403C` (`0x40`) | Keep Alive registrado pelo socket identificado |
 | Vetti conta 0336 | 9161 | 189.101.32.9 | `F7` isolado | Login `0209C04203362DE4A88F` confirmou MAC `2DE4A8`; `F7` será tratado como Keep Alive sem ACK |
-| Compatec conta 0334 | 9112 | Não observada | Não observada | Offline no momento da captura |
+| Compatec conta 0334 | 9112 | Reconectada posteriormente | `@` | Online; amostras persistidas confirmadas |
 
 Os dois primeiros sinais Radioenge foram registrados como “primeiro Keep Alive observado”, o que é esperado logo após reiniciar o processo: ainda não existe sinal anterior para calcular o intervalo. A próxima etapa é acumular novas amostras para cada central e obter os intervalos reais persistidos.
+
+## Medição confirmada das quatro centrais — 14/08
+
+Após a coleta contínua na VPS, a consulta em `system_keep_alive_samples` confirmou a persistência de sinais das quatro centrais. A tabela abaixo registra a evidência que orientará a regra de expiração; o limite Offline será calculado de modo conservador a partir do comportamento de cada sistema, e não de uma constante geral.
+
+| Conta | Marca | Amostras | Intervalo médio | Mínimo | Máximo | Interpretação operacional |
+|---|---|---:|---:|---:|---:|---|
+| 0041 | Radioenge | 13 | 356,3 s | 300,5 s | 648,7 s | Supervisão na faixa de 5 a 6 minutos, com intervalo excepcional maior após reinício/reconexão. |
+| 0335 | Radioenge | 13 | 358,7 s | 299,6 s | 656,0 s | Supervisão na faixa de 5 a 6 minutos, com intervalo excepcional maior após reinício/reconexão. |
+| 0334 | Compatec | 16 | 60,7 s | 60,2 s | 60,2 s | Supervisão estável de aproximadamente 60 segundos. |
+| 0336 | Vetti | 99 | 28,4 s | 11,5 s | 151,4 s | Quadros `F7` alternam intervalos curtos e longos; a expiração deve acomodar essa alternância. |
+
+Os logs da VPS também confirmaram o sinal `0x40` para Radioenge e o sinal `F7` para Vetti. A Compatec passou a apresentar amostras persistidas após sua reconexão.
+
+## Regra de expiração adotada
+
+Para cada central, o sistema considera os até 30 intervalos mais recentes e calcula `maior(90 segundos, média × 3, maior intervalo × 1,5)`. O status é **Online** somente quando `lastKeepAliveAt` está dentro dessa janela. Assim, eventos Contact ID, Arme, Desarme e disparos não podem manter artificialmente uma central online.
