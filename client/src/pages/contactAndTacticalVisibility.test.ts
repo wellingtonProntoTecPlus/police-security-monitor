@@ -68,4 +68,13 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("createAlarmUser.isPending ? \"Salvando...\" : \"Salvar\"");
     expect(source).toContain("Conta {activeSystem?.account || \"—\"}");
   });
+
+  it("mantém a lista de usuários do painel em linhas compactas", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("Usuário programado");
+    expect(source).toContain("grid-cols-[minmax(0,1fr)_190px_76px]");
+    expect(source).toContain("String(alarmUser.userNumber).padStart(2, \"0\")");
+    expect(source).toContain("min-h-14");
+  });
 });

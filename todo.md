@@ -81,6 +81,7 @@
 - [x] Melhor aproveitamento do espaço horizontal nos formulários
 
 ## Cadastro de Sistema de Alarme (Completo)
+- [x] Compactar a lista de Usuários do Painel para reduzir espaços vazios entre nomes
 - [x] Buscar empresa parceira e cliente no cadastro de sistema
 - [x] Tornar explícito e funcional o cadastro de múltiplos sistemas por cliente
 - [x] Vincular contatos, zonas e usuários do painel ao sistema de alarme selecionado
