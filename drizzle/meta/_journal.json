@@ -155,6 +155,13 @@
       "when": 1786676577380,
       "tag": "0021_blushing_hairball",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1786779967574,
+      "tag": "0022_chilly_tana_nile",
+      "breakpoints": true
     }
   ]
 }

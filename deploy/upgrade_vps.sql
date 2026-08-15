@@ -400,8 +400,8 @@ DEALLOCATE PREPARE migration_statement;
 
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
-    'ALTER TABLE alarm_systems ADD COLUMN keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 60',
-    'ALTER TABLE alarm_systems MODIFY COLUMN keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 60'
+    'ALTER TABLE alarm_systems ADD COLUMN keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 5',
+    'ALTER TABLE alarm_systems MODIFY COLUMN keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 5'
   )
   FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'keepAliveOfflineAfterMinutes'
@@ -411,8 +411,7 @@ EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
 UPDATE alarm_systems
-SET keepAliveOfflineAfterMinutes = 60
-WHERE keepAliveOfflineAfterMinutes IS NULL;
+SET keepAliveOfflineAfterMinutes = 5;
 
 -- Carga idempotente dos códigos Contact ID, incluindo a tabela JFL.
 SOURCE deploy/seed_contact_ids.sql;

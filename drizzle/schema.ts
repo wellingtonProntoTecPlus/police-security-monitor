@@ -169,7 +169,7 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   lastKeepAliveAt: timestamp("lastKeepAliveAt"),
   lastKeepAliveIntervalMs: int("lastKeepAliveIntervalMs"),
   keepAliveMonitoringEnabled: boolean("keepAliveMonitoringEnabled").default(true).notNull(),
-  keepAliveOfflineAfterMinutes: int("keepAliveOfflineAfterMinutes").default(60).notNull(),
+  keepAliveOfflineAfterMinutes: int("keepAliveOfflineAfterMinutes").default(5).notNull(),
   maintenanceStartAt: timestamp("maintenanceStartAt"),
   maintenanceEndAt: timestamp("maintenanceEndAt"),
   maintenanceNotes: text("maintenanceNotes"),

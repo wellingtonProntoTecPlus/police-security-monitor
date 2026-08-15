@@ -83,7 +83,7 @@ export default function ClientDetail() {
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
     macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061,
-    keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 60,
+    keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5,
   });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
@@ -303,8 +303,8 @@ export default function ClientDetail() {
                     </div>
                     <div className="mt-3">
                       <Label>Tempo para considerar Offline (minutos)</Label>
-                      <Input type="number" min={1} max={1440} disabled={!systemForm.keepAliveMonitoringEnabled} value={systemForm.keepAliveOfflineAfterMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 60) })} />
-                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 minutos. Ajuste apenas quando a central exigir uma tolerância diferente.</p>
+                      <Input type="number" min={1} max={1440} disabled={!systemForm.keepAliveMonitoringEnabled} value={systemForm.keepAliveOfflineAfterMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} />
+                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 5 minutos. Ajuste apenas quando a central exigir uma tolerância diferente.</p>
                     </div>
                   </div>
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
@@ -312,7 +312,7 @@ export default function ClientDetail() {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     createSystem.mutate({ clientId, ...systemForm });
                     setShowSystemForm(false);
-                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 60 });
+                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5 });
                   }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
@@ -373,13 +373,13 @@ export default function ClientDetail() {
                     </div>
                     <div className="mt-3">
                       <Label>Tempo para considerar Offline (minutos)</Label>
-                      <Input type="number" min={1} max={1440} disabled={editingSystem.keepAliveMonitoringEnabled === false} value={editingSystem.keepAliveOfflineAfterMinutes ?? 60} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 60) })} />
-                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 minutos. O valor é exclusivo desta central.</p>
+                      <Input type="number" min={1} max={1440} disabled={editingSystem.keepAliveMonitoringEnabled === false} value={editingSystem.keepAliveOfflineAfterMinutes ?? 5} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} />
+                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 5 minutos. O valor é exclusivo desta central.</p>
                     </div>
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
-                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 60 });
+                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5 });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>

@@ -11,15 +11,15 @@ describe("status de conexão por Keep Alive", () => {
     expect(cutoff).toBe(227_100);
   });
 
-  it("respeita o prazo individual definido para uma central", () => {
+  it("respeita o prazo individual de cinco minutos definido para uma central", () => {
     const now = new Date("2026-08-14T03:00:00.000Z");
     const result = getKeepAliveConnectionStatus({
-      lastKeepAliveAt: new Date("2026-08-14T02:10:01.000Z"),
-      configuredOfflineAfterMinutes: 60,
+      lastKeepAliveAt: new Date("2026-08-14T02:56:00.000Z"),
+      configuredOfflineAfterMinutes: 5,
       now,
     });
 
-    expect(result.cutoffMs).toBe(60 * 60 * 1000);
+    expect(result.cutoffMs).toBe(5 * 60 * 1000);
     expect(result.connectionStatus).toBe("online");
   });
 
