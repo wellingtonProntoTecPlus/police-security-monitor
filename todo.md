@@ -147,6 +147,10 @@
 - [x] Inserir a seção Configurações de Keep Alive no formulário de criação e edição de cada Sistema de Alarme
 - [x] Preencher 60 minutos como padrão da configuração de Keep Alive em sistemas novos e existentes sem prazo definido
 - [x] Preencher automaticamente a porta receptora sugerida ao selecionar a marca da central, preservando edição manual
+- [ ] Separar no cadastro a frequência técnica medida de Keep Alive do prazo operacional para considerar o painel desconectado
+- [ ] Confirmar o significado do padrão de 60 minutos antes de usá-lo como prazo de desconexão
+- [x] Diagnosticar por que a conta 0035 não foi exibida como Online no dashboard
+- [x] Vincular de forma segura o Keep Alive JFL da porta 9061 à central cadastrada da conta 0035
 - [ ] Criar uma única ocorrência de painel desconectado quando o Keep Alive expirar, sem alertas recorrentes automáticos
 - [ ] Manter a ocorrência de desconexão em Observação até a finalização manual após o retorno Online
 - [ ] Exibir nos modais Online e Offline as listas informativas das centrais e suas ocorrências em acompanhamento
