@@ -7,7 +7,7 @@ import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
   ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2,
-  LogOut, Volume2, VolumeX,
+  LogOut, Volume2, VolumeX, CarFront, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -153,6 +153,8 @@ export default function Dashboard() {
   const [maintenanceStartAt, setMaintenanceStartAt] = useState(() => dateTimeLocalValue(new Date()));
   const [maintenanceEndAt, setMaintenanceEndAt] = useState(() => dateTimeLocalValue(new Date(Date.now() + 60 * 60_000)));
   const [maintenanceNotes, setMaintenanceNotes] = useState("");
+  const [expandedQueue, setExpandedQueue] = useState<Exclude<QueueStatus, "waiting"> | null>(null);
+  const [collapsedWaitingAccounts, setCollapsedWaitingAccounts] = useState<Set<string>>(() => new Set());
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
@@ -451,6 +453,29 @@ export default function Dashboard() {
     queues.forEach((q) => { if (g[q.queueStatus]) g[q.queueStatus].push(q); });
     return g;
   }, [queues]);
+
+  const visibleWaitingEvents = useMemo(
+    () => [...grouped.waiting].sort((left, right) => right.queuedAt - left.queuedAt),
+    [grouped.waiting]
+  );
+
+  const waitingGroups = useMemo(() => {
+    const groups = new Map<string, QueueEvent[]>();
+    visibleWaitingEvents.forEach((event) => {
+      const key = event.alarmSystemId ? `system-${event.alarmSystemId}` : `account-${event.account}`;
+      groups.set(key, [...(groups.get(key) || []), event]);
+    });
+    return Array.from(groups.entries()).map(([key, events]) => ({ key, events }));
+  }, [visibleWaitingEvents]);
+
+  function toggleWaitingAccount(key: string) {
+    setCollapsedWaitingAccounts((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function countSameClient(ev: QueueEvent) {
     return queues.filter(q => q.account === ev.account && q !== ev).length;
@@ -763,27 +788,31 @@ export default function Dashboard() {
   }
 
   // Card do evento
-  function EventCard({ ev }: { ev: QueueEvent }) {
+  function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
     const pri = PRIORITY_LABELS[ev.priority] || PRIORITY_LABELS.medium;
     const time = ev.receivedAt ? new Date(ev.receivedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+    const isNew = ev.queueStatus === "waiting" && Date.now() - ev.queuedAt < 90_000;
 
     return (
       <div
         onClick={() => handleSelectEvent(ev)}
-        className={`px-3 py-2.5 border-b border-border/30 cursor-pointer hover:bg-primary/10 transition-colors relative border-l-4 ${
+        className={`rounded-md border border-border/50 px-3 py-2 cursor-pointer hover:bg-primary/10 transition-colors relative border-l-4 shadow-sm ${
           selectedEvent?.queuedAt === ev.queuedAt && selectedEvent?.account === ev.account ? 'bg-primary/15 border-l-primary' : (PRIORITY_BORDER[ev.priority] || PRIORITY_BORDER.medium)
         }`}
       >
-        {sameClientCount > 0 && (
+        {sameClientCount > 0 && !groupedCard && (
           <div className="absolute top-2 right-2 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center">
             <span className="text-[10px] font-bold text-white">{sameClientCount + 1}</span>
           </div>
         )}
-        <div className="text-xs text-muted-foreground font-mono mb-0.5">{time}</div>
-        <div className={`font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
-        <div className="text-xs text-primary font-medium">{ev.account} - {ev.clientName}</div>
-        <div className="text-[11px] text-muted-foreground">Central: {ev.systemModel}</div>
+        <div className="flex items-center gap-2 pr-8">
+          <div className="text-xs text-muted-foreground font-mono">{time}</div>
+          {isNew && <Badge className="bg-red-600 px-1.5 py-0 text-[9px] font-bold text-white">NOVO</Badge>}
+        </div>
+        <div className={`mt-0.5 font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
+        <div className="mt-0.5 text-sm text-primary font-semibold"><span className="font-mono tracking-[0.12em]">{ev.account}</span> <span className="text-muted-foreground">·</span> {ev.clientName}</div>
+        <div className="text-[11px] text-muted-foreground truncate">Central: {ev.systemModel}</div>
         <div className="flex items-center gap-2 mt-1">
           <span className="font-mono text-xs text-muted-foreground">{ev.qualifier === 'E' ? '' : 'R'}{ev.eventCode}</span>
           <Badge className={`text-[10px] px-1.5 py-0 ${pri.color}`}>{pri.label}</Badge>
@@ -791,7 +820,7 @@ export default function Dashboard() {
         {ev.observationUntil && ev.queueStatus === "observing" && (
           <div className="text-[10px] text-purple-300 mt-1">Observação até {new Date(ev.observationUntil).toLocaleString("pt-BR")}</div>
         )}
-        {sameClientCount > 0 && (
+        {sameClientCount > 0 && !groupedCard && (
           <div className="text-[10px] text-cyan-400 mt-1">+ {sameClientCount} eventos do mesmo cliente</div>
         )}
       </div>
@@ -807,11 +836,15 @@ export default function Dashboard() {
         {events.length === 0 ? (
           <div className="px-3 py-2 text-xs text-muted-foreground italic">Nenhuma ocorrência</div>
         ) : (
-          events.map((ev, idx) => <EventCard key={`${ev.account}-${ev.queuedAt}-${idx}`} ev={ev} />)
+          <div className="space-y-1.5 px-2 py-2">{events.map((ev, idx) => <EventCard key={`${ev.account}-${ev.queuedAt}-${idx}`} ev={ev} />)}</div>
         )}
       </div>
     );
   }
+
+  // Mantido temporariamente oculto enquanto o novo popup de tratamento substitui o painel lateral.
+  const legacySelectedEvent = selectedEvent as QueueEvent;
+  const legacySelectedClient = selectedClient as any;
 
   return (
     <DashboardLayout>
@@ -851,6 +884,64 @@ export default function Dashboard() {
         url={clientCameras?.[expandedCam - 1]?.rtspUrl || undefined}
         label={clientCameras?.[expandedCam - 1]?.name || `Câmera ${expandedCam}`}
       />}
+
+      {selectedEvent && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/65 p-5" onClick={() => setSelectedEvent(null)}>
+          <div className="flex h-[min(780px,92vh)] w-[min(1080px,94vw)] flex-col overflow-hidden rounded-xl border border-primary/35 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-border bg-card px-5 py-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className={`mt-0.5 h-6 w-6 shrink-0 ${selectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Tratamento de ocorrência</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-mono text-lg font-bold tracking-[0.14em] text-green-400">Conta {selectedEvent.account}</span>
+                    <span className="font-bold text-foreground">{selectedClient?.name || selectedEvent.clientName}</span>
+                    {selectedClient?.fantasyName && <span className="text-cyan-400">· {selectedClient.fantasyName}</span>}
+                  </div>
+                  <p className={`mt-1 font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>{selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <Timer startTime={attendStartTime} />
+                <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setSelectedEvent(null)} aria-label="Fechar tratamento"><X className="h-5 w-5" /></button>
+              </div>
+            </div>
+            {selectedEvent.queueStatus === "maintenance" ? (
+              <div className="flex flex-1 items-center justify-center p-8">
+                <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
+                  <Wrench className="mx-auto mb-3 h-10 w-10 text-yellow-400" />
+                  <h3 className="text-lg font-bold text-yellow-200">Sistema em manutenção</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">A ocorrência permanece preservada exclusivamente na fila de manutenção durante o período programado.</p>
+                  <Button className="mt-5 bg-red-600 hover:bg-red-700" onClick={() => void releaseMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="mr-2 h-4 w-4" /> {endMaintenanceMut.isPending ? "Retirando..." : "Retirar manutenção agora"}</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="grid gap-4 border-b border-border px-5 py-4 lg:grid-cols-[1fr_auto]">
+                  <Textarea className="min-h-[108px] resize-none text-sm" placeholder="Registro do atendimento, contatos realizados e providências..." value={attendingNotes} onChange={(event) => setAttendingNotes(event.target.value)} />
+                  <div className="flex min-w-[180px] flex-col gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(event) => setSendEmail(event.target.checked)} /><Mail className="h-3 w-3" /> E-mail</label>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
+                    <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>Finalizar</Button>
+                    {queues.filter((item) => item.account === selectedEvent.account).length > 1 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa ({queues.filter((item) => item.account === selectedEvent.account).length})</Button>}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={openObservation}><Eye className="h-3.5 w-3.5" /> Observação</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
+                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-400" onClick={() => { addLog(`Zona ${selectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>
+                </div>
+                <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[1.1fr_0.9fr]">
+                  <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Providências e histórico</h3>{logs.length === 0 ? <p className="text-sm text-muted-foreground">Registre acima cada contato e providência tomada durante o atendimento.</p> : <div className="space-y-1.5">{logs.map((log, index) => <p key={index} className="font-mono text-xs text-muted-foreground">{log}</p>)}</div>}</div>
+                  <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Dados do sistema</h3><p className="text-sm text-muted-foreground">Central: <span className="text-foreground">{selectedEvent.systemModel}</span></p><p className="mt-1 text-sm text-muted-foreground">Zona/usuário: <span className="text-foreground">{selectedEvent.zoneUser || "Não informado"}</span></p><p className="mt-1 text-sm text-muted-foreground">Prioridade: <span className={PRIORITY_TEXT_COLOR[selectedEvent.priority] || "text-foreground"}>{PRIORITY_LABELS[selectedEvent.priority]?.label || "Média"}</span></p></div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col h-[calc(100vh-1px)] overflow-hidden">
         {/* TOP BAR - Botões de Status */}
@@ -910,8 +1001,23 @@ export default function Dashboard() {
 
         {/* MAIN CONTENT */}
         <div className="flex flex-1 overflow-hidden">
-          {/* COLUNA 1: Filas */}
-          <div className="w-[300px] min-w-[300px] h-full border-r border-border bg-card flex flex-col">
+          {/* SELETOR COMPACTO DAS FILAS RECOLHIDAS */}
+          <div className="w-[76px] min-w-[76px] h-full border-r border-border bg-card flex flex-col items-center gap-2 px-2 py-3">
+            <span className="text-[9px] font-bold tracking-[0.15em] text-muted-foreground">FILAS</span>
+            {([
+              { key: "attending" as const, label: "Atendimento", color: "text-blue-400 border-blue-500/40 bg-blue-500/10", icon: Headphones },
+              { key: "observing" as const, label: "Observação", color: "text-purple-400 border-purple-500/40 bg-purple-500/10", icon: Eye },
+              { key: "tactical" as const, label: "Tático", color: "text-orange-400 border-orange-500/40 bg-orange-500/10", icon: CarFront },
+              { key: "maintenance" as const, label: "Manutenção", color: "text-yellow-400 border-yellow-500/40 bg-yellow-500/10", icon: Wrench },
+            ]).map((queue) => {
+              const Icon = queue.icon;
+              const isExpanded = expandedQueue === queue.key;
+              return <button key={queue.key} type="button" title={`${queue.label} (${grouped[queue.key].length})`} onClick={() => setExpandedQueue(isExpanded ? null : queue.key)} className={`relative flex h-12 w-12 items-center justify-center rounded-lg border transition-colors ${queue.color} ${isExpanded ? "ring-1 ring-current" : "hover:bg-muted/30"}`}><Icon className="h-5 w-5" />{grouped[queue.key].length > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[9px] font-bold text-background">{grouped[queue.key].length}</span>}</button>;
+            })}
+          </div>
+
+          {/* FILA PRINCIPAL: SEMPRE ABERTA */}
+          <div className="w-[min(520px,40vw)] min-w-[390px] h-full border-r border-border bg-card flex flex-col">
             <div className="px-3 py-2 border-b border-border flex items-center">
               <div className="flex items-center gap-2">
                 {connected ? (
@@ -921,49 +1027,59 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            <ScrollArea className="flex-1">
-              <QueueSection title="EM ATENDIMENTO" color="text-blue-400" events={grouped.attending} />
-              <QueueSection title="EM OBSERVAÇÃO" color="text-purple-400" events={grouped.observing} />
-              <QueueSection title="EM ATENDIMENTO TÁTICO" color="text-orange-400" events={grouped.tactical} />
-              <QueueSection title="EM MANUTENÇÃO" color="text-yellow-400" events={grouped.maintenance} />
-            </ScrollArea>
-            <div className="border-t border-border flex-1 min-h-0 flex flex-col overflow-hidden">
-              <div className="px-3 py-1.5 text-xs font-bold text-red-400">AGUARDANDO ({grouped.waiting.length})</div>
-              <div className="flex-1 overflow-y-auto px-2 pb-2">
-                {grouped.waiting.map((ev, index) => <EventCard key={`${ev.account}-${ev.queuedAt}-${ev.eventCode}-${index}`} ev={ev} />)}
+            {expandedQueue && <div className="max-h-[32%] overflow-y-auto border-b border-border bg-muted/10"><QueueSection title={expandedQueue === "attending" ? "EM ATENDIMENTO" : expandedQueue === "observing" ? "EM OBSERVAÇÃO" : expandedQueue === "tactical" ? "ATENDIMENTO TÁTICO" : "EM MANUTENÇÃO"} color={expandedQueue === "attending" ? "text-blue-400" : expandedQueue === "observing" ? "text-purple-400" : expandedQueue === "tactical" ? "text-orange-400" : "text-yellow-400"} events={grouped[expandedQueue]} /></div>}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between border-b border-red-500/30 bg-red-500/5 px-3 py-2"><span className="text-sm font-bold text-red-400">AGUARDANDO ({visibleWaitingEvents.length})</span><span className="text-[10px] font-medium text-red-200/70">Mais recentes no topo</span></div>
+              <div className="flex-1 overflow-y-auto space-y-2 p-2">
+                {waitingGroups.map(({ key, events }) => {
+                  const [mostRecent, ...otherEvents] = events;
+                  const isCollapsed = collapsedWaitingAccounts.has(key);
+                  return (
+                    <div key={key} className="rounded-lg border border-border/60 bg-black/10 p-1.5">
+                      <button type="button" onClick={() => toggleWaitingAccount(key)} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/40">
+                        <span className="min-w-0 truncate text-[11px] font-bold text-muted-foreground"><span className="font-mono tracking-[0.1em] text-primary">{mostRecent.account}</span> <span className="mx-1">·</span>{mostRecent.clientName || `Conta ${mostRecent.account}`}</span>
+                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-foreground">{events.length} {events.length === 1 ? "evento" : "eventos"}{events.length > 1 ? isCollapsed ? " · Expandir" : " · Recolher" : ""}</span>
+                      </button>
+                      <div className="mt-1 space-y-1.5">
+                        <EventCard ev={mostRecent} groupedCard />
+                        {!isCollapsed && otherEvents.map((event, index) => <EventCard key={`${event.account}-${event.queuedAt}-${event.eventCode}-${index}`} ev={event} groupedCard />)}
+                      </div>
+                    </div>
+                  );
+                })}
                 {grouped.waiting.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Nenhuma ocorrência</p>}
               </div>
             </div>
           </div>
 
-          {/* COLUNA 2: Painel Central */}
+          {/* ÁREA DE CONTEXTO: O TRATAMENTO É ABERTO NO POPUP */}
           <div className="flex-1 h-full flex flex-col overflow-hidden min-h-0">
-            {!selectedEvent ? (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                  <p className="text-lg">Selecione um evento na fila para atender</p>
-                </div>
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p className="text-lg">Selecione um evento na fila para atender</p>
+                <p className="mt-1 text-sm text-muted-foreground/70">O tratamento será aberto em uma janela operacional segura.</p>
               </div>
-            ) : (
+            </div>
+            {selectedEvent && false && (
               <div className="flex flex-col h-full">
                 {/* HEADER DO EVENTO */}
                 <div className="px-4 py-3 border-b border-border bg-card">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <AlertTriangle className={`h-5 w-5 ${selectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
+                      <AlertTriangle className={`h-5 w-5 ${legacySelectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-green-400 font-bold">Conta {selectedEvent.account}</span>
-                          <span className="text-foreground font-bold">{selectedClient?.name || selectedEvent.clientName}</span>
-                          {selectedClient?.fantasyName && <span className="text-cyan-400">- {selectedClient.fantasyName}</span>}
+                          <span className="text-green-400 font-bold">Conta {legacySelectedEvent.account}</span>
+                          <span className="text-foreground font-bold">{legacySelectedClient?.name || legacySelectedEvent.clientName}</span>
+                          {legacySelectedClient?.fantasyName && <span className="text-cyan-400">- {legacySelectedClient.fantasyName}</span>}
                         </div>
                         <div className="flex items-center gap-1 mt-0.5">
-                          <span className={`font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>
-                            {selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}
+                          <span className={`font-bold text-lg ${PRIORITY_TEXT_COLOR[legacySelectedEvent.priority] || 'text-foreground'}`}>
+                            {legacySelectedEvent.qualifier}{legacySelectedEvent.eventCode} - {legacySelectedEvent.description}
                           </span>
-                          <span className="text-muted-foreground">- Zona {selectedEvent.zoneUser}</span>
-                          {selectedEvent.zoneName && <span className="text-foreground ml-1">{selectedEvent.zoneName}</span>}
+                          <span className="text-muted-foreground">- Zona {legacySelectedEvent.zoneUser}</span>
+                          {legacySelectedEvent.zoneName && <span className="text-foreground ml-1">{legacySelectedEvent.zoneName}</span>}
                         </div>
                       </div>
                     </div>
@@ -971,7 +1087,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {selectedEvent.queueStatus === "maintenance" && (
+                {legacySelectedEvent.queueStatus === "maintenance" && (
                   <div className="flex-1 flex items-center justify-center p-8">
                     <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
                       <Wrench className="mx-auto h-10 w-10 text-yellow-400 mb-3" />
@@ -985,7 +1101,7 @@ export default function Dashboard() {
                 )}
 
                 {/* OBSERVAÇÕES */}
-                <div className={`px-4 py-2 border-b border-border ${selectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
+                <div className={`px-4 py-2 border-b border-border ${legacySelectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
                   <div className="flex items-start gap-3">
                     <Textarea
                       className="flex-1 min-h-[60px] max-h-[80px] text-sm resize-none"
@@ -1002,12 +1118,12 @@ export default function Dashboard() {
                         <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(e) => setSendPush(e.target.checked)} />
                         <Send className="h-3 w-3" /> Push
                       </label>
-                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(selectedEvent)}>
+                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(legacySelectedEvent)}>
                         Finalizar
                       </Button>
-                      {queues.filter((item) => item.account === selectedEvent.account).length > 1 && (
+                      {queues.filter((item) => item.account === legacySelectedEvent.account).length > 1 && (
                         <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>
-                          Finalizar em massa ({queues.filter((item) => item.account === selectedEvent.account).length})
+                          Finalizar em massa ({queues.filter((item) => item.account === legacySelectedEvent.account).length})
                         </Button>
                       )}
                       <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => setSelectedFinalization("open")}>
@@ -1018,7 +1134,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* BARRA DE AÇÕES */}
-                <div className={`px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap ${selectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
+                <div className={`px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap ${legacySelectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => { setActiveTab("cameras"); toast.info("Providências"); }}>
                     <FileText className="h-3.5 w-3.5" /> Providências
                   </Button>
@@ -1031,7 +1147,7 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={openObservation}>
                     <Eye className="h-3.5 w-3.5" /> Observação
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-orange-400" onClick={() => { moveEvent(legacySelectedEvent, "tactical"); addLog("Tático despachado"); }}>
                     <Truck className="h-3.5 w-3.5" /> Tático
                   </Button>
                   <Button
@@ -1046,13 +1162,13 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-green-400" onClick={() => { addLog("Comando DESARMAR enviado"); toast.info("Comando desarmar enviado"); }}>
                     <Shield className="h-3.5 w-3.5" /> Desarmar
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-cyan-400" onClick={() => { addLog(`Zona ${selectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}>
+                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-cyan-400" onClick={() => { addLog(`Zona ${legacySelectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}>
                     <Ban className="h-3.5 w-3.5" /> Isolar Zona
                   </Button>
                 </div>
 
                 {/* CÂMERAS / CONTEÚDO */}
-                <div className={`flex-1 px-4 py-2 overflow-hidden flex flex-col ${selectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
+                <div className={`flex-1 px-4 py-2 overflow-hidden flex flex-col ${legacySelectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
                   {/* Carrossel de Câmeras - logo abaixo dos botões de ação */}
                   <div className="flex items-center gap-2 mb-2">
                     <button
@@ -1113,22 +1229,22 @@ export default function Dashboard() {
                   {/* Conteúdo da aba */}
                   {activeTab === "contacts" && (
                     <div className="mt-2 space-y-1.5 max-h-[100px] overflow-auto">
-                      {selectedClient?.phone ? (
+                      {legacySelectedClient?.phone ? (
                         <div className="flex items-center justify-between bg-secondary/30 rounded px-3 py-1.5">
                           <div className="flex items-center gap-2">
                             <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-sm font-mono">{selectedClient.phone}</span>
+                            <span className="text-sm font-mono">{legacySelectedClient.phone}</span>
                           </div>
                           <Button size="sm" variant="ghost" className="h-6 text-xs"><PhoneCall className="h-3 w-3 mr-1" />Ligar</Button>
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">Nenhum contato cadastrado</p>
                       )}
-                      {selectedClient?.whatsapp && (
+                      {legacySelectedClient?.whatsapp && (
                         <div className="flex items-center justify-between bg-secondary/30 rounded px-3 py-1.5">
                           <div className="flex items-center gap-2">
                             <Phone className="h-3.5 w-3.5 text-green-400" />
-                            <span className="text-sm font-mono text-green-400">{selectedClient.whatsapp}</span>
+                            <span className="text-sm font-mono text-green-400">{legacySelectedClient.whatsapp}</span>
                           </div>
                           <Button size="sm" variant="ghost" className="h-6 text-xs text-green-400">WhatsApp</Button>
                         </div>
@@ -1138,7 +1254,7 @@ export default function Dashboard() {
                   {activeTab === "zones" && (
                     <div className="mt-2 space-y-1 max-h-[100px] overflow-auto">
                       <div className="flex items-center gap-2 bg-secondary/30 rounded px-3 py-1.5">
-                        <span className="text-xs font-mono text-red-400 font-bold">Zona {selectedEvent.zoneUser}</span>
+                        <span className="text-xs font-mono text-red-400 font-bold">Zona {legacySelectedEvent.zoneUser}</span>
                         <span className="text-xs text-muted-foreground">- Setor em disparo</span>
                       </div>
                     </div>
@@ -1149,7 +1265,7 @@ export default function Dashboard() {
           </div>
 
           {/* COLUNA 3: Logs da Ocorrência */}
-          <div className="w-[200px] min-w-[200px] h-full border-l border-border bg-card flex flex-col">
+          <div className="w-[220px] min-w-[220px] h-full border-l border-border bg-card flex flex-col">
             <div className="px-3 py-2 border-b border-border">
               <h3 className="text-xs font-bold text-muted-foreground uppercase">Logs da Ocorrência</h3>
             </div>

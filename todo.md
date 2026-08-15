@@ -123,6 +123,14 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Reorganizar visualmente a fila Aguardando com destaque para eventos novos/críticos
+- [x] Criar mockup aprovado da coluna de ícones para filas recolhidas e da fila Aguardando sempre aberta
+- [x] Reduzir moderadamente o tamanho dos ícones e cards da fila aprovada, preservando leitura rápida
+- [x] Usar ícone de carro ou moto de segurança para a fila Tático, sem aparência de entrega
+- [x] Abrir o tratamento da ocorrência em popup central amplo e reservar a largura do dashboard para as filas
+- [x] Implementar de fato o agrupamento da fila Aguardando por cliente/conta, mostrando o evento mais recente no cabeçalho e permitindo expandir/retrair os demais eventos do mesmo cliente
+- [x] Executar TypeScript, testes e verificação visual após o agrupamento real da fila Aguardando
+- [x] Adicionar e validar teste automatizado que comprove o agrupamento expansível por cliente/conta na fila Aguardando
 - [x] Painel de atendimento ao clicar no evento (dados do cliente, zona, providências)
 - [x] Lista de contatos do cliente na ordem de prioridade
 - [x] Botões de ação: Atender, Isolar Zona, Câmeras, Despachar Tático, Chamar Polícia, Finalizar
