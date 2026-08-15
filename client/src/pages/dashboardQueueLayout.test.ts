@@ -19,13 +19,15 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("collapsedWaitingAccounts");
     expect(source).toContain("toggleWaitingAccount");
     expect(source).toContain("const [mostRecent, ...otherEvents] = events");
-    expect(source).toContain("!isCollapsed && otherEvents.map");
+    expect(source).toContain("const visibleGroupEvents = isCollapsed ? [mostRecent] : events");
+    expect(source).toContain("visibleGroupEvents.map");
   });
 
   it("usa toda a largura disponível para cabeçalho e cards da fila Aguardando", () => {
-    expect(source).toContain("w-[min(620px,46vw)] min-w-[460px]");
+    expect(source).toContain("flex-1 min-w-[620px]");
     expect(source).toContain("w-full min-w-0 rounded-lg border border-border/60");
     expect(source).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(source).toContain("xl:grid-cols-2");
   });
 
   it("mostra no popup as zonas, contatos e usuários vinculados ao sistema da ocorrência", () => {

@@ -1037,7 +1037,7 @@ export default function Dashboard() {
           </div>
 
           {/* FILA PRINCIPAL: SEMPRE ABERTA */}
-          <div className="w-[min(620px,46vw)] min-w-[460px] h-full border-r border-border bg-card flex flex-col">
+          <div className="flex-1 min-w-[620px] h-full border-r border-border bg-card flex flex-col">
             <div className="px-3 py-2 border-b border-border flex items-center">
               <div className="flex items-center gap-2">
                 {connected ? (
@@ -1050,19 +1050,23 @@ export default function Dashboard() {
             {expandedQueue && <div className="max-h-[32%] overflow-y-auto border-b border-border bg-muted/10"><QueueSection title={expandedQueue === "attending" ? "EM ATENDIMENTO" : expandedQueue === "observing" ? "EM OBSERVAÇÃO" : expandedQueue === "tactical" ? "ATENDIMENTO TÁTICO" : "EM MANUTENÇÃO"} color={expandedQueue === "attending" ? "text-blue-400" : expandedQueue === "observing" ? "text-purple-400" : expandedQueue === "tactical" ? "text-orange-400" : "text-yellow-400"} events={grouped[expandedQueue]} /></div>}
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <div className="flex items-center justify-between border-b border-red-500/30 bg-red-500/5 px-3 py-2"><span className="text-sm font-bold text-red-400">AGUARDANDO ({visibleWaitingEvents.length})</span><span className="text-[10px] font-medium text-red-200/70">Mais recentes no topo</span></div>
-              <div className="flex-1 overflow-y-auto space-y-2 p-2">
+              <div className="flex-1 overflow-y-auto p-3">
                 {waitingGroups.map(({ key, events }) => {
                   const [mostRecent, ...otherEvents] = events;
                   const isCollapsed = collapsedWaitingAccounts.has(key);
+                  const visibleGroupEvents = isCollapsed ? [mostRecent] : events;
                   return (
-                    <div key={key} className="w-full min-w-0 rounded-lg border border-border/60 bg-black/10 p-1.5">
+                    <div key={key} className="mb-3 w-full min-w-0 rounded-lg border border-border/60 bg-black/10 p-2">
                       <button type="button" onClick={() => toggleWaitingAccount(key)} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/40">
                         <span className="min-w-0 truncate text-[11px] font-bold text-muted-foreground"><span className="font-mono tracking-[0.1em] text-primary">{mostRecent.account}</span> <span className="mx-1">·</span>{mostRecent.clientName || `Conta ${mostRecent.account}`}</span>
                         <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-foreground">{events.length} {events.length === 1 ? "evento" : "eventos"}{events.length > 1 ? isCollapsed ? " · Expandir" : " · Recolher" : ""}</span>
                       </button>
-                      <div className="mt-1 w-full space-y-1.5">
-                        <EventCard ev={mostRecent} groupedCard />
-                        {!isCollapsed && otherEvents.map((event, index) => <EventCard key={`${event.account}-${event.queuedAt}-${event.eventCode}-${index}`} ev={event} groupedCard />)}
+                      <div className="mt-2 grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+                        {visibleGroupEvents.map((event, index) => (
+                          <div key={`${event.account}-${event.queuedAt}-${event.eventCode}-${index}`} className={visibleGroupEvents.length === 1 ? "xl:col-span-2" : ""}>
+                            <EventCard ev={event} groupedCard />
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
@@ -1073,7 +1077,7 @@ export default function Dashboard() {
           </div>
 
           {/* ÁREA DE CONTEXTO: O TRATAMENTO É ABERTO NO POPUP */}
-          <div className="flex-1 h-full flex flex-col overflow-hidden min-h-0">
+          <div className="hidden flex-1 h-full flex-col overflow-hidden min-h-0">
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <div className="text-center">
                 <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />

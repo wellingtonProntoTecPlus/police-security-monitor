@@ -134,6 +134,8 @@
 - [x] Executar TypeScript, testes e verificação visual após o agrupamento real da fila Aguardando
 - [x] Adicionar e validar teste automatizado que comprove o agrupamento expansível por cliente/conta na fila Aguardando
 - [x] Ampliar cabeçalhos e cards agrupados da fila Aguardando para ocupar toda a largura disponível, sem faixa vazia lateral
+- [ ] Corrigir a faixa vazia que ainda aparece na VPS entre os cards de Aguardando e a borda direita da fila
+- [x] Usar a área central ociosa como extensão visível da fila Aguardando, mantendo o tratamento em popup
 - [x] Painel de atendimento ao clicar no evento (dados do cliente, zona, providências)
 - [x] Lista de contatos do cliente na ordem de prioridade
 - [x] Botões de ação: Atender, Isolar Zona, Câmeras, Despachar Tático, Chamar Polícia, Finalizar
@@ -458,7 +460,10 @@
 - [x] Ampliar a busca de clientes para nome, nome fantasia e documento
 - [x] Criar cadastro de Tático Móvel vinculado à empresa parceira
 - [x] Tornar visíveis e fáceis de localizar os cadastros de Tático Móvel e credenciais de contato
-- [ ] Corrigir a divergência entre a revisão instalada na VPS e a versão atual do repositório
+- [x] Corrigir a divergência entre a revisão instalada na VPS e a versão atual do repositório
+- [x] Diagnosticar a revisão, build e processo PM2 ativos quando a VPS não refletir uma atualização publicada
+- [x] Enviar ao GitHub a revisão posterior a a952a3df que contém o popup com contatos, zonas e usuários
+- [x] Configurar e validar o remoto GitHub separado do remoto interno de checkpoints antes do envio à VPS
 
 ## Compatibilidade de Colunas de Evento
 - [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico
