@@ -2,7 +2,7 @@
 
 ## Situação atual
 
-O receptor atual extrai a Conta Contact ID dos pacotes de evento. A consulta prioriza Conta + fabricante + porta, mas pode recorrer somente à Conta quando não encontra essa combinação. Esse recurso de contingência não é seguro quando duas empresas parceiras usam a mesma Conta Contact ID.
+O receptor atual extrai a Conta Contact ID dos pacotes de evento. Quando a marca ou a porta já são conhecidas, a consulta exige Conta + fabricante + porta e não recorre somente à Conta. Isso evita associar um evento ao cliente errado quando duas empresas usam a mesma Conta Contact ID.
 
 Os campos MAC, IMEI e ID ISEP existem no cadastro de sistemas, porém os parsers atuais não extraem esses identificadores dos pacotes recebidos. Portanto, o sistema ainda não pode afirmar que identifica um painel por MAC, IMEI ou ISEP.
 
@@ -69,6 +69,19 @@ Após a coleta contínua na VPS, a consulta em `system_keep_alive_samples` confi
 | 0336 | Vetti | 99 | 28,4 s | 11,5 s | 151,4 s | Quadros `F7` alternam intervalos curtos e longos; a expiração deve acomodar essa alternância. |
 
 Os logs da VPS também confirmaram o sinal `0x40` para Radioenge e o sinal `F7` para Vetti. A Compatec passou a apresentar amostras persistidas após sua reconexão.
+
+## Incidente de associação indevida por conta — 15/08
+
+Uma análise de evento real demonstrou que a conta Contact ID não pode ser usada como fallback quando o receptor já conhece a marca ou a porta da origem.
+
+| Dado recebido | Valor | Cadastro associado indevidamente antes da correção |
+|---|---|---|
+| Evento | `R130`, conta `0001` | Sistema ID `6` |
+| Origem | JFL, porta `9061`, IP `177.191.113.85` | Vetti Smart Alarm-Monitorada |
+| Identificador cadastrado | Não transmitido no evento | MAC `2298B4`, porta `9161` |
+| Cliente exibido incorretamente | — | Nilva Luzia dos Santos Santana |
+
+A causa era um fallback legado: a consulta por `conta + marca + porta` retornava vazia e a rotina consultava novamente apenas pela conta. Como existia uma Vetti da conta `0001`, o evento JFL foi associado a ela. A regra foi corrigida: quando marca ou porta forem conhecidas e não houver sistema compatível, **não há fallback por conta**. O evento passa a ser registrado na Conta do Sistema `0000`, com a conta recebida preservada para auditoria, como “Conta Não Cadastrada”.
 
 ## Regra de expiração adotada
 

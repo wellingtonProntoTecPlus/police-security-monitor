@@ -411,6 +411,10 @@
 ## Eventos Recebidos sem Fila
 - [ ] Identificar por que eventos recebidos atualizam status, mas não criam ocorrência na fila
 - [ ] Restaurar a abertura de ocorrência para eventos que exigem atendimento
+- [x] Rastrear a origem técnica do evento E130 da conta 0001 e corrigir a associação indevida ao cliente/painel
+- [x] Impedir que um evento JFL na porta 9061 seja associado a um sistema Vetti pela mesma conta Contact ID
+- [ ] Bloquear qualquer associação por conta quando marca, porta, MAC, IMEI ou ISEP indicarem origem divergente ou ambígua
+- [x] Encaminhar evento sem sistema compatível para a Conta do Sistema 0000 como Conta Não Cadastrada
 - [ ] Validar na VPS o recebimento e a exibição de eventos reais após a correção
 
 ## Recebimento Operacional Equilibrado

@@ -326,7 +326,10 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
   if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
   const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
-  const found = scoped[0] || await getAlarmSystemByAccount(normalizedAccount);
+  // Se o receptor já conhece marca ou porta, o fallback somente pela conta é
+  // inseguro: uma JFL poderia ser vinculada a uma Vetti de mesma conta. Sem
+  // sistema compatível, o evento seguirá para a Conta do Sistema 0000.
+  const found = scoped[0] || (!brand && !receiverPort ? await getAlarmSystemByAccount(normalizedAccount) : undefined);
   if (!found) return undefined;
 
   const now = new Date();
