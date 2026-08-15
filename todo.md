@@ -123,6 +123,8 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Revisar e completar as informações operacionais exibidas no popup de tratamento da ocorrência
+- [x] Exibir no popup as zonas, contatos e usuários vinculados ao sistema da ocorrência
 - [x] Reorganizar visualmente a fila Aguardando com destaque para eventos novos/críticos
 - [x] Criar mockup aprovado da coluna de ícones para filas recolhidas e da fila Aguardando sempre aberta
 - [x] Reduzir moderadamente o tamanho dos ícones e cards da fila aprovada, preservando leitura rápida

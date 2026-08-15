@@ -526,6 +526,19 @@ export default function Dashboard() {
     return (clientData || []).find((c: any) => c.id === selectedSystem.clientId);
   }, [selectedSystem, clientData]);
 
+  const { data: treatmentContacts = [] } = trpc.clientContact.list.useQuery(
+    { clientId: selectedClient?.id || 0, alarmSystemId: selectedSystem?.id || 0 },
+    { enabled: !!selectedClient?.id && !!selectedSystem?.id }
+  );
+  const { data: treatmentZones = [] } = trpc.alarmZone.list.useQuery(
+    { alarmSystemId: selectedSystem?.id || 0 },
+    { enabled: !!selectedSystem?.id }
+  );
+  const { data: treatmentAlarmUsers = [] } = trpc.alarmUser.list.useQuery(
+    { alarmSystemId: selectedSystem?.id || 0 },
+    { enabled: !!selectedSystem?.id }
+  );
+
   const selectedSystemInMaintenance = useMemo(() => {
     if (!selectedSystem?.maintenanceStartAt || !selectedSystem.maintenanceEndAt) return false;
     const now = Date.now();
@@ -933,9 +946,16 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-400" onClick={() => { addLog(`Zona ${selectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>
                 </div>
-                <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[0.85fr_1.15fr]">
                   <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Providências e histórico</h3>{logs.length === 0 ? <p className="text-sm text-muted-foreground">Registre acima cada contato e providência tomada durante o atendimento.</p> : <div className="space-y-1.5">{logs.map((log, index) => <p key={index} className="font-mono text-xs text-muted-foreground">{log}</p>)}</div>}</div>
-                  <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Dados do sistema</h3><p className="text-sm text-muted-foreground">Central: <span className="text-foreground">{selectedEvent.systemModel}</span></p><p className="mt-1 text-sm text-muted-foreground">Zona/usuário: <span className="text-foreground">{selectedEvent.zoneUser || "Não informado"}</span></p><p className="mt-1 text-sm text-muted-foreground">Prioridade: <span className={PRIORITY_TEXT_COLOR[selectedEvent.priority] || "text-foreground"}>{PRIORITY_LABELS[selectedEvent.priority]?.label || "Média"}</span></p></div>
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Dados do sistema</h3><div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2"><p>Central: <span className="text-foreground">{selectedEvent.systemModel}</span></p><p>Porta: <span className="font-mono text-foreground">{selectedEvent.receiverPort || "Não informada"}</span></p><p>Zona/usuário: <span className="font-mono text-foreground">{selectedEvent.zoneUser || "Não informado"}</span></p><p>Prioridade: <span className={PRIORITY_TEXT_COLOR[selectedEvent.priority] || "text-foreground"}>{PRIORITY_LABELS[selectedEvent.priority]?.label || "Média"}</span></p></div></div>
+                    <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-red-100"><MapPin className="h-4 w-4 text-red-400" /> Zonas e setores</h3><div className="max-h-32 space-y-1.5 overflow-y-auto">{treatmentZones.filter((zone: any) => zone.isActive !== false).map((zone: any) => <div key={zone.id} className={`flex items-center justify-between rounded px-2.5 py-1.5 text-xs ${String(zone.zoneNumber) === String(selectedEvent.zoneUser).replace(/^0+/, "") ? "bg-red-500/15 text-red-100" : "bg-black/20 text-muted-foreground"}`}><span><strong className="font-mono">Zona {String(zone.zoneNumber).padStart(3, "0")}</strong> · {zone.name}</span><span className="uppercase text-[10px]">{zone.type}</span></div>)}{treatmentZones.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma zona cadastrada neste sistema.</p>}</div></div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-emerald-100"><Phone className="h-4 w-4 text-emerald-400" /> Contatos</h3><div className="max-h-40 space-y-1.5 overflow-y-auto">{treatmentContacts.map((contact: any) => <div key={contact.id} className="rounded bg-black/20 px-2.5 py-1.5 text-xs"><p className="font-semibold text-foreground">{contact.name} <span className="font-normal text-muted-foreground">{contact.role ? `· ${contact.role}` : ""}</span></p><p className="mt-0.5 font-mono text-emerald-300">{contact.phone || contact.whatsapp || contact.email || "Sem telefone cadastrado"}</p></div>)}{treatmentContacts.length === 0 && <p className="text-xs text-muted-foreground">Nenhum contato cadastrado neste sistema.</p>}</div></div>
+                      <div className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-blue-100"><Users className="h-4 w-4 text-blue-400" /> Usuários do painel</h3><div className="max-h-40 space-y-1.5 overflow-y-auto">{treatmentAlarmUsers.map((panelUser: any) => <div key={panelUser.id} className="flex items-center justify-between rounded bg-black/20 px-2.5 py-1.5 text-xs"><span><strong className="font-mono text-blue-300">{String(panelUser.userNumber).padStart(2, "0")}</strong> · <span className="font-semibold text-foreground">{panelUser.name}</span></span><span className="text-muted-foreground">{panelUser.phone || (panelUser.isActive === false ? "Inativo" : "Ativo")}</span></div>)}{treatmentAlarmUsers.length === 0 && <p className="text-xs text-muted-foreground">Nenhum usuário programado neste sistema.</p>}</div></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

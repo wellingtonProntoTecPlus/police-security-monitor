@@ -22,6 +22,14 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("!isCollapsed && otherEvents.map");
   });
 
+  it("mostra no popup as zonas, contatos e usuários vinculados ao sistema da ocorrência", () => {
+    expect(source).toContain("treatmentZones");
+    expect(source).toContain("treatmentContacts");
+    expect(source).toContain("treatmentAlarmUsers");
+    expect(source).toContain("Zonas e setores");
+    expect(source).toContain("Usuários do painel");
+  });
+
   it("abre o tratamento em um popup central sem comprimir a fila", () => {
     expect(source).toContain("Tratamento de ocorrência");
     expect(source).toContain("fixed inset-0 z-[70]");
