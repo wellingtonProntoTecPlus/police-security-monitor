@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { jflContactIdRecords } from './jfl_contact_id_records.mjs';
 
 const source = readFileSync(new URL('../import_cid.sql', import.meta.url), 'utf8');
 const lines = source.split('\n').filter((line) => line.startsWith('INSERT INTO contact_id_codes'));
@@ -37,6 +38,7 @@ const records = lines.map((line) => {
 });
 
 records.push(
+  ...jflContactIdRecords,
   { code: '401', qualifier: 'R', fabricante: 'COMPATEC', isUniversal: false, description: 'Arme por Teclado', tipo: 'arme', cor: '#10B981', abreTela: 0, fechaAutomatico: 1, fechaComRestauracao: 0, codigoRestauracao: '', prioridade: 5, category: 'arm_disarm', priority: 'low' },
   { code: '701', qualifier: 'R', fabricante: 'COMPATEC', isUniversal: false, description: 'Arme por App', tipo: 'arme', cor: '#10B981', abreTela: 0, fechaAutomatico: 1, fechaComRestauracao: 0, codigoRestauracao: '', prioridade: 5, category: 'arm_disarm', priority: 'low' },
   { code: '401', qualifier: 'E', fabricante: 'UNIVERSAL', isUniversal: true, description: 'Desarme', tipo: 'desarme', cor: '#F97316', abreTela: 0, fechaAutomatico: 1, fechaComRestauracao: 0, codigoRestauracao: '', prioridade: 3, category: 'arm_disarm', priority: 'low' },
@@ -48,7 +50,7 @@ records.push(
 );
 
 const sql = [
-  '-- Carga idempotente dos códigos Compatec, Vetti e Universais.',
+  '-- Carga idempotente dos códigos Compatec, Vetti, JFL e Universais.',
   '-- Execute: mysql police_monitor < deploy/seed_contact_ids.sql',
   ...records.map(statement),
   "UPDATE contact_id_codes SET description = 'Desarme por Teclado', tipo = 'desarme', cor = '#F97316' WHERE fabricante = 'COMPATEC' AND code = '401' AND qualifier = 'E';",

@@ -323,3 +323,6 @@ VALUES
 ('130','R','UNIVERSAL',1,'Restauração de Alarme - Zona/Setor','restauracao','#3B82F6',0,0,0,'',0,5,'restore','low'),
 ('602','E','UNIVERSAL',1,'Teste Periódico','teste','#6B7280',0,1,0,'',0,5,'test','low'),
 ('610','E','UNIVERSAL',1,'Teste Manual','teste','#6B7280',0,1,0,'',0,5,'test','low');
+
+-- Carga idempotente das tabelas específicas de fabricante, incluindo JFL.
+SOURCE deploy/seed_contact_ids.sql;

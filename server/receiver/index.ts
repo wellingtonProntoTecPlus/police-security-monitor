@@ -303,7 +303,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     let priority = 'medium';
     let codeInfo: any = null;
     try {
-      codeInfo = await getContactIdDescription(evento.eventCode, evento.qualifier);
+      codeInfo = await getContactIdDescription(evento.eventCode, evento.qualifier, evento.brand);
       if (codeInfo) {
         description = codeInfo.description || description;
         priority = codeInfo.priority || priority;

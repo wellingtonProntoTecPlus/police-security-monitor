@@ -929,10 +929,32 @@ export async function finalizeIncidentWithRestoration(input: { incident: typeof 
 // ============================================================
 // CONTACT ID CODES
 // ============================================================
-export async function getContactIdDescription(code: string, qualifier?: string) {
+export async function getContactIdDescription(code: string, qualifier?: string, fabricante?: string) {
   const db = await getDb();
   if (!db) return undefined;
-  // Primeiro tenta buscar com qualifier exato
+  // O código do fabricante identificado tem prioridade sobre o universal.
+  // Isso evita que, por exemplo, uma descrição JFL seja substituída por outra
+  // central que use o mesmo número Contact ID.
+  if (qualifier && fabricante) {
+    const manufacturerResult = await db.select().from(contactIdCodes).where(
+      and(
+        eq(contactIdCodes.code, code),
+        eq(contactIdCodes.qualifier, qualifier as any),
+        eq(contactIdCodes.fabricante, fabricante),
+      )
+    ).limit(1);
+    if (manufacturerResult.length > 0) return manufacturerResult[0];
+
+    const universalResult = await db.select().from(contactIdCodes).where(
+      and(
+        eq(contactIdCodes.code, code),
+        eq(contactIdCodes.qualifier, qualifier as any),
+        eq(contactIdCodes.isUniversal, true),
+      )
+    ).limit(1);
+    if (universalResult.length > 0) return universalResult[0];
+  }
+  // Mantém a compatibilidade com as consultas administrativas sem fabricante.
   if (qualifier) {
     const result = await db.select().from(contactIdCodes).where(
       and(eq(contactIdCodes.code, code), eq(contactIdCodes.qualifier, qualifier as any))

@@ -413,3 +413,6 @@ DEALLOCATE PREPARE migration_statement;
 UPDATE alarm_systems
 SET keepAliveOfflineAfterMinutes = 60
 WHERE keepAliveOfflineAfterMinutes IS NULL;
+
+-- Carga idempotente dos códigos Contact ID, incluindo a tabela JFL.
+SOURCE deploy/seed_contact_ids.sql;

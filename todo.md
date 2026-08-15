@@ -205,6 +205,8 @@
 - [x] Criar página de Usuários (/users) com hierarquias Admin/Supervisor/Operador
 - [x] Implementar login próprio com usuário/senha (independente do Manus OAuth)
 - [ ] Adicionar todos os 78 códigos Contact ID no banco local da VPS
+- [x] Extrair, validar e importar os códigos Contact ID específicos da JFL a partir do manual fornecido
+- [x] Fazer o receptor priorizar a descrição Contact ID do fabricante identificado antes do código universal
 
 ## Contact ID - Qualifier E/R e Códigos Universais
 - [x] Adicionar campo qualifier (E/R/both) na tabela contact_id_codes
