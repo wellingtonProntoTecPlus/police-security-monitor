@@ -36,6 +36,7 @@ import { formatRegistrationFields, formatRegistrationText, normalizeRegistration
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
+import { enrichClientsWithAccounts } from "./clientAccountList";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -232,10 +233,11 @@ export async function deleteTacticalMobile(id: number) {
 export async function listClients(partnerCompanyId?: number) {
   const db = await getDb();
   if (!db) return [];
-  if (partnerCompanyId) {
-    return db.select().from(clients).where(eq(clients.partnerCompanyId, partnerCompanyId)).orderBy(clients.name);
-  }
-  return db.select().from(clients).orderBy(clients.name);
+  const clientRows = partnerCompanyId
+    ? await db.select().from(clients).where(eq(clients.partnerCompanyId, partnerCompanyId)).orderBy(clients.name)
+    : await db.select().from(clients).orderBy(clients.name);
+  const systemRows = await db.select({ clientId: alarmSystems.clientId, account: alarmSystems.account }).from(alarmSystems);
+  return enrichClientsWithAccounts(clientRows, systemRows);
 }
 
 export async function getClient(id: number) {

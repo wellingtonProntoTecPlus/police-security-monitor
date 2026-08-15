@@ -161,11 +161,12 @@ export default function Clients() {
   const numericSearch = search.replace(/\D/g, "");
   const filteredClients = clients.filter((c: any) => {
     if (!normalizedSearch) return true;
-    const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood]
+    const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood, ...(c.accounts || [])]
       .filter(Boolean)
       .join(" ")
       .toLocaleLowerCase("pt-BR");
     return textFields.includes(normalizedSearch)
+      || (c.accounts || []).some((account: string) => account.includes(search.trim()))
       || (numericSearch.length > 0 && String(c.document || "").replace(/\D/g, "").includes(numericSearch));
   });
 
@@ -430,12 +431,13 @@ export default function Clients() {
         {/* BUSCA */}
         <div className="relative max-w-lg mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por nome, fantasia ou documento..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar por conta, nome, fantasia ou documento..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
         {/* TABELA DE CLIENTES - Layout Desktop */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+          <div className="grid grid-cols-[110px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+            <span>Conta</span>
             <span>Razão Social / Nome</span>
             <span>Nome Fantasia</span>
             <span>CPF/CNPJ</span>
@@ -452,9 +454,12 @@ export default function Clients() {
             filteredClients.map((client: any) => (
               <div
                 key={client.id}
-                className="grid grid-cols-[1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
+                className="grid grid-cols-[110px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
                 onClick={() => navigate(`/clients/${client.id}`)}
               >
+                <span className="font-mono text-sm font-semibold text-primary truncate" title={(client.accounts || []).join(", ")}>
+                  {client.accounts?.length ? client.accounts.join(" · ") : "—"}
+                </span>
                 <div className="flex items-center gap-2 min-w-0">
                   {client.type === "pj" ? <Building2 className="h-4 w-4 text-primary shrink-0" /> : <User className="h-4 w-4 text-primary shrink-0" />}
                   <span className="font-medium text-foreground truncate">{client.name}</span>

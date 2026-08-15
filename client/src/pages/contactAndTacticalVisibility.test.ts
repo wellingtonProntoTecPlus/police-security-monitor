@@ -40,6 +40,15 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("onValueChange={(value) => setSystemForm({ ...systemForm, receiverPort: Number(value) })}");
   });
 
+  it("exibe, ordena e permite buscar clientes pela conta", () => {
+    const source = projectFile("client/src/pages/Clients.tsx");
+
+    expect(source).toContain("Buscar por conta, nome, fantasia ou documento");
+    expect(source).toContain("<span>Conta</span>");
+    expect(source).toContain("client.accounts.join(\" · \")");
+    expect(source).toContain("(c.accounts || []).some");
+  });
+
   it("vincula contatos e usuários ao sistema de alarme selecionado", () => {
     const source = projectFile("client/src/pages/ClientDetail.tsx");
 
