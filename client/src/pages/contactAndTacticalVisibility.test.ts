@@ -47,6 +47,8 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("<span>Conta</span>");
     expect(source).toContain("client.accounts.join(\" · \")");
     expect(source).toContain("(c.accounts || []).some");
+    expect(source).toContain("tracking-[0.18em]");
+    expect(source).toContain("tabular-nums");
   });
 
   it("vincula contatos e usuários ao sistema de alarme selecionado", () => {

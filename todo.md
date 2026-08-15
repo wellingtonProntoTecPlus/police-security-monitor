@@ -113,6 +113,7 @@
 
 ## Melhorias no Cadastro de Cliente
 - [x] Exibir a conta como primeira coluna da lista de clientes, ordenar por conta e permitir busca pela conta
+- [x] Aumentar o tamanho, o espaçamento e o destaque visual da conta na lista de clientes
 - [x] Contatos com Telefone, WhatsApp, Senha, Contra-Senha, Senha de Coação (campos no banco)
 - [x] Providências: descrição de como o operador deve proceder (API pronta)
 

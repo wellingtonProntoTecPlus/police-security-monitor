@@ -436,7 +436,7 @@ export default function Clients() {
 
         {/* TABELA DE CLIENTES - Layout Desktop */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[110px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+          <div className="grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
             <span>Conta</span>
             <span>Razão Social / Nome</span>
             <span>Nome Fantasia</span>
@@ -454,10 +454,10 @@ export default function Clients() {
             filteredClients.map((client: any) => (
               <div
                 key={client.id}
-                className="grid grid-cols-[110px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
+                className="grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
                 onClick={() => navigate(`/clients/${client.id}`)}
               >
-                <span className="font-mono text-sm font-semibold text-primary truncate" title={(client.accounts || []).join(", ")}>
+                <span className="inline-flex w-fit max-w-full rounded-md border border-primary/25 bg-primary/10 px-3 py-1.5 font-mono text-base font-bold tracking-[0.18em] tabular-nums text-primary shadow-sm truncate" title={(client.accounts || []).join(", ")}>
                   {client.accounts?.length ? client.accounts.join(" · ") : "—"}
                 </span>
                 <div className="flex items-center gap-2 min-w-0">
