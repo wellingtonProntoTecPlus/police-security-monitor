@@ -810,7 +810,7 @@ export default function Dashboard() {
     return (
       <div
         onClick={() => handleSelectEvent(ev)}
-        className={`rounded-md border border-border/50 px-3 py-2 cursor-pointer hover:bg-primary/10 transition-colors relative border-l-4 shadow-sm ${
+        className={`w-full min-w-0 rounded-md border border-border/50 px-3 py-2 cursor-pointer hover:bg-primary/10 transition-colors relative border-l-4 shadow-sm ${
           selectedEvent?.queuedAt === ev.queuedAt && selectedEvent?.account === ev.account ? 'bg-primary/15 border-l-primary' : (PRIORITY_BORDER[ev.priority] || PRIORITY_BORDER.medium)
         }`}
       >
@@ -1037,7 +1037,7 @@ export default function Dashboard() {
           </div>
 
           {/* FILA PRINCIPAL: SEMPRE ABERTA */}
-          <div className="w-[min(520px,40vw)] min-w-[390px] h-full border-r border-border bg-card flex flex-col">
+          <div className="w-[min(620px,46vw)] min-w-[460px] h-full border-r border-border bg-card flex flex-col">
             <div className="px-3 py-2 border-b border-border flex items-center">
               <div className="flex items-center gap-2">
                 {connected ? (
@@ -1055,12 +1055,12 @@ export default function Dashboard() {
                   const [mostRecent, ...otherEvents] = events;
                   const isCollapsed = collapsedWaitingAccounts.has(key);
                   return (
-                    <div key={key} className="rounded-lg border border-border/60 bg-black/10 p-1.5">
-                      <button type="button" onClick={() => toggleWaitingAccount(key)} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/40">
+                    <div key={key} className="w-full min-w-0 rounded-lg border border-border/60 bg-black/10 p-1.5">
+                      <button type="button" onClick={() => toggleWaitingAccount(key)} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/40">
                         <span className="min-w-0 truncate text-[11px] font-bold text-muted-foreground"><span className="font-mono tracking-[0.1em] text-primary">{mostRecent.account}</span> <span className="mx-1">·</span>{mostRecent.clientName || `Conta ${mostRecent.account}`}</span>
                         <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-foreground">{events.length} {events.length === 1 ? "evento" : "eventos"}{events.length > 1 ? isCollapsed ? " · Expandir" : " · Recolher" : ""}</span>
                       </button>
-                      <div className="mt-1 space-y-1.5">
+                      <div className="mt-1 w-full space-y-1.5">
                         <EventCard ev={mostRecent} groupedCard />
                         {!isCollapsed && otherEvents.map((event, index) => <EventCard key={`${event.account}-${event.queuedAt}-${event.eventCode}-${index}`} ev={event} groupedCard />)}
                       </div>

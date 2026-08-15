@@ -133,6 +133,7 @@
 - [x] Implementar de fato o agrupamento da fila Aguardando por cliente/conta, mostrando o evento mais recente no cabeçalho e permitindo expandir/retrair os demais eventos do mesmo cliente
 - [x] Executar TypeScript, testes e verificação visual após o agrupamento real da fila Aguardando
 - [x] Adicionar e validar teste automatizado que comprove o agrupamento expansível por cliente/conta na fila Aguardando
+- [x] Ampliar cabeçalhos e cards agrupados da fila Aguardando para ocupar toda a largura disponível, sem faixa vazia lateral
 - [x] Painel de atendimento ao clicar no evento (dados do cliente, zona, providências)
 - [x] Lista de contatos do cliente na ordem de prioridade
 - [x] Botões de ação: Atender, Isolar Zona, Câmeras, Despachar Tático, Chamar Polícia, Finalizar

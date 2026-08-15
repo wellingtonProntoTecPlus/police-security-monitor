@@ -22,6 +22,12 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("!isCollapsed && otherEvents.map");
   });
 
+  it("usa toda a largura disponível para cabeçalho e cards da fila Aguardando", () => {
+    expect(source).toContain("w-[min(620px,46vw)] min-w-[460px]");
+    expect(source).toContain("w-full min-w-0 rounded-lg border border-border/60");
+    expect(source).toContain("grid-cols-[minmax(0,1fr)_auto]");
+  });
+
   it("mostra no popup as zonas, contatos e usuários vinculados ao sistema da ocorrência", () => {
     expect(source).toContain("treatmentZones");
     expect(source).toContain("treatmentContacts");
