@@ -123,6 +123,7 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Restaurar o botão Finalização Rápida no popup de tratamento para abrir os textos prontos
 - [x] Revisar e completar as informações operacionais exibidas no popup de tratamento da ocorrência
 - [x] Exibir no popup as zonas, contatos e usuários vinculados ao sistema da ocorrência
 - [x] Reorganizar visualmente a fila Aguardando com destaque para eventos novos/críticos

@@ -936,6 +936,7 @@ export default function Dashboard() {
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(event) => setSendEmail(event.target.checked)} /><Mail className="h-3 w-3" /> E-mail</label>
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
                     <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>Finalizar</Button>
+                    <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => setSelectedFinalization("open")}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
                     {queues.filter((item) => item.account === selectedEvent.account).length > 1 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa ({queues.filter((item) => item.account === selectedEvent.account).length})</Button>}
                   </div>
                 </div>
