@@ -1433,7 +1433,7 @@ export default function Dashboard() {
 
       {/* Finalização em massa */}
       {bulkFinalizeOpen && selectedEvent && (
-        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center" onClick={() => setBulkFinalizeOpen(false)}>
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center" onClick={() => setBulkFinalizeOpen(false)}>
           <div className="bg-card border border-orange-500/40 rounded-lg w-[440px] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-lg text-orange-300">Finalizar eventos em massa</h3>
@@ -1519,7 +1519,7 @@ export default function Dashboard() {
 
       {/* Popup de Finalizações Rápidas */}
       {selectedFinalization === "open" && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center" onClick={() => setSelectedFinalization("")}>
+        <div className="fixed inset-0 z-[90] bg-black/60 flex items-center justify-center" onClick={() => setSelectedFinalization("")}>
           <div className="bg-card border border-border rounded-lg p-4 w-[450px] max-h-[60vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-foreground text-lg">Finalizações Rápidas</h3>
