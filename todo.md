@@ -123,6 +123,7 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Criar no popup atalhos clicáveis para abrir Contatos e Usuários do Painel em foco durante o tratamento
 - [x] Corrigir no popup a abertura de Finalização Rápida e Finalizar em massa
 - [x] Restaurar o botão Finalização Rápida no popup de tratamento para abrir os textos prontos
 - [x] Revisar e completar as informações operacionais exibidas no popup de tratamento da ocorrência

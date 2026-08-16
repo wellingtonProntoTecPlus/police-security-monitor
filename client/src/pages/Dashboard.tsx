@@ -166,6 +166,7 @@ export default function Dashboard() {
   const passwordConfirmationMut = trpc.auth.login.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
+  const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | null>(null);
   const utils = trpc.useUtils();
 
   const { connected, realtimeEvents } = useSocket();
@@ -942,6 +943,8 @@ export default function Dashboard() {
                 </div>
                 <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={openObservation}><Eye className="h-3.5 w-3.5" /> Observação</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-emerald-400" onClick={() => setTreatmentPanel("contacts")}><Phone className="h-3.5 w-3.5" /> Contatos ({treatmentContacts.length})</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-blue-400" onClick={() => setTreatmentPanel("users")}><Users className="h-3.5 w-3.5" /> Usuários ({treatmentAlarmUsers.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
                   <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
@@ -960,6 +963,43 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {treatmentPanel && selectedEvent && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 p-5" onClick={() => setTreatmentPanel(null)}>
+          <div className="max-h-[82vh] w-[min(720px,94vw)] overflow-hidden rounded-xl border border-primary/35 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className={`flex items-start justify-between border-b border-border px-5 py-4 ${treatmentPanel === "contacts" ? "bg-emerald-500/10" : "bg-blue-500/10"}`}>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Conta {selectedEvent.account} · {selectedEvent.systemModel}</p>
+                <h3 className="mt-1 flex items-center gap-2 text-lg font-bold text-foreground">
+                  {treatmentPanel === "contacts" ? <Phone className="h-5 w-5 text-emerald-400" /> : <Users className="h-5 w-5 text-blue-400" />}
+                  {treatmentPanel === "contacts" ? "Contatos para atendimento" : "Usuários programados no painel"}
+                </h3>
+              </div>
+              <button type="button" onClick={() => setTreatmentPanel(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fechar painel"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="max-h-[68vh] overflow-y-auto p-5">
+              {treatmentPanel === "contacts" ? (
+                <div className="space-y-3">
+                  {treatmentContacts.map((contact: any) => {
+                    const phone = contact.phone || contact.whatsapp || "";
+                    const digits = String(phone).replace(/\D/g, "");
+                    return <div key={contact.id} className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-foreground">{contact.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{contact.role || "Contato do sistema"}</p></div>{phone && <a href={`tel:${digits}`} className="rounded-md border border-emerald-500/45 px-3 py-1.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/15">Ligar</a>}</div>
+                      <div className="mt-3 grid gap-1.5 text-sm"><p className="font-mono text-emerald-300">{phone || "Telefone não informado"}</p>{contact.email && <p className="text-muted-foreground">{contact.email}</p>}</div>
+                    </div>;
+                  })}
+                  {treatmentContacts.length === 0 && <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhum contato cadastrado para esta central.</p>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {treatmentAlarmUsers.map((panelUser: any) => <div key={panelUser.id} className="flex items-center justify-between gap-3 rounded-lg border border-blue-500/25 bg-blue-500/5 p-4"><div className="flex items-center gap-3"><span className="rounded-md bg-blue-500/15 px-2 py-1 font-mono font-bold tracking-[0.15em] text-blue-300">{String(panelUser.userNumber).padStart(2, "0")}</span><div><p className="font-bold text-foreground">{panelUser.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{panelUser.phone || "Telefone não informado"}</p></div></div><span className={panelUser.isActive === false ? "text-sm text-red-300" : "text-sm text-emerald-300"}>{panelUser.isActive === false ? "Inativo" : "Ativo"}</span></div>)}
+                  {treatmentAlarmUsers.length === 0 && <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhum usuário programado para esta central.</p>}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
