@@ -984,11 +984,14 @@ export default function Dashboard() {
               {treatmentPanel === "contacts" ? (
                 <div className="space-y-3">
                   {treatmentContacts.map((contact: any) => {
-                    const phone = contact.phone || contact.whatsapp || "";
+                    const phone = contact.phone || "";
+                    const whatsapp = contact.whatsapp || phone;
                     const digits = String(phone).replace(/\D/g, "");
+                    const whatsappDigits = String(whatsapp).replace(/\D/g, "");
+                    const whatsappInternational = whatsappDigits.startsWith("55") ? whatsappDigits : `55${whatsappDigits}`;
                     return <div key={contact.id} className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-foreground">{contact.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{contact.role || "Contato do sistema"}</p></div>{phone && <a href={`tel:${digits}`} className="rounded-md border border-emerald-500/45 px-3 py-1.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/15">Ligar</a>}</div>
-                      <div className="mt-3 grid gap-1.5 text-sm"><p className="font-mono text-emerald-300">{phone || "Telefone não informado"}</p>{contact.email && <p className="text-muted-foreground">{contact.email}</p>}</div>
+                      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-foreground">{contact.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{contact.role || "Contato do sistema"}</p></div><div className="flex flex-wrap gap-2">{phone && <a href={`tel:${digits}`} className="rounded-md border border-emerald-500/45 px-3 py-1.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/15">Ligar</a>}{whatsappDigits && <a href={`https://wa.me/${whatsappInternational}`} target="_blank" rel="noreferrer" className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-emerald-950 hover:bg-emerald-400">WhatsApp</a>}</div></div>
+                      <div className="mt-3 grid gap-1.5 text-sm"><p className="font-mono text-emerald-300">{phone || whatsapp || "Telefone não informado"}</p>{contact.email && <p className="text-muted-foreground">{contact.email}</p>}</div>
                     </div>;
                   })}
                   {treatmentContacts.length === 0 && <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhum contato cadastrado para esta central.</p>}

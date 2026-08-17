@@ -123,6 +123,9 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Adicionar botão WhatsApp no painel de contatos do tratamento, usando o número cadastrado do contato
+- [ ] Diagnosticar e corrigir o atalho Contatos do popup quando não abrir o painel focal na VPS
+- [ ] Confirmar visualmente na VPS que o clique em Contatos abre o painel acima da ocorrência
 - [x] Criar no popup atalhos clicáveis para abrir Contatos e Usuários do Painel em foco durante o tratamento
 - [x] Corrigir no popup a abertura de Finalização Rápida e Finalizar em massa
 - [x] Restaurar o botão Finalização Rápida no popup de tratamento para abrir os textos prontos
