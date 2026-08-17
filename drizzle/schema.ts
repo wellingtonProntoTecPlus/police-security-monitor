@@ -220,6 +220,9 @@ export const alarmUsers = mysqlTable("alarm_users", {
   userNumber: int("userNumber").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 20 }),
+  password: varchar("password", { length: 50 }),
+  counterPassword: varchar("counterPassword", { length: 50 }),
+  coercionPassword: varchar("coercionPassword", { length: 50 }),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

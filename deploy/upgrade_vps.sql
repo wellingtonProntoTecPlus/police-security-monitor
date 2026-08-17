@@ -151,6 +151,43 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Credenciais dos usuários programados no painel para consulta durante o atendimento.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_users ADD COLUMN password VARCHAR(50) NULL AFTER phone',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_users' AND COLUMN_NAME = 'password'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_users ADD COLUMN counterPassword VARCHAR(50) NULL AFTER password',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_users' AND COLUMN_NAME = 'counterPassword'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_users ADD COLUMN coercionPassword VARCHAR(50) NULL AFTER counterPassword',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_users' AND COLUMN_NAME = 'coercionPassword'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Preserva os contatos já cadastrados: cada contato legado é atribuído ao
 -- primeiro sistema cadastrado do seu cliente. Clientes sem sistema permanecem
 -- sem vínculo até que a primeira central seja criada.

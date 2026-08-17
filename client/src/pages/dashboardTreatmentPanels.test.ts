@@ -15,4 +15,13 @@ describe("painéis operacionais do tratamento", () => {
     expect(dashboardSource).toContain(">WhatsApp</a>");
     expect(dashboardSource).toContain('fixed inset-0 z-[95]');
   });
+
+  it("mantém providências completas e credenciais de segurança acessíveis ao operador", () => {
+    expect(dashboardSource).toContain("Ver providências");
+    expect(dashboardSource).toContain("Providências e histórico do atendimento");
+    expect(dashboardSource).toContain("Credenciais de segurança");
+    expect(dashboardSource).toContain("Credenciais do usuário");
+    expect(dashboardSource).toContain("counterPassword");
+    expect(dashboardSource).toContain("coercionPassword");
+  });
 });

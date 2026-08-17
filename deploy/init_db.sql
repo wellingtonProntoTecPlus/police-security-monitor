@@ -149,6 +149,9 @@ CREATE TABLE IF NOT EXISTS alarm_users (
   userNumber INT NOT NULL,
   name VARCHAR(255) NOT NULL,
   phone VARCHAR(20),
+  password VARCHAR(50),
+  counterPassword VARCHAR(50),
+  coercionPassword VARCHAR(50),
   isActive TINYINT(1) NOT NULL DEFAULT 1,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

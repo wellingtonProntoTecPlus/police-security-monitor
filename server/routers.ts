@@ -459,6 +459,9 @@ export const appRouter = router({
       userNumber: z.number(),
       name: z.string().min(1),
       phone: z.string().optional(),
+      password: z.string().optional(),
+      counterPassword: z.string().optional(),
+      coercionPassword: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.createAlarmUser(input);
@@ -468,6 +471,9 @@ export const appRouter = router({
       userNumber: z.number().optional(),
       name: z.string().optional(),
       phone: z.string().optional(),
+      password: z.string().optional(),
+      counterPassword: z.string().optional(),
+      coercionPassword: z.string().optional(),
     })).mutation(({ input }) => { const { id, ...data } = input; return db.updateAlarmUser(id, data); }),
     delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmUser(input.id)),
   }),

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 
 describe("persistência de usuários do painel", () => {
-  const expected = { alarmSystemId: 31, userNumber: 2, name: "João Silva" };
+  const expected = { alarmSystemId: 31, userNumber: 2, name: "João Silva", password: "1111", counterPassword: "2222", coercionPassword: "3333" };
 
   it("aceita somente a gravação confirmada na central solicitada", () => {
     expect(verifyPersistedAlarmUser({ id: 8, ...expected, phone: null }, expected)).toMatchObject(expected);
@@ -21,5 +21,12 @@ describe("persistência de usuários do painel", () => {
     const upgrade = readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
     expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN phone VARCHAR(20)");
     expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN isActive TINYINT(1)");
+    expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN password VARCHAR(50)");
+    expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN counterPassword VARCHAR(50)");
+    expect(upgrade).toContain("ALTER TABLE alarm_users ADD COLUMN coercionPassword VARCHAR(50)");
+  });
+
+  it("falha se uma credencial solicitada não for persistida", () => {
+    expect(() => verifyPersistedAlarmUser({ id: 8, alarmSystemId: 31, userNumber: 2, name: "João Silva", password: "1111" }, expected)).toThrow("Credenciais");
   });
 });

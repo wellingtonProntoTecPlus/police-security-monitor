@@ -586,6 +586,9 @@ export async function createAlarmUser(data: InsertAlarmUser) {
     alarmSystemId: normalizedData.alarmSystemId,
     userNumber: normalizedData.userNumber,
     name: normalizedData.name,
+    password: normalizedData.password,
+    counterPassword: normalizedData.counterPassword,
+    coercionPassword: normalizedData.coercionPassword,
   });
 }
 

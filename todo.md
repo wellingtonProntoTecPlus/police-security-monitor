@@ -123,6 +123,13 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Exibir resumo de providências e abrir o conteúdo completo em modal pelo popup de tratamento
+- [x] Exibir senha, contra senha e senha de coação dos contatos autorizados no painel de atendimento
+- [x] Exibir as credenciais disponíveis dos usuários do painel no painel de atendimento
+- [x] Adicionar Senha, Contra Senha e Senha de Coação ao cadastro e à tabela de Usuários do Painel
+- [x] Validar create, update e list de Usuários do Painel com Senha, Contra Senha e Senha de Coação em server/db.ts
+- [x] Adicionar teste fim a fim de persistência e leitura das credenciais dos Usuários do Painel
+- [ ] Validar na VPS as credenciais de Usuários do Painel no cadastro e no popup após executar upgrade_vps.sql
 - [x] Adicionar botão WhatsApp no painel de contatos do tratamento, usando o número cadastrado do contato
 - [ ] Diagnosticar e corrigir o atalho Contatos do popup quando não abrir o painel focal na VPS
 - [ ] Confirmar visualmente na VPS que o clique em Contatos abre o painel acima da ocorrência
