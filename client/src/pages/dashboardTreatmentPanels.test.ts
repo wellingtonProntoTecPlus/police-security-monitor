@@ -17,11 +17,19 @@ describe("painéis operacionais do tratamento", () => {
   });
 
   it("mantém providências completas e credenciais de segurança acessíveis ao operador", () => {
-    expect(dashboardSource).toContain("Ver providências");
+    expect(dashboardSource).toContain("Ver tudo");
     expect(dashboardSource).toContain("Providências e histórico do atendimento");
     expect(dashboardSource).toContain("Credenciais de segurança");
     expect(dashboardSource).toContain("Credenciais do usuário");
     expect(dashboardSource).toContain("counterPassword");
     expect(dashboardSource).toContain("coercionPassword");
+  });
+
+  it("mantém providências legíveis de imediato e posiciona zonas na coluna esquerda", () => {
+    expect(dashboardSource).toContain("trpc.clientProcedure.list.useQuery");
+    expect(dashboardSource).toContain("Providências operacionais");
+    expect(dashboardSource).toContain("Orientações cadastradas para este cliente");
+    expect(dashboardSource).toContain('lg:grid-cols-[0.82fr_1.18fr]');
+    expect(dashboardSource).toContain("Zonas e setores");
   });
 });

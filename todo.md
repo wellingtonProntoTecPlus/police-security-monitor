@@ -123,6 +123,9 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Exibir providências completas e legíveis imediatamente ao abrir a ocorrência
+- [x] Mover Zonas e setores para a coluna esquerda do popup de tratamento
+- [x] Manter o botão Usuários como acesso direto às senhas e contra senhas do painel
 - [x] Exibir resumo de providências e abrir o conteúdo completo em modal pelo popup de tratamento
 - [x] Exibir senha, contra senha e senha de coação dos contatos autorizados no painel de atendimento
 - [x] Exibir as credenciais disponíveis dos usuários do painel no painel de atendimento
@@ -477,6 +480,7 @@
 - [x] Diagnosticar a revisão, build e processo PM2 ativos quando a VPS não refletir uma atualização publicada
 - [x] Enviar ao GitHub a revisão posterior a a952a3df que contém o popup com contatos, zonas e usuários
 - [x] Configurar e validar o remoto GitHub separado do remoto interno de checkpoints antes do envio à VPS
+- [ ] Confirmar e corrigir a VPS que ainda exibe o popup antigo sem o botão Ver providências da revisão b264ee9
 
 ## Compatibilidade de Colunas de Evento
 - [ ] Harmonizar alarmEventId e eventId na tabela incidents sem perder histórico

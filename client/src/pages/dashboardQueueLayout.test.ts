@@ -35,7 +35,7 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("treatmentContacts");
     expect(source).toContain("treatmentAlarmUsers");
     expect(source).toContain("Zonas e setores");
-    expect(source).toContain("Usuários do painel");
+    expect(source).toContain("Usuários programados no painel");
   });
 
   it("abre o tratamento em um popup central sem comprimir a fila", () => {

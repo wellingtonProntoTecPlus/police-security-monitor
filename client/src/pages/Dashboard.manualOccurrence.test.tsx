@@ -55,6 +55,7 @@ vi.mock("@/lib/trpc", () => ({
       endMaintenance: { useMutation: () => standardMutation },
     },
     clientContact: { list: { useQuery: () => ({ data: [] }) } },
+    clientProcedure: { list: { useQuery: () => ({ data: [] }) } },
     alarmZone: { list: { useQuery: () => ({ data: [] }) } },
     alarmUser: { list: { useQuery: () => ({ data: [] }) } },
     dashboard: {
