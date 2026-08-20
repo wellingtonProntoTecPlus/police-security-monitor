@@ -119,6 +119,7 @@
 - [x] Exibir a conta como primeira coluna da lista de clientes, ordenar por conta e permitir busca pela conta
 - [x] Aumentar o tamanho, o espaçamento e o destaque visual da conta na lista de clientes
 - [x] Organizar contatos e credenciais por sistema em duas colunas, com até 20 contatos por página
+- [x] Reduzir a altura das linhas de contatos e concentrar nome e função na mesma linha
 - [x] Contatos com Telefone, WhatsApp, Senha, Contra-Senha, Senha de Coação (campos no banco)
 - [x] Providências: descrição de como o operador deve proceder (API pronta)
 

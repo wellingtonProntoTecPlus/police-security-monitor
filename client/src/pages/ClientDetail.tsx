@@ -190,15 +190,12 @@ export default function ClientDetail() {
               <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                 {visibleContacts.map((contact: any) => (
                   <Card key={contact.id}>
-                    <CardContent className="flex min-h-16 flex-col justify-center gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <User className="h-4 w-4 shrink-0 text-primary" />
-                        <div className="min-w-0">
-                          <p className="truncate font-bold text-foreground">{contact.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">{contact.role || "Contato"}</p>
-                        </div>
+                    <CardContent className="flex min-h-0 items-center justify-between gap-2 px-3 py-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <User className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        <p className="truncate text-sm font-semibold text-foreground">{contact.name}<span className="ml-1 font-normal text-muted-foreground">· {contact.role || "Contato"}</span></p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:justify-end">
+                      <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
                         {contact.phone && <span className="whitespace-nowrap"><Phone className="mr-1 inline h-3 w-3" />{contact.phone}</span>}
                         {contact.whatsapp && <span className="whitespace-nowrap text-green-400">WA: {contact.whatsapp}</span>}
                         {contact.email && <span className="max-w-40 truncate"><Mail className="mr-1 inline h-3 w-3" />{contact.email}</span>}

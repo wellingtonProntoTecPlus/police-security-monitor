@@ -88,4 +88,12 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("Anterior");
     expect(source).toContain("Próxima");
   });
+
+  it("mantém cada contato em uma linha compacta com a função ao lado do nome", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("min-h-0 items-center justify-between gap-2 px-3 py-2");
+    expect(source).toContain("· {contact.role || \"Contato\"}");
+    expect(source).toContain("h-3.5 w-3.5 shrink-0 text-primary");
+  });
 });
