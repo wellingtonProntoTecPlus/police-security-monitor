@@ -335,6 +335,7 @@
 - [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
 
 ## Identificação de Sistemas de Alarme
+- [ ] Capturar a conexão da central sem conta e identificar o serial ou outro identificador único transmitido
 - [x] Cadastrar MAC Ethernet de seis dígitos por sistema de alarme
 - [x] Cadastrar IMEI GPRS de seis dígitos por sistema de alarme
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
@@ -446,6 +447,7 @@
 - [x] Cobrir em testes a ocorrência manual associada a uma conta cadastrada
 
 ## Eventos Recebidos sem Fila
+- [ ] Verificar nos logs e no banco da VPS se a conta 0044 está chegando, persistindo e entrando na fila correta
 - [ ] Identificar por que eventos recebidos atualizam status, mas não criam ocorrência na fila
 - [ ] Restaurar a abertura de ocorrência para eventos que exigem atendimento
 - [x] Rastrear a origem técnica do evento E130 da conta 0001 e corrigir a associação indevida ao cliente/painel

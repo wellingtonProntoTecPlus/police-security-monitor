@@ -21,7 +21,7 @@ const framesBySocket = new WeakMap<object, SafeCaptureFrame[]>();
 
 export function isSafeCaptureEnabled(brand: string) {
   return process.env.RECEIVER_SAFE_CAPTURE_MODE !== "false"
-    && ["COMPATEC", "VETTI", "RADIOENGE"].includes(brand);
+    && ["COMPATEC", "VETTI", "RADIOENGE", "JFL"].includes(brand);
 }
 
 export function recordSafeCaptureFrame(socket: object, input: Omit<SafeCaptureFrame, "capturedAt" | "totalBytes" | "payloadHex" | "truncated"> & { payload: Buffer }) {

@@ -23,7 +23,7 @@ describe("captura segura de pacotes", () => {
     expect(getSafeCaptureSummary(socket)).toContain("HEX 0204C080");
   });
 
-  it("limita o tamanho capturado e mantém o modo ativo para as três marcas em coleta", () => {
+  it("limita o tamanho capturado e mantém o modo ativo para as marcas em coleta", () => {
     const socket = {};
     const frame = recordSafeCaptureFrame(socket, {
       brand: "COMPATEC",
@@ -37,7 +37,7 @@ describe("captura segura de pacotes", () => {
     expect(isSafeCaptureEnabled("COMPATEC")).toBe(true);
     expect(isSafeCaptureEnabled("VETTI")).toBe(true);
     expect(isSafeCaptureEnabled("RADIOENGE")).toBe(true);
-    expect(isSafeCaptureEnabled("JFL")).toBe(false);
+    expect(isSafeCaptureEnabled("JFL")).toBe(true);
   });
 
   it("reconhece os seis caracteres MAC confirmados para Vetti, Radioenge e Compatec", () => {
