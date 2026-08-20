@@ -335,7 +335,11 @@
 - [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
 
 ## Identificação de Sistemas de Alarme
-- [ ] Capturar a conexão da central sem conta e identificar o serial ou outro identificador único transmitido
+- [x] Impedir a associação de qualquer central IP somente pela conta Contact ID; exigir MAC e/ou IMEI confirmado
+- [x] Capturar os quadros da JFL Active 20 e documentar que a conta 0044 chegou sem serial ou MAC confirmado
+- [x] Substituído por decisão operacional: JFL sem MAC ou IMEI confirmado segue para a Conta do Sistema 0000, sem associação por conta
+- [x] Confirmar que a conta 0044 da parceira Coruja sem MAC ou IMEI confirmado é registrada na Conta do Sistema 0000
+- [ ] Priorizar o MAC 3BCE24 da JFL da parceira Coruja e bloquear associação por conta 0044 isolada
 - [x] Cadastrar MAC Ethernet de seis dígitos por sistema de alarme
 - [x] Cadastrar IMEI GPRS de seis dígitos por sistema de alarme
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel

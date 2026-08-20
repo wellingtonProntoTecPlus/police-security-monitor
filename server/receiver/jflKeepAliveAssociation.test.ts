@@ -9,5 +9,8 @@ describe("associação de Keep Alive JFL", () => {
     expect(source).toContain("processEvent(evento, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket), socket)");
     expect(source).toContain("if (system && socket) rememberSystem(socket, system);");
     expect(source).toContain("await recordKeepAlive(socket, brand, port, \"0x40\")");
+    expect(source).toContain("const captureMode = shouldResolveSystemByCapturedPanelIdentifier(evento.brand);");
+    expect(source).toContain("Nenhuma central IP pode ser associada somente pela conta.");
+    expect(source).toContain("MAC, IMEI ou,");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findCapturedPanelCandidates, formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame, resolveUniqueCapturedPanelCandidate } from "./safeCapture";
+import { findCapturedPanelCandidates, formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame, resolveUniqueCapturedPanelCandidate, shouldResolveSystemByCapturedPanelIdentifier } from "./safeCapture";
 
 describe("captura segura de pacotes", () => {
   it("registra o pacote em hexadecimal com fabricante, porta e origem", () => {
@@ -38,6 +38,15 @@ describe("captura segura de pacotes", () => {
     expect(isSafeCaptureEnabled("VETTI")).toBe(true);
     expect(isSafeCaptureEnabled("RADIOENGE")).toBe(true);
     expect(isSafeCaptureEnabled("JFL")).toBe(true);
+    expect(isSafeCaptureEnabled("INTELBRAS")).toBe(true);
+    expect(isSafeCaptureEnabled("VIAWEB")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("JFL")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("INTELBRAS")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("VETTI")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("COMPATEC")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("RADIOENGE")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("VIAWEB")).toBe(true);
+    expect(shouldResolveSystemByCapturedPanelIdentifier("DESCONHECIDA")).toBe(false);
   });
 
   it("reconhece os seis caracteres MAC confirmados para Vetti, Radioenge e Compatec", () => {

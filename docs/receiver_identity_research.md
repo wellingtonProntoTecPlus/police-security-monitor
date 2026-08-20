@@ -83,6 +83,16 @@ Uma análise de evento real demonstrou que a conta Contact ID não pode ser usad
 
 A causa era um fallback legado: a consulta por `conta + marca + porta` retornava vazia e a rotina consultava novamente apenas pela conta. Como existia uma Vetti da conta `0001`, o evento JFL foi associado a ela. A regra foi corrigida: quando marca ou porta forem conhecidas e não houver sistema compatível, **não há fallback por conta**. O evento passa a ser registrado na Conta do Sistema `0000`, com a conta recebida preservada para auditoria, como “Conta Não Cadastrada”.
 
+## JFL Active 20 da parceira Coruja — conta 0044
+
+Em 20/08, a captura limitada da VPS confirmou que a central JFL Active 20 versão 8.0 transmite a Conta Contact ID `0044` no quadro de evento. O segmento hexadecimal `30303434` representa o texto `0044`; o quadro do teste periódico continha também o evento `E602`.
+
+O MAC informado do painel é `44:1D:64:3B:CE:24` (sufixo cadastral `3BCE24`), mas ele não apareceu nos quadros JFL coletados de 5 e 24 bytes. Portanto, não existe evidência técnica suficiente para associar a Active 20 pelo MAC usando o formato atualmente recebido.
+
+> Regra operacional decidida: nenhuma central IP será associada somente pela Conta Contact ID. A associação requer MAC Ethernet, IMEI GPRS ou, exclusivamente para ViaWeb, ID ISEP confirmados no protocolo. Enquanto a JFL não transmitir um identificador único confirmado, seus eventos devem seguir para a Conta do Sistema `0000` com a conta recebida preservada para auditoria.
+
+Fonte consultada: manual oficial da linha Active da JFL, https://jflalarmes.com.br/wp-content/uploads/2024/05/manual-actives.pdf. O manual confirma o uso de Contact ID para comunicação, mas a decisão acima se baseia nos quadros reais capturados na VPS, pois o manual não documentou neste trecho um campo de MAC ou IMEI no protocolo de recepção.
+
 ## Regra de expiração adotada
 
 Para cada central, o sistema considera os até 30 intervalos mais recentes e calcula `maior(90 segundos, média × 3, maior intervalo × 1,5)`. O status é **Online** somente quando `lastKeepAliveAt` está dentro dessa janela. Assim, eventos Contact ID, Arme, Desarme e disparos não podem manter artificialmente uma central online.

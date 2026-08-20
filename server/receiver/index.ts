@@ -7,7 +7,7 @@ import net from 'net';
 import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, isSystemInMaintenance, recordSystemKeepAlive } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
-import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame } from './safeCapture';
+import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
@@ -315,10 +315,10 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       console.warn(`[RECIP] Código não cadastrado ${evento.eventCode}: ${e.message}`);
     }
 
-    // Durante a coleta, Compatec, Vetti e Radioenge não podem ser associados
-    // somente pela conta. As capturas permitem mapear MAC/IMEI depois, sem risco
-    // de direcionar um evento para outro cliente que use a mesma conta.
-    const captureMode = isSafeCaptureEnabled(evento.brand);
+    // Nenhuma central IP pode ser associada somente pela conta. MAC, IMEI ou,
+    // exclusivamente para ViaWeb, ID ISEP precisam estar confirmados no pacote
+    // antes de qualquer vínculo operacional entre parceiras.
+    const captureMode = shouldResolveSystemByCapturedPanelIdentifier(evento.brand);
     let system: any = null;
     let clientName = `CONTA NÃO CADASTRADA (${evento.account})`;
     if (captureMode) {
@@ -348,7 +348,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     if (accountResolution.isSystemAccount) {
       await ensureSystemTechnicalAccount();
       clientName = "CONTA DO SISTEMA (0000)";
-      const captureDescription = captureMode ? "CENTRAL EM CAPTURA SEGURA — identificação MAC/IMEI pendente" : "CENTRAL NÃO CADASTRADA";
+      const captureDescription = captureMode ? "CENTRAL SEM IDENTIFICADOR ÚNICO CONFIRMADO — MAC/IMEI/ID ISEP pendente" : "CENTRAL NÃO CADASTRADA";
       description = `${captureDescription}${receivedAccount ? ` — conta recebida ${receivedAccount}` : " — sem conta recebida"}: ${description}`;
     }
 

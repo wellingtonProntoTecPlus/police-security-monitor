@@ -327,11 +327,15 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
   const scopedConditions = [eq(alarmSystems.account, normalizedAccount)];
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
   if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
-  const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
+  const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(2);
   // Se o receptor já conhece marca ou porta, o fallback somente pela conta é
   // inseguro: uma JFL poderia ser vinculada a uma Vetti de mesma conta. Sem
-  // sistema compatível, o evento seguirá para a Conta do Sistema 0000.
-  const found = scoped[0] || (!brand && !receiverPort ? await getAlarmSystemByAccount(normalizedAccount) : undefined);
+  // sistema compatível único, o evento seguirá para a Conta do Sistema 0000.
+  // O limite de dois detecta uma conta repetida na mesma marca/porta e impede
+  // que o primeiro cadastro seja escolhido arbitrariamente.
+  const found = scoped.length === 1
+    ? scoped[0]
+    : (!brand && !receiverPort ? await getAlarmSystemByAccount(normalizedAccount) : undefined);
   if (!found) return undefined;
 
   const now = new Date();

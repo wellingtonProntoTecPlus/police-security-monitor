@@ -21,7 +21,16 @@ const framesBySocket = new WeakMap<object, SafeCaptureFrame[]>();
 
 export function isSafeCaptureEnabled(brand: string) {
   return process.env.RECEIVER_SAFE_CAPTURE_MODE !== "false"
-    && ["COMPATEC", "VETTI", "RADIOENGE", "JFL"].includes(brand);
+    && ["JFL", "INTELBRAS", "VIAWEB", "VETTI", "COMPATEC", "RADIOENGE"].includes(brand);
+}
+
+/**
+ * Toda central IP exige um identificador único de painel para associação
+ * operacional. A conta Contact ID nunca pode escolher sozinha um cliente,
+ * pois pode se repetir entre parceiras.
+ */
+export function shouldResolveSystemByCapturedPanelIdentifier(brand: string) {
+  return ["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"].includes(brand);
 }
 
 export function recordSafeCaptureFrame(socket: object, input: Omit<SafeCaptureFrame, "capturedAt" | "totalBytes" | "payloadHex" | "truncated"> & { payload: Buffer }) {
