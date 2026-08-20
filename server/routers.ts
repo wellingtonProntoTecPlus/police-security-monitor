@@ -456,7 +456,7 @@ export const appRouter = router({
     }),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
-      userNumber: z.number(),
+      userNumber: z.number().int().min(0),
       name: z.string().min(1),
       phone: z.string().optional(),
       password: z.string().optional(),
@@ -468,7 +468,7 @@ export const appRouter = router({
     }),
     update: operatorProcedure.input(z.object({
       id: z.number(),
-      userNumber: z.number().optional(),
+      userNumber: z.number().int().min(0).optional(),
       name: z.string().optional(),
       phone: z.string().optional(),
       password: z.string().optional(),

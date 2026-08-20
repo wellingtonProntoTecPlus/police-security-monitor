@@ -82,6 +82,9 @@
 
 ## Cadastro de Sistema de Alarme (Completo)
 - [x] Compactar a lista de Usuários do Painel para reduzir espaços vazios entre nomes
+- [x] Permitir cadastrar, editar e exibir o código de Usuário 0 como usuário mestre da central
+- [x] Exibir o usuário mestre como código 0, sem preencher o código para 00
+- [x] Cobrir criação, edição e leitura persistida do Usuário 0 no fluxo real de usuários do painel
 - [x] Buscar empresa parceira e cliente no cadastro de sistema
 - [x] Tornar explícito e funcional o cadastro de múltiplos sistemas por cliente
 - [x] Vincular contatos, zonas e usuários do painel ao sistema de alarme selecionado

@@ -58,4 +58,13 @@ describe("credenciais de usuários do painel", () => {
     const [saved] = await listAlarmUsers(9);
     expect(saved).toMatchObject({ password: "5678", counterPassword: "8765", coercionPassword: "0000" });
   });
+
+  it("cria, atualiza e relê o código 0 do usuário mestre", async () => {
+    await createAlarmUser({ alarmSystemId: 9, userNumber: 0, name: "Usuário Mestre" } as any);
+    expect(storedUser).toMatchObject({ alarmSystemId: 9, userNumber: 0, name: "Usuário Mestre" });
+
+    await updateAlarmUser(71, { userNumber: 0, name: "Usuário Mestre Atualizado" } as any);
+    const [saved] = await listAlarmUsers(9);
+    expect(saved).toMatchObject({ userNumber: 0, name: "Usuário Mestre Atualizado" });
+  });
 });
