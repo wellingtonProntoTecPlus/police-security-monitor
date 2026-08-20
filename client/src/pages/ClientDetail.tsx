@@ -15,6 +15,8 @@ import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers,
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 
+const CONTACTS_PER_PAGE = 20;
+
 const RECEIVER_PORTS: Record<string, number[]> = {
   JFL: [9061, 9191, 9131],
   INTELBRAS: [9071, 9271],
@@ -79,6 +81,7 @@ export default function ClientDetail() {
   const [editingZone, setEditingZone] = useState<any>(null);
   const [showAlarmUserForm, setShowAlarmUserForm] = useState(false);
   const [editingAlarmUser, setEditingAlarmUser] = useState<any>(null);
+  const [contactPage, setContactPage] = useState(0);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" });
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
@@ -89,6 +92,9 @@ export default function ClientDetail() {
   const [editingCamera, setEditingCamera] = useState<any>(null);
   const [zoneForm, setZoneForm] = useState({ zoneNumber: 1, name: "", type: "perimeter" as any, partition: 1 });
   const [alarmUserForm, setAlarmUserForm] = useState({ userNumber: 1, name: "", phone: "", password: "", counterPassword: "", coercionPassword: "" });
+  const contactPageCount = Math.max(1, Math.ceil(contacts.length / CONTACTS_PER_PAGE));
+  const visibleContactPage = Math.min(contactPage, contactPageCount - 1);
+  const visibleContacts = contacts.slice(visibleContactPage * CONTACTS_PER_PAGE, (visibleContactPage + 1) * CONTACTS_PER_PAGE);
 
   if (!client) {
     return (
@@ -149,7 +155,7 @@ export default function ClientDetail() {
 
           {/* CONTATOS */}
           <TabsContent value="contacts" className="mt-4 space-y-4">
-            {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para contatos</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(e) => setOperationalSystemId(Number(e.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
+            {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para contatos</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(e) => { setOperationalSystemId(Number(e.target.value)); setContactPage(0); }}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand}</option>)}</select></div>}
             <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
               <div className="flex items-start gap-2 text-sm text-muted-foreground">
                 <Shield className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
@@ -180,23 +186,23 @@ export default function ClientDetail() {
                 </DialogContent>
               </Dialog>
             </div>
-            <ScrollArea className="h-[400px]">
-              <div className="grid gap-3">
-                {contacts.map((contact: any) => (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {visibleContacts.map((contact: any) => (
                   <Card key={contact.id}>
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <User className="h-5 w-5 text-primary" />
-                        <div>
-                          <p className="font-bold text-foreground">{contact.name}</p>
-                          <p className="text-sm text-muted-foreground">{contact.role || "Contato"}</p>
+                    <CardContent className="flex min-h-16 flex-col justify-center gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <User className="h-4 w-4 shrink-0 text-primary" />
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-foreground">{contact.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">{contact.role || "Contato"}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        {contact.phone && <span><Phone className="h-3 w-3 inline mr-1" />{contact.phone}</span>}
-                        {contact.whatsapp && <span className="text-green-400">WA: {contact.whatsapp}</span>}
-                        {contact.email && <span><Mail className="h-3 w-3 inline mr-1" />{contact.email}</span>}
-                        {(contact.password || contact.counterPassword || contact.coercionPassword) && <span className="text-amber-400">Credenciais cadastradas</span>}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:justify-end">
+                        {contact.phone && <span className="whitespace-nowrap"><Phone className="mr-1 inline h-3 w-3" />{contact.phone}</span>}
+                        {contact.whatsapp && <span className="whitespace-nowrap text-green-400">WA: {contact.whatsapp}</span>}
+                        {contact.email && <span className="max-w-40 truncate"><Mail className="mr-1 inline h-3 w-3" />{contact.email}</span>}
+                        {(contact.password || contact.counterPassword || contact.coercionPassword) && <span className="whitespace-nowrap text-amber-400">Credenciais</span>}
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingContact({ ...contact })} title="Editar contato">
                             <Pencil className="h-3.5 w-3.5" />
@@ -209,9 +215,16 @@ export default function ClientDetail() {
                     </CardContent>
                   </Card>
                 ))}
-                {contacts.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum contato cadastrado</p>}
               </div>
-            </ScrollArea>
+              {contacts.length === 0 && <p className="py-8 text-center text-muted-foreground">Nenhum contato cadastrado</p>}
+              {contacts.length > CONTACTS_PER_PAGE && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Página {visibleContactPage + 1} de {contactPageCount} · exibindo {visibleContactPage * CONTACTS_PER_PAGE + 1}–{Math.min((visibleContactPage + 1) * CONTACTS_PER_PAGE, contacts.length)} de {contacts.length} contatos</span>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={visibleContactPage === 0} onClick={() => setContactPage((page) => Math.max(0, page - 1))}>Anterior</Button>
+                  <Button variant="outline" size="sm" disabled={visibleContactPage >= contactPageCount - 1} onClick={() => setContactPage((page) => Math.min(contactPageCount - 1, page + 1))}>Próxima</Button>
+                </div>
+              </div>}
+            </div>
             {editingContact && (
               <Dialog open={!!editingContact} onOpenChange={() => setEditingContact(null)}>
                 <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">

@@ -77,4 +77,15 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("String(alarmUser.userNumber).padStart(2, \"0\")");
     expect(source).toContain("min-h-14");
   });
+
+  it("organiza os contatos em duas colunas com vinte itens por página", () => {
+    const source = projectFile("client/src/pages/ClientDetail.tsx");
+
+    expect(source).toContain("const CONTACTS_PER_PAGE = 20");
+    expect(source).toContain("grid-cols-1 gap-3 xl:grid-cols-2");
+    expect(source).toContain("visibleContacts = contacts.slice");
+    expect(source).toContain("Página {visibleContactPage + 1} de {contactPageCount}");
+    expect(source).toContain("Anterior");
+    expect(source).toContain("Próxima");
+  });
 });
