@@ -91,7 +91,13 @@ O MAC informado do painel é `44:1D:64:3B:CE:24` (sufixo cadastral `3BCE24`), ma
 
 > Regra operacional decidida: nenhuma central IP será associada somente pela Conta Contact ID. A associação requer MAC Ethernet, IMEI GPRS ou, exclusivamente para ViaWeb, ID ISEP confirmados no protocolo. Enquanto a JFL não transmitir um identificador único confirmado, seus eventos devem seguir para a Conta do Sistema `0000` com a conta recebida preservada para auditoria.
 
-Fonte consultada: manual oficial da linha Active da JFL, https://jflalarmes.com.br/wp-content/uploads/2024/05/manual-actives.pdf. O manual confirma o uso de Contact ID para comunicação, mas a decisão acima se baseia nos quadros reais capturados na VPS, pois o manual não documentou neste trecho um campo de MAC ou IMEI no protocolo de recepção.
+Fonte consultada: manual oficial da linha Active da JFL, https://jflalarmes.com.br/wp-content/uploads/2024/05/manual-actives.pdf. O manual confirma o uso de Contact ID para comunicação, mas a decisão acima se baseia nos quadros reais capturados na VPS, pois o manual não documentou neste trecho um campo de MAC ou IMEI no protocolo de recepção. Regra operacional informada pelo usuário com base no cadastro da FullTime: centrais JFL da versão 7 em diante são cadastradas pelo serial de 10 caracteres.
+
+## Hipótese a confirmar: canal proprietário além do Contact ID
+
+A captura real demonstrou apenas que o quadro Contact ID recebido na porta 9061 contém a conta e o evento; ela não prova que a central não exponha serial em outro canal. A página oficial de softwares da JFL lista ferramentas próprias de monitoramento e comunicação, enquanto uma integração técnica pública para a linha Active descreve uma conexão TCP/IP configurada para o IP e a porta do sistema externo. Isso sustenta a hipótese — ainda não confirmada para a FullTime — de que o serial seja obtido por sessão ou protocolo proprietário distinto do Contact ID.
+
+Fontes consultadas: https://jflalarmes.com.br/softwares-drivers/ e https://github.com/fernac03/JFL_ACTIVE. A integração pública é evidência de arquitetura, não documentação oficial da FullTime; a confirmação exigirá verificar a programação da central ou capturar a conexão no canal correspondente.
 
 ## Regra de expiração adotada
 

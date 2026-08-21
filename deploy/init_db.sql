@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS alarm_systems (
   communicationType VARCHAR(50),
   macAddress VARCHAR(20),
   imeiGprs VARCHAR(20),
+  serialNumber VARCHAR(10),
   isepId VARCHAR(4),
   viawebCode VARCHAR(10),
   partitions INT DEFAULT 1,

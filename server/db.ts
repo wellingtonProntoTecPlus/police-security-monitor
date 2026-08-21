@@ -458,6 +458,19 @@ function normalizePanelIdentifier(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+export function isJflVersion7OrLater(input: { brand?: string | null; firmwareVersion?: string | null }) {
+  const version = (input.firmwareVersion || "").trim().replace(/^v/i, "");
+  const majorVersion = Number(version.split(".")[0]);
+  return input.brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+}
+
+export function assertRequiredJflVersion7OrLaterSerial(input: { brand?: string | null; firmwareVersion?: string | null; serialNumber?: string | null }) {
+  if (!isJflVersion7OrLater(input)) return;
+  if (!/^\d{10}$/.test(input.serialNumber || "")) {
+    throw new Error("A central JFL versão 7 ou superior exige o número de série com 10 dígitos");
+  }
+}
+
 const ISEP_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export async function generateIsepId() {
@@ -473,7 +486,7 @@ export async function generateIsepId() {
   throw new Error("Não foi possível gerar um ID ISEP exclusivo");
 }
 
-export async function getAlarmSystemByPanelIdentifier(identifier: string, identifierType: "isep" | "mac" | "imei", brand?: string, receiverPort?: number) {
+export async function getAlarmSystemByPanelIdentifier(identifier: string, identifierType: "isep" | "mac" | "imei" | "serial", brand?: string, receiverPort?: number) {
   const db = await getDb();
   if (!db) return undefined;
   const normalized = normalizePanelIdentifier(identifier);
@@ -483,7 +496,9 @@ export async function getAlarmSystemByPanelIdentifier(identifier: string, identi
     ? alarmSystems.isepId
     : identifierType === "mac"
       ? alarmSystems.macAddress
-      : alarmSystems.imeiGprs;
+      : identifierType === "imei"
+        ? alarmSystems.imeiGprs
+        : alarmSystems.serialNumber;
 
   const scopedConditions = [eq(identifierColumn, normalized)];
   if (identifierType === "isep") scopedConditions.push(eq(alarmSystems.brand, "VIAWEB"));
@@ -530,8 +545,10 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
     account: normalizePanelIdentifier(data.account),
     macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null,
     imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null,
+    serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null,
     isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId()) : null,
   };
+  assertRequiredJflVersion7OrLaterSerial(normalizedData);
   const result = await db.insert(alarmSystems).values(normalizedData);
   return { id: result[0].insertId };
 }
@@ -547,8 +564,14 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
     ...(data.account !== undefined ? { account: normalizePanelIdentifier(data.account) } : {}),
     ...(data.macAddress !== undefined ? { macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null } : {}),
     ...(data.imeiGprs !== undefined ? { imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null } : {}),
+    ...(data.serialNumber !== undefined ? { serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null } : {}),
   };
   const effectiveBrand = normalizedData.brand || current?.brand;
+  assertRequiredJflVersion7OrLaterSerial({
+    brand: effectiveBrand,
+    firmwareVersion: normalizedData.firmwareVersion ?? current?.firmwareVersion,
+    serialNumber: normalizedData.serialNumber ?? current?.serialNumber,
+  });
   if (effectiveBrand === "VIAWEB" && !current?.isepId && !normalizedData.isepId) normalizedData.isepId = await generateIsepId();
   if (effectiveBrand !== "VIAWEB") normalizedData.isepId = null;
   await db.update(alarmSystems).set(normalizedData).where(eq(alarmSystems.id, id));

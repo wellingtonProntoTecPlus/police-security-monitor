@@ -11,6 +11,7 @@ export function prepareAlarmSystemCreatePayload<T extends Record<string, unknown
     account: typeof formatted.account === "string" ? normalizeTechnicalIdentifier(formatted.account) : formatted.account,
     macAddress: typeof formatted.macAddress === "string" ? normalizeTechnicalIdentifier(formatted.macAddress) : formatted.macAddress,
     imeiGprs: typeof formatted.imeiGprs === "string" ? normalizeTechnicalIdentifier(formatted.imeiGprs) : formatted.imeiGprs,
+    serialNumber: typeof formatted.serialNumber === "string" ? normalizeTechnicalIdentifier(formatted.serialNumber) : formatted.serialNumber,
     isepId: typeof formatted.isepId === "string" ? normalizeTechnicalIdentifier(formatted.isepId) : formatted.isepId,
   };
 }

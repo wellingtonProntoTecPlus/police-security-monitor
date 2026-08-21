@@ -20,6 +20,7 @@ const INITIAL_FORM = {
   brand: "" as string,
   model: "",
   firmwareVersion: "",
+  serialNumber: "",
   communicationType: "ethernet" as "ethernet" | "gprs" | "both",
   macAddress: "",
   viawebCode: "",
@@ -28,6 +29,11 @@ const INITIAL_FORM = {
   installDate: "",
   batteryDate: "",
 };
+
+function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
+  const majorVersion = Number(firmwareVersion.trim().replace(/^v/i, "").split(".")[0]);
+  return brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+}
 
 export default function AlarmSystems() {
   const [search, setSearch] = useState("");
@@ -76,6 +82,7 @@ export default function AlarmSystems() {
     if (!form.account.trim()) { toast.error("Informe o número da conta"); return; }
     if (!form.brand) { toast.error("Selecione a marca"); return; }
     if (form.brand === "VIAWEB" && !form.viawebCode) { toast.error("Informe o código ViaWeb (4 dígitos)"); return; }
+    if (requiresJflVersion7OrLaterSerial(form.brand, form.firmwareVersion) && !/^\d{10}$/.test(form.serialNumber)) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
 
     const payload: any = {
       clientId: form.clientId,
@@ -83,6 +90,7 @@ export default function AlarmSystems() {
       brand: form.brand,
       model: form.model || undefined,
       firmwareVersion: form.firmwareVersion || undefined,
+      serialNumber: form.serialNumber || undefined,
       communicationType: form.communicationType,
       macAddress: form.macAddress || undefined,
       viawebCode: form.viawebCode || undefined,
@@ -171,6 +179,7 @@ export default function AlarmSystems() {
                         <Label className="text-sm font-medium">Versão/Firmware</Label>
                         <Input className="mt-1" placeholder="Ex: v3.2.1" value={form.firmwareVersion} onChange={(e) => setForm({ ...form, firmwareVersion: e.target.value })} />
                       </div>
+                      {requiresJflVersion7OrLaterSerial(form.brand, form.firmwareVersion) && <div className="col-span-3"><Label className="text-sm font-medium text-amber-300">Número de Série * (JFL v7 ou superior)</Label><Input className="mt-1 font-mono" inputMode="numeric" maxLength={10} placeholder="2801936621" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><span className="text-xs text-muted-foreground">Informe os 10 caracteres do número de série.</span></div>}
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Nº da Conta *</Label>
                         <Input className="mt-1 font-mono font-bold text-lg" placeholder="PS0001" value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value.toUpperCase() })} />
@@ -254,6 +263,7 @@ export default function AlarmSystems() {
                       <div className="flex justify-between"><span className="text-muted-foreground">Marca:</span><span>{form.brand || "—"}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Comunicação:</span><span>{form.communicationType === "both" ? "ETH+GPRS" : form.communicationType.toUpperCase()}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">MAC:</span><span className="font-mono">{form.macAddress || "—"}</span></div>
+                      {form.serialNumber && <div className="flex justify-between"><span className="text-muted-foreground">Serial:</span><span className="font-mono">{form.serialNumber}</span></div>}
                       <div className="flex justify-between"><span className="text-muted-foreground">Partições:</span><span>{form.partitions}</span></div>
                     </div>
                     <Separator className="my-4" />

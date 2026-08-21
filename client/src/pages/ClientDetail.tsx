@@ -30,6 +30,11 @@ function portsForBrand(brand: string) {
   return RECEIVER_PORTS[brand] || [];
 }
 
+function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
+  const majorVersion = Number(firmwareVersion.trim().replace(/^v/i, "").split(".")[0]);
+  return brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+}
+
 export default function ClientDetail() {
   const [, params] = useRoute("/clients/:id");
   const clientId = Number(params?.id);
@@ -85,7 +90,7 @@ export default function ClientDetail() {
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" });
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
-    macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061,
+    firmwareVersion: "", macAddress: "", imeiGprs: "", serialNumber: "", viawebCode: "", receiverPort: 9061,
     keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5,
   });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
@@ -283,6 +288,7 @@ export default function ClientDetail() {
                       </Select>
                     </div>
                     <div><Label>Modelo</Label><Input placeholder="Ex: Active 20" value={systemForm.model} onChange={(e) => setSystemForm({ ...systemForm, model: e.target.value })} /></div>
+                    <div><Label>Versão / Firmware</Label><Input placeholder="Ex: 8.0.0" value={systemForm.firmwareVersion} onChange={(e) => setSystemForm({ ...systemForm, firmwareVersion: e.target.value })} /></div>
                     <div>
                       <Label>Comunicação</Label>
                       <Select value={systemForm.communicationType} onValueChange={(communicationType) => setSystemForm({ ...systemForm, communicationType })}>
@@ -292,6 +298,7 @@ export default function ClientDetail() {
                     </div>
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} placeholder="A1B2C3" value={systemForm.macAddress} onChange={(e) => setSystemForm({ ...systemForm, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} placeholder="123456" value={systemForm.imeiGprs} onChange={(e) => setSystemForm({ ...systemForm, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
+                    {requiresJflVersion7OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) && <div className="col-span-2"><Label>Número de série * (JFL v7 ou superior)</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos, ex.: 2801936621" value={systemForm.serialNumber} onChange={(e) => setSystemForm({ ...systemForm, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><p className="mt-1 text-[11px] text-amber-300">Obrigatório para centrais JFL versão 7 ou superior. Informe os 10 dígitos exibidos no Programador JFL.</p></div>}
                     {systemForm.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value="Gerado ao salvar" disabled /></div>}
                     <div>
                       <Label>Porta receptora</Label>
@@ -320,9 +327,10 @@ export default function ClientDetail() {
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
                   <Button className="mt-3" onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
+                    if (requiresJflVersion7OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) && !/^\d{10}$/.test(systemForm.serialNumber)) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
                     createSystem.mutate({ clientId, ...systemForm });
                     setShowSystemForm(false);
-                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", macAddress: "", imeiGprs: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5 });
+                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", firmwareVersion: "", macAddress: "", imeiGprs: "", serialNumber: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5 });
                   }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
@@ -336,8 +344,8 @@ export default function ClientDetail() {
                         <Shield className="h-5 w-5 text-primary" />
                         <div>
                           <p className="font-bold text-foreground font-mono">Sistema {index + 1} · Conta: {system.account}</p>
-                          <p className="text-sm text-muted-foreground">{system.brand} - {system.model || "Modelo não informado"}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{system.brand === "VIAWEB" ? `ISEP: ${system.isepId || "Gerado ao salvar edição"} · ` : ""}MAC: {system.macAddress || "—"} · IMEI: {system.imeiGprs || "—"}</p>
+                          <p className="text-sm text-muted-foreground">{system.brand} - {system.model || "Modelo não informado"}{system.firmwareVersion ? ` · v${system.firmwareVersion}` : ""}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{system.brand === "VIAWEB" ? `ISEP: ${system.isepId || "Gerado ao salvar edição"} · ` : ""}{system.serialNumber ? `Serial: ${system.serialNumber} · ` : ""}MAC: {system.macAddress || "—"} · IMEI: {system.imeiGprs || "—"}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -366,8 +374,10 @@ export default function ClientDetail() {
                     <div><Label>Conta *</Label><Input value={editingSystem.account || ""} onChange={(e) => setEditingSystem({ ...editingSystem, account: e.target.value })} /></div>
                     <div><Label>Marca</Label><Select value={editingSystem.brand} onValueChange={(brand) => setEditingSystem({ ...editingSystem, brand, receiverPort: portsForBrand(brand)[0] || 0 })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="JFL">JFL</SelectItem><SelectItem value="INTELBRAS">Intelbras</SelectItem><SelectItem value="VETTI">Vetti</SelectItem><SelectItem value="COMPATEC">Compatec</SelectItem><SelectItem value="RADIOENGE">Radioenge</SelectItem><SelectItem value="VIAWEB">ViaWeb</SelectItem></SelectContent></Select></div>
                     <div><Label>Modelo</Label><Input value={editingSystem.model || ""} onChange={(e) => setEditingSystem({ ...editingSystem, model: e.target.value })} /></div>
+                    <div><Label>Versão / Firmware</Label><Input placeholder="Ex: 8.0.0" value={editingSystem.firmwareVersion || ""} onChange={(e) => setEditingSystem({ ...editingSystem, firmwareVersion: e.target.value })} /></div>
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} value={editingSystem.macAddress || ""} onChange={(e) => setEditingSystem({ ...editingSystem, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} value={editingSystem.imeiGprs || ""} onChange={(e) => setEditingSystem({ ...editingSystem, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
+                    {requiresJflVersion7OrLaterSerial(editingSystem.brand, editingSystem.firmwareVersion || "") && <div className="col-span-2"><Label>Número de série * (JFL v7 ou superior)</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos" value={editingSystem.serialNumber || ""} onChange={(e) => setEditingSystem({ ...editingSystem, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /></div>}
                     {editingSystem.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value={editingSystem.isepId || "Será gerado ao salvar"} disabled /></div>}
                     <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">A porta é sugerida ao selecionar a central e pode ser ajustada manualmente.</p></div>
                   </div>
@@ -389,7 +399,8 @@ export default function ClientDetail() {
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
-                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5 });
+                    if (requiresJflVersion7OrLaterSerial(editingSystem.brand, editingSystem.firmwareVersion || "") && !/^\d{10}$/.test(editingSystem.serialNumber || "")) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
+                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5 });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>

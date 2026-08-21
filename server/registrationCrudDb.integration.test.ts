@@ -48,11 +48,11 @@ describe("CRUDs reais com textos padronizados", () => {
   });
 
   it("persiste sistema normalizado e preserva identificadores técnicos", async () => {
-    await createAlarmSystem({ clientId: 1, brand: "VIAWEB", account: "03-36", model: "central principal", macAddress: "c1-bd-cb", imeiGprs: "12 34 56", isepId: "69-3e", firmwareVersion: "V4.0" } as any);
-    await updateAlarmSystem(1, { model: "central reserva", account: "03-37", macAddress: "aa-bb-cc", imeiGprs: "65 43 21", isepId: "69-3e", firmwareVersion: "V5.0" } as any);
+    await createAlarmSystem({ clientId: 1, brand: "VIAWEB", account: "03-36", model: "central principal", macAddress: "c1-bd-cb", imeiGprs: "12 34 56", serialNumber: "2801-936621", isepId: "69-3e", firmwareVersion: "V4.0" } as any);
+    await updateAlarmSystem(1, { model: "central reserva", account: "03-37", macAddress: "aa-bb-cc", imeiGprs: "65 43 21", serialNumber: "9876-543210", isepId: "69-3e", firmwareVersion: "V5.0" } as any);
 
-    expect(inserted[0]).toMatchObject({ model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", isepId: "693E", firmwareVersion: "V4.0" });
-    expect(updated[0]).toMatchObject({ model: "Central Reserva", account: "0337", macAddress: "AABBCC", imeiGprs: "654321", isepId: "693E", firmwareVersion: "V5.0" });
+    expect(inserted[0]).toMatchObject({ model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", serialNumber: "2801936621", isepId: "693E", firmwareVersion: "V4.0" });
+    expect(updated[0]).toMatchObject({ model: "Central Reserva", account: "0337", macAddress: "AABBCC", imeiGprs: "654321", serialNumber: "9876543210", isepId: "693E", firmwareVersion: "V5.0" });
   });
 
   it("persiste usuários, finalizações, procedimentos e códigos com a regra correta", async () => {

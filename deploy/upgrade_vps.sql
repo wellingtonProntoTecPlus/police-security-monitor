@@ -225,6 +225,30 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN serialNumber VARCHAR(10)',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'serialNumber'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'CREATE UNIQUE INDEX alarm_systems_serial_number_unique ON alarm_systems (serialNumber)',
+    'SELECT 1'
+  )
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND INDEX_NAME = 'alarm_systems_serial_number_unique'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Campos para registrar eventos finalizados automaticamente.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

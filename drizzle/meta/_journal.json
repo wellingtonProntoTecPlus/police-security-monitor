@@ -169,6 +169,20 @@
       "when": 1786974408835,
       "tag": "0023_tense_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1787270406066,
+      "tag": "0024_married_bromley",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1787270707673,
+      "tag": "0025_high_moon_knight",
+      "breakpoints": true
     }
   ]
 }

@@ -9,9 +9,9 @@ import {
 describe("payloads reais dos CRUDs com padronização", () => {
   it("prepara o sistema sem modificar seus identificadores técnicos", () => {
     expect(prepareAlarmSystemCreatePayload({
-      model: "central principal", account: "03-36", macAddress: "c1-bd-cb", imeiGprs: "12 34 56", isepId: "69-3e", firmwareVersion: "V4.0",
+      model: "central principal", account: "03-36", macAddress: "c1-bd-cb", imeiGprs: "12 34 56", serialNumber: "2801-936621", isepId: "69-3e", firmwareVersion: "V4.0",
     })).toEqual({
-      model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", isepId: "693E", firmwareVersion: "V4.0",
+      model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", serialNumber: "2801936621", isepId: "693E", firmwareVersion: "V4.0",
     });
   });
 

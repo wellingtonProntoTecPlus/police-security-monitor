@@ -1,0 +1,1 @@
+ALTER TABLE `alarm_systems` ADD `serialNumber` varchar(10);

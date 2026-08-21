@@ -156,6 +156,7 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   communicationType: mysqlEnum("communicationType", ["ethernet", "gprs", "both"]).default("ethernet").notNull(),
   macAddress: varchar("macAddress", { length: 6 }), // Últimos 6 caracteres do MAC Ethernet
   imeiGprs: varchar("imeiGprs", { length: 6 }), // Últimos 6 dígitos do IMEI GPRS
+  serialNumber: varchar("serialNumber", { length: 10 }).unique(), // Serial de 10 dígitos para modelos que o exigem
   isepId: varchar("isepId", { length: 4 }), // Identificador ISEP gerado pelo sistema
   viawebCode: varchar("viawebCode", { length: 4 }), // Código ViaWeb 4 dígitos
   partitions: int("partitions").default(1).notNull(), // Até 8
