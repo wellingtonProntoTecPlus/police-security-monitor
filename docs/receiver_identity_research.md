@@ -99,6 +99,16 @@ A captura real demonstrou apenas que o quadro Contact ID recebido na porta 9061 
 
 Fontes consultadas: https://jflalarmes.com.br/softwares-drivers/ e https://github.com/fernac03/JFL_ACTIVE. A integração pública é evidência de arquitetura, não documentação oficial da FullTime; a confirmação exigirá verificar a programação da central ou capturar a conexão no canal correspondente.
 
+Consulta adicional em 21/08/2026: o manual oficial da JFL disponível em https://jflalarmes.com.br/wp-content/uploads/2024/05/manual-actives.pdf faz referência a protocolo JFL e a conector serial físico, mas a extração pública do PDF não apresentou uma especificação do protocolo IP de reporte que permita extrair o serial. Portanto, não é seguro inferir um formato de mensagem ou implementar o parser sem documentação fornecida pela JFL ou pela FullTime.
+
+Evidência operacional enviada pelo usuário em 21/08/2026: o log de eventos da FullTime para a conta 0044 mostra pacotes Contact ID E602, E306 e E410, com a coluna "Imei/Mac" vazia em todos os registros. A FullTime, portanto, também não recebe MAC ou IMEI dentro desses eventos. O serial cadastrado para JFL versão 7 ou superior é uma referência de painel mantida fora da linha de evento apresentada; o mecanismo de correlação ainda requer documentação do gateway/protocolo proprietário.
+
+Leitura da aba "Entrega de Eventos" da FullTime em 21/08/2026: os únicos controles disponíveis para o painel são "Habilitar entrega de eventos" e "Utilizar destinatários padrão", ambos ativos. A tela não expõe endereço, porta, protocolo ou campo de serial para a entrega. Assim, a associação pelo serial não é configurada individualmente nessa aba e permanece interna ao serviço padrão/gateway da FullTime.
+
+Teste controlado em 21/08/2026: os pacotes recebidos do IP 190.111.129.105 permaneceram no formato de 24 bytes e continham `30303434`, correspondente à conta 0044, mesmo após a tentativa inicial de usar a conta temporária 5000. A mudança de conta ainda não havia sido aplicada na central no momento dessa captura.
+
+Descoberta confirmada no teste posterior com a conta temporária 5000: antes do evento Contact ID, a JFL Active 20 enviou pela mesma conexão TCP (origem 190.111.129.105, porta 9061) um quadro de conexão `0x21` com 102 bytes. O quadro contém o serial ASCII `2801936621` e o MAC ASCII completo `441D643BCE24` (sufixo cadastrado `3BCE24`). O evento seguinte foi um quadro `0x24` com conta `5000`. A identificação deve, portanto, usar o quadro de conexão para vincular o socket ao painel por serial e/ou MAC antes de processar os eventos subsequentes.
+
 ## Regra de expiração adotada
 
 Para cada central, o sistema considera os até 30 intervalos mais recentes e calcula `maior(90 segundos, média × 3, maior intervalo × 1,5)`. O status é **Online** somente quando `lastKeepAliveAt` está dentro dessa janela. Assim, eventos Contact ID, Arme, Desarme e disparos não podem manter artificialmente uma central online.

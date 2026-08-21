@@ -335,7 +335,11 @@
 - [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
 
 ## Identificação de Sistemas de Alarme
-- [ ] Identificar o protocolo ou canal pelo qual a FullTime obtém o serial da JFL Active 20
+- [x] Extrair serial e MAC do quadro JFL de conexão de 102 bytes e vincular os eventos subsequentes ao painel identificado
+- [x] Identificar o protocolo ou canal pelo qual a FullTime obtém o serial da JFL Active 20
+- [ ] Validar na VPS que a JFL 0044 restaurada é identificada por serial ou MAC antes do próximo evento Contact ID
+- [x] Confirmar que a JFL 0044 envia apenas Contact ID de 24 bytes à porta 9061, sem serial, MAC ou IMEI
+- [ ] Obter da FullTime ou JFL a documentação do canal proprietário que fornece o serial da JFL versão 7 ou superior
 - [x] Exigir e validar o serial de 10 caracteres para centrais JFL Active versão 7 ou superior
 - [x] Impedir a associação de qualquer central IP somente pela conta Contact ID; exigir MAC e/ou IMEI confirmado
 - [x] Capturar os quadros da JFL Active 20 e documentar que a conta 0044 chegou sem serial ou MAC confirmado
@@ -453,6 +457,7 @@
 - [x] Cobrir em testes a ocorrência manual associada a uma conta cadastrada
 
 ## Eventos Recebidos sem Fila
+- [ ] Executar teste controlado com uma conta temporária exclusiva na JFL 0044 e restaurar a conta operacional ao final
 - [x] Confirmar na VPS se os eventos da JFL Active 20 conta 0044 estão no relatório da Conta do Sistema 0000
 - [ ] Verificar nos logs e no banco da VPS se a conta 0044 está chegando, persistindo e entrando na fila correta
 - [ ] Identificar por que eventos recebidos atualizam status, mas não criam ocorrência na fila

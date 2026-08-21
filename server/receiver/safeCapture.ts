@@ -10,7 +10,7 @@ export type SafeCaptureFrame = {
 
 export type CapturedPanelCandidate = {
   systemId: number;
-  identifierType: "mac_hex" | "mac_decimal" | "mac_ascii";
+  identifierType: "mac_hex" | "mac_decimal" | "mac_ascii" | "serial_ascii";
   identifier: string;
 };
 
@@ -76,21 +76,52 @@ function normalizeIdentifier(value: string | null | undefined) {
   return (value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+export function parseJflConnectionIdentity(payload: Buffer) {
+  if (payload.length < 16 || payload[0] !== 0x7b || payload[3] !== 0x21) return undefined;
+  const packetText = payload.toString("latin1");
+  const serialNumber = packetText.match(/(?<!\d)(\d{10})(?!\d)/)?.[1];
+  const fullMac = packetText.match(/[A-F0-9]{12}/)?.[0];
+  if (!serialNumber && !fullMac) return undefined;
+
+  return {
+    serialNumber,
+    fullMac,
+    macSuffix: fullMac?.slice(-6),
+  };
+}
+
 /**
  * Identifica somente formatos que foram confirmados com uma captura real.
  */
 export function findCapturedPanelCandidates(
   brand: string,
   frames: SafeCaptureFrame[],
-  systems: Array<{ id: number; macAddress?: string | null; imeiGprs?: string | null }>,
+  systems: Array<{ id: number; macAddress?: string | null; imeiGprs?: string | null; serialNumber?: string | null }>,
 ): CapturedPanelCandidate[] {
   const normalizedBrand = brand.trim().toUpperCase();
   const packetHex = frames.map((frame) => frame.payloadHex).join("");
   const packetText = frames.map((frame) => Buffer.from(frame.payloadHex, "hex").toString("latin1")).join("");
   const candidates: CapturedPanelCandidate[] = [];
+  const jflIdentities = normalizedBrand === "JFL"
+    ? frames.map((frame) => parseJflConnectionIdentity(Buffer.from(frame.payloadHex, "hex"))).filter(Boolean)
+    : [];
 
   for (const system of systems) {
     const identifier = normalizeIdentifier(system.macAddress || system.imeiGprs);
+    const serialNumber = normalizeIdentifier(system.serialNumber);
+
+    if (normalizedBrand === "JFL") {
+      for (const connectionIdentity of jflIdentities) {
+        if (serialNumber.length === 10 && connectionIdentity!.serialNumber === serialNumber) {
+          candidates.push({ systemId: system.id, identifierType: "serial_ascii", identifier: serialNumber });
+        }
+        if (identifier.length === 6 && connectionIdentity!.macSuffix === identifier) {
+          candidates.push({ systemId: system.id, identifierType: "mac_ascii", identifier });
+        }
+      }
+      continue;
+    }
+
     if (identifier.length !== 6) continue;
 
     if (normalizedBrand === "VETTI" && packetHex.includes(identifier)) {

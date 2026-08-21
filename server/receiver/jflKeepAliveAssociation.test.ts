@@ -12,5 +12,7 @@ describe("associação de Keep Alive JFL", () => {
     expect(source).toContain("const captureMode = shouldResolveSystemByCapturedPanelIdentifier(evento.brand);");
     expect(source).toContain("Nenhuma central IP pode ser associada somente pela conta.");
     expect(source).toContain("MAC, IMEI ou,");
+    expect(source).toContain("parseJflConnectionIdentity(data)");
+    expect(source).toContain("JFL conexão identificada por");
   });
 });

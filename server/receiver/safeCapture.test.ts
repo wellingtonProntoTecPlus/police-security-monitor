@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findCapturedPanelCandidates, formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, recordSafeCaptureFrame, resolveUniqueCapturedPanelCandidate, shouldResolveSystemByCapturedPanelIdentifier } from "./safeCapture";
+import { findCapturedPanelCandidates, formatSafeCaptureLog, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, resolveUniqueCapturedPanelCandidate, shouldResolveSystemByCapturedPanelIdentifier } from "./safeCapture";
 
 describe("captura segura de pacotes", () => {
   it("registra o pacote em hexadecimal com fabricante, porta e origem", () => {
@@ -75,5 +75,20 @@ describe("captura segura de pacotes", () => {
       { systemId: 3, identifierType: "mac_ascii", identifier: "C1BDCB" },
       { systemId: 4, identifierType: "mac_ascii", identifier: "C1BDCB" },
     ])).toBeUndefined();
+  });
+
+  it("extrai serial e MAC do quadro de conexão JFL e encontra o painel por identificador único", () => {
+    const payloadHex = "7B661D2132383031393336363231FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF343431443634334243453234A7383030020101060000015000004400000000000000000000000000000000000000000000000000000000000200000000000000000000000000000056";
+    const identity = parseJflConnectionIdentity(Buffer.from(payloadHex, "hex"));
+    expect(identity).toEqual({ serialNumber: "2801936621", fullMac: "441D643BCE24", macSuffix: "3BCE24" });
+
+    const candidates = findCapturedPanelCandidates("JFL", [{
+      brand: "JFL", receiverPort: 9061, remoteIp: "190.111.129.105", capturedAt: "2026-08-21T00:00:00.000Z", totalBytes: 102, payloadHex, truncated: false,
+    }], [{ id: 44, macAddress: "3BCE24", serialNumber: "2801936621" }]);
+    expect(candidates).toEqual([
+      { systemId: 44, identifierType: "serial_ascii", identifier: "2801936621" },
+      { systemId: 44, identifierType: "mac_ascii", identifier: "3BCE24" },
+    ]);
+    expect(resolveUniqueCapturedPanelCandidate(candidates)).toEqual({ systemId: 44, identifierType: "serial_ascii", identifier: "2801936621" });
   });
 });
