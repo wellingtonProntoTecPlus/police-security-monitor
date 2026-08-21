@@ -183,6 +183,13 @@
       "when": 1787270707673,
       "tag": "0025_high_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1787274593210,
+      "tag": "0026_perpetual_master_mold",
+      "breakpoints": true
     }
   ]
 }

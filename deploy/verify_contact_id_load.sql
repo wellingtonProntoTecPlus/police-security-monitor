@@ -13,7 +13,7 @@ SELECT
 FROM (
   SELECT 'COMPATEC' AS fabricante, 26 AS quantidade_minima
   UNION ALL SELECT 'VETTI', 52
-  UNION ALL SELECT 'JFL', 80
+  UNION ALL SELECT 'JFL', 162
 ) AS expected
 LEFT JOIN (
   SELECT fabricante, COUNT(*) AS quantidade_atual

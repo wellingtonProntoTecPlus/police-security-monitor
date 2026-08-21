@@ -241,7 +241,7 @@ CREATE TABLE IF NOT EXISTS contact_id_codes (
   fabricante VARCHAR(20) NOT NULL DEFAULT 'COMPATEC',
   isUniversal TINYINT(1) NOT NULL DEFAULT 0,
   description TEXT,
-  category ENUM('alarm','restore','fault','arm_disarm','test','system','access') NOT NULL DEFAULT 'alarm',
+  category ENUM('alarm','restore','fault','arm_disarm','test','system','access','analytics') NOT NULL DEFAULT 'alarm',
   priority ENUM('critical','high','medium','low') DEFAULT 'medium',
   tipo VARCHAR(20) NOT NULL DEFAULT 'alarme',
   cor VARCHAR(10) NOT NULL DEFAULT '#EF4444',

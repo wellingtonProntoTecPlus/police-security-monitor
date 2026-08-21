@@ -1,0 +1,1 @@
+ALTER TABLE `contact_id_codes` MODIFY COLUMN `category` enum('alarm','restore','fault','arm_disarm','test','system','access','analytics') NOT NULL DEFAULT 'alarm';

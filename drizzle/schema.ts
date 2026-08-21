@@ -330,7 +330,7 @@ export const contactIdCodes = mysqlTable("contact_id_codes", {
   codigoRestauracao: varchar("codigo_restauracao", { length: 10 }).default(""),
   tempoEsperaSegundos: int("tempo_espera_segundos").notNull().default(0),
   prioridade: int("prioridade").notNull().default(1),
-  category: mysqlEnum("category", ["alarm", "restore", "fault", "arm_disarm", "test", "system", "access"]).default("alarm").notNull(),
+  category: mysqlEnum("category", ["alarm", "restore", "fault", "arm_disarm", "test", "system", "access", "analytics"]).default("alarm").notNull(),
   priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium"),
 });
 

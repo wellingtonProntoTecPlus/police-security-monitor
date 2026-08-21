@@ -250,6 +250,7 @@
 - [x] Fazer o receptor priorizar a descrição Contact ID do fabricante identificado antes do código universal
 
 ## Contact ID - Qualifier E/R e Códigos Universais
+- [x] Atualizar a tabela JFL com os códigos convencionais e analíticos fornecidos, incluindo restaurações e regra de disparo
 - [x] Adicionar campo qualifier (E/R/both) na tabela contact_id_codes
 - [x] Adicionar campo isUniversal para marcar códigos universais
 - [x] Separar E401 (Desarme) e R401 (Arme) como códigos universais
@@ -262,6 +263,7 @@
 - [x] Receptor busca descrição com qualifier (E/R) para identificar corretamente
 
 ## Botões Armados/Desarmados no Dashboard
+- [x] Preservar a confirmação visível de arme e desarme após eventos analíticos ou disparos JFL
 - [x] Rota backend getArmDisarmStatus que busca último evento de cada conta
 - [x] Botão "Desarmados" (vermelho) com contador real
 - [x] Botão "Armados" (verde) com contador real
@@ -337,7 +339,7 @@
 ## Identificação de Sistemas de Alarme
 - [x] Extrair serial e MAC do quadro JFL de conexão de 102 bytes e vincular os eventos subsequentes ao painel identificado
 - [x] Identificar o protocolo ou canal pelo qual a FullTime obtém o serial da JFL Active 20
-- [ ] Validar na VPS que a JFL 0044 restaurada é identificada por serial ou MAC antes do próximo evento Contact ID
+- [x] Validar na VPS que a JFL 0044 restaurada é identificada por serial ou MAC antes do próximo evento Contact ID
 - [x] Confirmar que a JFL 0044 envia apenas Contact ID de 24 bytes à porta 9061, sem serial, MAC ou IMEI
 - [ ] Obter da FullTime ou JFL a documentação do canal proprietário que fornece o serial da JFL versão 7 ou superior
 - [x] Exigir e validar o serial de 10 caracteres para centrais JFL Active versão 7 ou superior
@@ -345,7 +347,7 @@
 - [x] Capturar os quadros da JFL Active 20 e documentar que a conta 0044 chegou sem serial ou MAC confirmado
 - [x] Substituído por decisão operacional: JFL sem MAC ou IMEI confirmado segue para a Conta do Sistema 0000, sem associação por conta
 - [x] Confirmar que a conta 0044 da parceira Coruja sem MAC ou IMEI confirmado é registrada na Conta do Sistema 0000
-- [ ] Priorizar o MAC 3BCE24 da JFL da parceira Coruja e bloquear associação por conta 0044 isolada
+- [x] Priorizar o MAC 3BCE24 da JFL da parceira Coruja e bloquear associação por conta 0044 isolada
 - [x] Cadastrar MAC Ethernet de seis dígitos por sistema de alarme
 - [x] Cadastrar IMEI GPRS de seis dígitos por sistema de alarme
 - [x] Gerar e exibir ID ISEP de quatro caracteres para programação do painel
@@ -459,14 +461,14 @@
 ## Eventos Recebidos sem Fila
 - [ ] Executar teste controlado com uma conta temporária exclusiva na JFL 0044 e restaurar a conta operacional ao final
 - [x] Confirmar na VPS se os eventos da JFL Active 20 conta 0044 estão no relatório da Conta do Sistema 0000
-- [ ] Verificar nos logs e no banco da VPS se a conta 0044 está chegando, persistindo e entrando na fila correta
+- [x] Verificar nos logs e no banco da VPS se a conta 0044 está chegando, persistindo e entrando na fila correta
 - [ ] Identificar por que eventos recebidos atualizam status, mas não criam ocorrência na fila
 - [ ] Restaurar a abertura de ocorrência para eventos que exigem atendimento
 - [x] Rastrear a origem técnica do evento E130 da conta 0001 e corrigir a associação indevida ao cliente/painel
 - [x] Impedir que um evento JFL na porta 9061 seja associado a um sistema Vetti pela mesma conta Contact ID
 - [ ] Bloquear qualquer associação por conta quando marca, porta, MAC, IMEI ou ISEP indicarem origem divergente ou ambígua
 - [x] Encaminhar evento sem sistema compatível para a Conta do Sistema 0000 como Conta Não Cadastrada
-- [ ] Validar na VPS o recebimento e a exibição de eventos reais após a correção
+- [x] Validar na VPS o recebimento e a exibição de eventos reais após a correção
 
 ## Recebimento Operacional Equilibrado
 - [x] Confirmar se o receptor TCP está recebendo novos eventos nas portas configuradas

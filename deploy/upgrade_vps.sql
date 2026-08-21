@@ -311,6 +311,10 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Amplia a enumeração para os eventos analíticos das centrais JFL atuais.
+ALTER TABLE contact_id_codes
+  MODIFY COLUMN category ENUM('alarm','restore','fault','arm_disarm','test','system','access','analytics') NOT NULL DEFAULT 'alarm';
+
 SELECT 'Atualização de schema concluída sem apagar dados.' AS resultado;
 
 CREATE TABLE IF NOT EXISTS system_technical_accounts (
