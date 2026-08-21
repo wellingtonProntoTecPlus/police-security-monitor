@@ -361,7 +361,12 @@ export const appRouter = router({
       installDate: z.date().optional(),
       batteryDate: z.date().optional(),
       keepAliveMonitoringEnabled: z.boolean().optional(),
+      keepAliveExpectedIntervalSeconds: z.number().int().min(1).max(86400).optional(),
+      keepAliveFailureEventEnabled: z.boolean().optional(),
       keepAliveOfflineAfterMinutes: z.number().int().min(1).max(1440).optional(),
+      keepAliveDisconnectAlertEnabled: z.boolean().optional(),
+      keepAliveRepeatAlertEnabled: z.boolean().optional(),
+      keepAliveRepeatAlertEveryMinutes: z.number().int().min(1).max(10080).optional(),
     })).mutation(({ input }) => db.createAlarmSystem(input)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
@@ -381,7 +386,12 @@ export const appRouter = router({
       installDate: z.date().optional(),
       batteryDate: z.date().optional(),
       keepAliveMonitoringEnabled: z.boolean().optional(),
+      keepAliveExpectedIntervalSeconds: z.number().int().min(1).max(86400).optional(),
+      keepAliveFailureEventEnabled: z.boolean().optional(),
       keepAliveOfflineAfterMinutes: z.number().int().min(1).max(1440).optional(),
+      keepAliveDisconnectAlertEnabled: z.boolean().optional(),
+      keepAliveRepeatAlertEnabled: z.boolean().optional(),
+      keepAliveRepeatAlertEveryMinutes: z.number().int().min(1).max(10080).optional(),
     })).mutation(({ input }) => {
       const { id, ...data } = input;
       return db.updateAlarmSystem(id, data);

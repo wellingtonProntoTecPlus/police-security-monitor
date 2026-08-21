@@ -129,8 +129,11 @@
 
 ## Dashboard Operacional Funcional
 - [x] Remover o uso do teste periódico E602 como supervisão Online da JFL
-- [ ] Monitorar por pelo menos cinco minutos o Keep Alive real da JFL identificada por serial e MAC
-- [ ] Definir o limite de desconexão da JFL conforme o intervalo real de Keep Alive medido
+- [x] Monitorar por pelo menos cinco minutos o Keep Alive real da JFL identificada por serial e MAC
+- [x] Definir o limite de desconexão da JFL conforme o intervalo real de Keep Alive medido
+- [ ] Configurar quinze minutos como prazo de desconexão da central JFL 0044 na VPS
+- [x] Adicionar ao cadastro do sistema controles de falha de Keep Alive, prazo de alerta e repetição de alerta
+- [x] Adicionar frequência técnica de Keep Alive em segundos, preenchida com 60 segundos por padrão
 - [x] Exibir providências completas e legíveis imediatamente ao abrir a ocorrência
 - [x] Mover Zonas e setores para a coluna esquerda do popup de tratamento
 - [x] Manter o botão Usuários como acesso direto às senhas e contra senhas do painel

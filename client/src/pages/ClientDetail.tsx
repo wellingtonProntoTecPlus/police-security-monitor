@@ -91,7 +91,9 @@ export default function ClientDetail() {
   const [systemForm, setSystemForm] = useState({
     account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
     firmwareVersion: "", macAddress: "", imeiGprs: "", serialNumber: "", viawebCode: "", receiverPort: 9061,
-    keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5,
+    keepAliveMonitoringEnabled: true, keepAliveExpectedIntervalSeconds: 60, keepAliveFailureEventEnabled: false,
+    keepAliveOfflineAfterMinutes: 5, keepAliveDisconnectAlertEnabled: true, keepAliveRepeatAlertEnabled: false,
+    keepAliveRepeatAlertEveryMinutes: 60,
   });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
@@ -318,10 +320,13 @@ export default function ClientDetail() {
                         <input type="checkbox" checked={systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveMonitoringEnabled: event.target.checked })} /> Monitorar
                       </label>
                     </div>
-                    <div className="mt-3">
-                      <Label>Tempo para considerar Offline (minutos)</Label>
-                      <Input type="number" min={1} max={1440} disabled={!systemForm.keepAliveMonitoringEnabled} value={systemForm.keepAliveOfflineAfterMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} />
-                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 5 minutos. Ajuste apenas quando a central exigir uma tolerância diferente.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div><Label>Frequência técnica (segundos)</Label><Input type="number" min={1} max={86400} disabled={!systemForm.keepAliveMonitoringEnabled} value={systemForm.keepAliveExpectedIntervalSeconds} onChange={(event) => setSystemForm({ ...systemForm, keepAliveExpectedIntervalSeconds: Math.max(1, Number(event.target.value) || 60) })} /><p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 segundos. Informe a frequência configurada na central.</p></div>
+                      <div><Label>Painel desconectado após (minutos)</Label><Input type="number" min={1} max={1440} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} value={systemForm.keepAliveOfflineAfterMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} /><p className="mt-1 text-[11px] text-muted-foreground">Prazo operacional sem Keep Alive antes de considerar Offline.</p></div>
+                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveFailureEventEnabled} disabled={!systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveFailureEventEnabled: event.target.checked })} /> Gerar evento de falha de Keep Alive quando a supervisão expirar</label>
+                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveDisconnectAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveDisconnectAlertEnabled: event.target.checked })} /> Gerar alerta de painel desconectado após o prazo configurado</label>
+                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveRepeatAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
+                      {systemForm.keepAliveRepeatAlertEnabled && <div className="col-span-2"><Label>Repetir alerta a cada (minutos)</Label><Input type="number" min={1} max={10080} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} value={systemForm.keepAliveRepeatAlertEveryMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
                     </div>
                   </div>
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
@@ -330,7 +335,7 @@ export default function ClientDetail() {
                     if (requiresJflVersion7OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) && !/^\d{10}$/.test(systemForm.serialNumber)) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
                     createSystem.mutate({ clientId, ...systemForm });
                     setShowSystemForm(false);
-                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", firmwareVersion: "", macAddress: "", imeiGprs: "", serialNumber: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveOfflineAfterMinutes: 5 });
+                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", firmwareVersion: "", macAddress: "", imeiGprs: "", serialNumber: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveExpectedIntervalSeconds: 60, keepAliveFailureEventEnabled: false, keepAliveOfflineAfterMinutes: 5, keepAliveDisconnectAlertEnabled: true, keepAliveRepeatAlertEnabled: false, keepAliveRepeatAlertEveryMinutes: 60 });
                   }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
@@ -391,16 +396,19 @@ export default function ClientDetail() {
                         <input type="checkbox" checked={editingSystem.keepAliveMonitoringEnabled !== false} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveMonitoringEnabled: event.target.checked })} /> Monitorar
                       </label>
                     </div>
-                    <div className="mt-3">
-                      <Label>Tempo para considerar Offline (minutos)</Label>
-                      <Input type="number" min={1} max={1440} disabled={editingSystem.keepAliveMonitoringEnabled === false} value={editingSystem.keepAliveOfflineAfterMinutes ?? 5} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} />
-                      <p className="mt-1 text-[11px] text-muted-foreground">Padrão: 5 minutos. O valor é exclusivo desta central.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div><Label>Frequência técnica (segundos)</Label><Input type="number" min={1} max={86400} disabled={editingSystem.keepAliveMonitoringEnabled === false} value={editingSystem.keepAliveExpectedIntervalSeconds ?? 60} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveExpectedIntervalSeconds: Math.max(1, Number(event.target.value) || 60) })} /><p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 segundos. É a frequência esperada da central.</p></div>
+                      <div><Label>Painel desconectado após (minutos)</Label><Input type="number" min={1} max={1440} disabled={editingSystem.keepAliveMonitoringEnabled === false || editingSystem.keepAliveDisconnectAlertEnabled === false} value={editingSystem.keepAliveOfflineAfterMinutes ?? 5} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} /><p className="mt-1 text-[11px] text-muted-foreground">Prazo exclusivo desta central.</p></div>
+                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={editingSystem.keepAliveFailureEventEnabled === true} disabled={editingSystem.keepAliveMonitoringEnabled === false} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveFailureEventEnabled: event.target.checked })} /> Gerar evento de falha de Keep Alive quando a supervisão expirar</label>
+                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={editingSystem.keepAliveDisconnectAlertEnabled !== false} disabled={editingSystem.keepAliveMonitoringEnabled === false} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveDisconnectAlertEnabled: event.target.checked })} /> Gerar alerta de painel desconectado após o prazo configurado</label>
+                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={editingSystem.keepAliveRepeatAlertEnabled === true} disabled={editingSystem.keepAliveMonitoringEnabled === false || editingSystem.keepAliveDisconnectAlertEnabled === false} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
+                      {editingSystem.keepAliveRepeatAlertEnabled === true && <div className="col-span-2"><Label>Repetir alerta a cada (minutos)</Label><Input type="number" min={1} max={10080} disabled={editingSystem.keepAliveMonitoringEnabled === false || editingSystem.keepAliveDisconnectAlertEnabled === false} value={editingSystem.keepAliveRepeatAlertEveryMinutes ?? 60} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
                     </div>
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
                     if (requiresJflVersion7OrLaterSerial(editingSystem.brand, editingSystem.firmwareVersion || "") && !/^\d{10}$/.test(editingSystem.serialNumber || "")) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
-                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5 });
+                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveExpectedIntervalSeconds: Number(editingSystem.keepAliveExpectedIntervalSeconds) || 60, keepAliveFailureEventEnabled: editingSystem.keepAliveFailureEventEnabled === true, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5, keepAliveDisconnectAlertEnabled: editingSystem.keepAliveDisconnectAlertEnabled !== false, keepAliveRepeatAlertEnabled: editingSystem.keepAliveRepeatAlertEnabled === true, keepAliveRepeatAlertEveryMinutes: Number(editingSystem.keepAliveRepeatAlertEveryMinutes) || 60 });
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>

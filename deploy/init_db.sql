@@ -119,7 +119,12 @@ CREATE TABLE IF NOT EXISTS alarm_systems (
   lastKeepAliveAt TIMESTAMP NULL,
   lastKeepAliveIntervalMs INT NULL,
   keepAliveMonitoringEnabled TINYINT(1) NOT NULL DEFAULT 1,
+  keepAliveExpectedIntervalSeconds INT NOT NULL DEFAULT 60,
+  keepAliveFailureEventEnabled TINYINT(1) NOT NULL DEFAULT 0,
   keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 5,
+  keepAliveDisconnectAlertEnabled TINYINT(1) NOT NULL DEFAULT 1,
+  keepAliveRepeatAlertEnabled TINYINT(1) NOT NULL DEFAULT 0,
+  keepAliveRepeatAlertEveryMinutes INT NOT NULL DEFAULT 60,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );

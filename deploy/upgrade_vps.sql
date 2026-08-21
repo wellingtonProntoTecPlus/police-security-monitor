@@ -465,6 +465,30 @@ DEALLOCATE PREPARE migration_statement;
 
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN keepAliveExpectedIntervalSeconds INT NOT NULL DEFAULT 60',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'keepAliveExpectedIntervalSeconds'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN keepAliveFailureEventEnabled TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'keepAliveFailureEventEnabled'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
     'ALTER TABLE alarm_systems ADD COLUMN keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 5',
     'ALTER TABLE alarm_systems MODIFY COLUMN keepAliveOfflineAfterMinutes INT NOT NULL DEFAULT 5'
   )
@@ -475,8 +499,45 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN keepAliveDisconnectAlertEnabled TINYINT(1) NOT NULL DEFAULT 1',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'keepAliveDisconnectAlertEnabled'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN keepAliveRepeatAlertEnabled TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'keepAliveRepeatAlertEnabled'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN keepAliveRepeatAlertEveryMinutes INT NOT NULL DEFAULT 60',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'keepAliveRepeatAlertEveryMinutes'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 UPDATE alarm_systems
-SET keepAliveOfflineAfterMinutes = 5;
+SET keepAliveOfflineAfterMinutes = 5
+WHERE keepAliveOfflineAfterMinutes IS NULL OR keepAliveOfflineAfterMinutes < 1;
 
 -- Carga idempotente dos códigos Contact ID, incluindo a tabela JFL.
 SOURCE deploy/seed_contact_ids.sql;

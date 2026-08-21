@@ -34,7 +34,9 @@ describe("visibilidade dos cadastros operacionais", () => {
     const source = projectFile("client/src/pages/ClientDetail.tsx");
 
     expect(source).toContain("Configurações de Keep Alive");
-    expect(source).toContain("Padrão: 5 minutos");
+    expect(source).toContain("Frequência técnica (segundos)");
+    expect(source).toContain("Painel desconectado após (minutos)");
+    expect(source).toContain("Repetir alerta de painel desconectado");
     expect(source).toContain("receiverPort: portsForBrand(v)[0] || 0");
     expect(source).toContain("A porta é sugerida ao selecionar a central");
     expect(source).toContain("onValueChange={(value) => setSystemForm({ ...systemForm, receiverPort: Number(value) })}");

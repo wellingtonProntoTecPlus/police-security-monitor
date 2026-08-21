@@ -28,6 +28,13 @@ const INITIAL_FORM = {
   ipAddress: "",
   installDate: "",
   batteryDate: "",
+  keepAliveMonitoringEnabled: true,
+  keepAliveExpectedIntervalSeconds: 60,
+  keepAliveFailureEventEnabled: false,
+  keepAliveOfflineAfterMinutes: 5,
+  keepAliveDisconnectAlertEnabled: true,
+  keepAliveRepeatAlertEnabled: false,
+  keepAliveRepeatAlertEveryMinutes: 60,
 };
 
 function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
@@ -98,6 +105,13 @@ export default function AlarmSystems() {
       ipAddress: form.ipAddress || undefined,
       installDate: form.installDate ? new Date(form.installDate) : undefined,
       batteryDate: form.batteryDate ? new Date(form.batteryDate) : undefined,
+      keepAliveMonitoringEnabled: form.keepAliveMonitoringEnabled,
+      keepAliveExpectedIntervalSeconds: form.keepAliveExpectedIntervalSeconds,
+      keepAliveFailureEventEnabled: form.keepAliveFailureEventEnabled,
+      keepAliveOfflineAfterMinutes: form.keepAliveOfflineAfterMinutes,
+      keepAliveDisconnectAlertEnabled: form.keepAliveDisconnectAlertEnabled,
+      keepAliveRepeatAlertEnabled: form.keepAliveRepeatAlertEnabled,
+      keepAliveRepeatAlertEveryMinutes: form.keepAliveRepeatAlertEveryMinutes,
     };
     createMutation.mutate(payload);
   }
@@ -227,6 +241,21 @@ export default function AlarmSystems() {
                         <Label className="text-sm font-medium">IP do Receptor</Label>
                         <Input className="mt-1 font-mono" placeholder="192.168.0.100" value={form.ipAddress} onChange={(e) => setForm({ ...form, ipAddress: e.target.value })} />
                       </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-emerald-500/30">
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 mb-4"><Radio className="h-5 w-5 text-emerald-400" /><h3 className="font-bold text-foreground">Supervisão Keep Alive</h3></div>
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-sm font-medium text-foreground"><input type="checkbox" checked={form.keepAliveMonitoringEnabled} onChange={(event) => setForm({ ...form, keepAliveMonitoringEnabled: event.target.checked })} /> Monitorar Keep Alive desta central</label>
+                      <div><Label className="text-sm font-medium">Frequência técnica (segundos)</Label><Input className="mt-1" type="number" min={1} max={86400} disabled={!form.keepAliveMonitoringEnabled} value={form.keepAliveExpectedIntervalSeconds} onChange={(event) => setForm({ ...form, keepAliveExpectedIntervalSeconds: Math.max(1, Number(event.target.value) || 60) })} /><p className="mt-1 text-xs text-muted-foreground">Padrão: 60 segundos. Informe a frequência configurada na central.</p></div>
+                      <label className="flex items-center gap-2 text-sm text-foreground"><input type="checkbox" checked={form.keepAliveFailureEventEnabled} disabled={!form.keepAliveMonitoringEnabled} onChange={(event) => setForm({ ...form, keepAliveFailureEventEnabled: event.target.checked })} /> Gerar evento de falha de Keep Alive</label>
+                      <label className="flex items-center gap-2 text-sm text-foreground"><input type="checkbox" checked={form.keepAliveDisconnectAlertEnabled} disabled={!form.keepAliveMonitoringEnabled} onChange={(event) => setForm({ ...form, keepAliveDisconnectAlertEnabled: event.target.checked })} /> Gerar alerta de painel desconectado</label>
+                      <div><Label className="text-sm font-medium">Painel desconectado após (minutos)</Label><Input className="mt-1" type="number" min={1} max={1440} disabled={!form.keepAliveMonitoringEnabled || !form.keepAliveDisconnectAlertEnabled} value={form.keepAliveOfflineAfterMinutes} onChange={(event) => setForm({ ...form, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} /></div>
+                      <label className="flex items-center gap-2 text-sm text-foreground"><input type="checkbox" checked={form.keepAliveRepeatAlertEnabled} disabled={!form.keepAliveMonitoringEnabled || !form.keepAliveDisconnectAlertEnabled} onChange={(event) => setForm({ ...form, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
+                      {form.keepAliveRepeatAlertEnabled && <div><Label className="text-sm font-medium">Repetir alerta a cada (minutos)</Label><Input className="mt-1" type="number" min={1} max={10080} disabled={!form.keepAliveMonitoringEnabled || !form.keepAliveDisconnectAlertEnabled} value={form.keepAliveRepeatAlertEveryMinutes} onChange={(event) => setForm({ ...form, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
                     </div>
                   </CardContent>
                 </Card>
