@@ -14,5 +14,7 @@ describe("associação de Keep Alive JFL", () => {
     expect(source).toContain("MAC, IMEI ou,");
     expect(source).toContain("parseJflConnectionIdentity(data)");
     expect(source).toContain("JFL conexão identificada por");
+    expect(source).toContain('evento.qualifier === "E" && evento.eventCode === "602"');
+    expect(source).toContain('await recordKeepAlive(socket, brand, port, "E602")');
   });
 });

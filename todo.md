@@ -128,6 +128,8 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [x] Usar o teste periódico E602 da JFL identificada por serial e MAC como supervisão de Online
+- [ ] Validar na VPS que o próximo E602 da JFL atualiza a central como Online no dashboard
 - [x] Exibir providências completas e legíveis imediatamente ao abrir a ocorrência
 - [x] Mover Zonas e setores para a coluna esquerda do popup de tratamento
 - [x] Manter o botão Usuários como acesso direto às senhas e contra senhas do painel
