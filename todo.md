@@ -128,8 +128,9 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
-- [x] Usar o teste periódico E602 da JFL identificada por serial e MAC como supervisão de Online
-- [ ] Validar na VPS que o próximo E602 da JFL atualiza a central como Online no dashboard
+- [x] Remover o uso do teste periódico E602 como supervisão Online da JFL
+- [ ] Monitorar por pelo menos cinco minutos o Keep Alive real da JFL identificada por serial e MAC
+- [ ] Definir o limite de desconexão da JFL conforme o intervalo real de Keep Alive medido
 - [x] Exibir providências completas e legíveis imediatamente ao abrir a ocorrência
 - [x] Mover Zonas e setores para a coluna esquerda do popup de tratamento
 - [x] Manter o botão Usuários como acesso direto às senhas e contra senhas do painel

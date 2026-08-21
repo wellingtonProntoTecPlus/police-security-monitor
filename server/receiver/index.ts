@@ -137,12 +137,6 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
     case 0x24: { // EVENTO
       const evento = parseStandardEvent(hex, brand, port);
       if (evento) {
-        // A Active 20 v8 observada envia o teste periódico E602 a cada minuto.
-        // Quando a conexão já foi vinculada por serial/MAC, esse teste é uma
-        // supervisão válida e atualiza o status Online sem usar a conta isolada.
-        if (brand === "JFL" && evento.qualifier === "E" && evento.eventCode === "602") {
-          await recordKeepAlive(socket, brand, port, "E602");
-        }
         await processEvent(evento, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket), socket);
         // ACK
         const resp = Buffer.alloc(10);
