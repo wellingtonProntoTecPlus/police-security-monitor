@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Search, Download } from "lucide-react";
+import { buildOccurrenceReportCsv, formatReportDate, formatReportDuration } from "./reportExport";
 
 export default function Reports() {
   const [dateFrom, setDateFrom] = useState("");
@@ -18,11 +19,11 @@ export default function Reports() {
   const [appliedFilters, setAppliedFilters] = useState<{ dateFrom: string; dateTo: string; account: string; clientId?: number; operatorName?: string }>({ dateFrom: "", dateTo: "", account: "" });
 
   const { data: clients = [] } = trpc.monitoredClient.list.useQuery(undefined);
-  const { data: allOccurrences = [] } = trpc.occurrence.list.useQuery({ limit: 200, offset: 0 });
+  const { data: allOccurrences = [] } = trpc.occurrence.list.useQuery({ limit: 1000, offset: 0 });
   const operators = useMemo(() => Array.from(new Set(allOccurrences.map((item: any) => item.operatorName).filter(Boolean))).sort(), [allOccurrences]);
 
-  const { data: occurrences = [] } = trpc.occurrence.list.useQuery({
-    limit: 200,
+  const { data: occurrences = [], isLoading, error } = trpc.occurrence.list.useQuery({
+    limit: 1000,
     offset: 0,
     ...appliedFilters,
   });
@@ -52,11 +53,18 @@ export default function Reports() {
   }
 
   function formatTime(ms: number | null | undefined) {
-    if (!ms) return "-";
-    const totalSec = Math.floor(ms / 1000);
-    const min = Math.floor(totalSec / 60);
-    const sec = totalSec % 60;
-    return `${min}min ${sec}s`;
+    return formatReportDuration(ms);
+  }
+
+  function handleExport() {
+    if (!filtered.length) return;
+    const blob = new Blob([buildOccurrenceReportCsv(filtered)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `relatorio-ocorrencias-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   return (<DashboardLayout>
@@ -120,7 +128,7 @@ export default function Reports() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">Ocorrências Finalizadas ({filtered.length})</CardTitle>
-            <Button variant="outline" size="sm"><Download className="w-4 h-4 mr-2" /> Exportar</Button>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={!filtered.length}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -139,14 +147,18 @@ export default function Reports() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 ? (
-                  <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhuma ocorrência encontrada</td></tr>
+                {isLoading ? (
+                  <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Carregando relatórios…</td></tr>
+                ) : error ? (
+                  <tr><td colSpan={8} className="p-4 text-center text-destructive">Não foi possível carregar os relatórios. Atualize a página e tente novamente.</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhuma ocorrência finalizada encontrada para os filtros informados</td></tr>
                 ) : (
                   filtered.map((o: any) => (
                     <tr key={o.id} className="border-b hover:bg-muted/50">
-                      <td className="p-2 whitespace-nowrap">{new Date(o.finalizedAt).toLocaleString("pt-BR")}</td>
+                      <td className="p-2 whitespace-nowrap">{formatReportDate(o.finalizedAt)}</td>
                       <td className="p-2 font-mono">{o.account}</td>
-                      <td className="p-2">{o.clientName || "-"}</td>
+                      <td className="p-2">{o.clientName || (o.account === "0000" ? "Conta do Sistema" : "-")}</td>
                       <td className="p-2"><Badge variant="outline">{o.qualifier || ""}{o.eventCode}</Badge></td>
                       <td className="p-2">{o.description || "-"}</td>
                       <td className="p-2 max-w-[200px] truncate">{o.observations || "-"}</td>

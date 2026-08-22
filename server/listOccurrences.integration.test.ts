@@ -43,6 +43,32 @@ describe("listOccurrences integrado", () => {
     });
   });
 
+  it("filtra pelo cliente resolvido através do sistema, inclusive em registros históricos", async () => {
+    const occurrenceRows = [
+      { id: 110, account: "0044", eventCode: "407", systemId: 18, clientId: null, clientName: null, partnerCompanyId: null, finalizedAt: new Date("2026-08-22T12:00:00.000Z") },
+      { id: 111, account: "0336", eventCode: "401", systemId: 19, clientId: null, clientName: null, partnerCompanyId: null, finalizedAt: new Date("2026-08-22T11:00:00.000Z") },
+    ];
+    const systemRows = [{ id: 18, clientId: 32 }, { id: 19, clientId: 33 }];
+    const clientRows = [
+      { id: 32, name: "Cliente Coruja", fantasyName: null, partnerCompanyId: 5 },
+      { id: 33, name: "Cliente Vetti", fantasyName: null, partnerCompanyId: 5 },
+    ];
+    const fakeDb = {
+      select: () => ({
+        from: (table: unknown) => {
+          if (table === occurrences) return thenableRows(occurrenceRows);
+          if (table === alarmSystems) return { where: async () => systemRows };
+          if (table === clients) return { where: async () => clientRows };
+          throw new Error("Tabela não esperada no teste");
+        },
+      }),
+    };
+
+    const rows = await listOccurrencesWithDb(fakeDb, { clientId: 32 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 110, account: "0044", clientId: 32, clientName: "Cliente Coruja" });
+  });
+
   it("persiste um evento automático identificado e o devolve pelo relatório com o cliente", async () => {
     const occurrenceRows: Array<Record<string, unknown>> = [];
     const systemRows = [{ id: 18, clientId: 32 }];

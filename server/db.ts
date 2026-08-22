@@ -1151,7 +1151,6 @@ export async function listOccurrencesWithDb(db: any, opts?: { limit?: number; of
   const conditions = [];
   if (opts?.account?.trim()) conditions.push(like(occurrences.account, `%${opts.account.trim()}%`));
   if (opts?.operatorName?.trim()) conditions.push(like(occurrences.operatorName, `%${opts.operatorName.trim()}%`));
-  if (opts?.clientId) conditions.push(eq(occurrences.clientId, opts.clientId));
   if (opts?.dateFrom) conditions.push(gte(occurrences.finalizedAt, new Date(`${opts.dateFrom}T00:00:00`)));
   if (opts?.dateTo) conditions.push(lte(occurrences.finalizedAt, new Date(`${opts.dateTo}T23:59:59.999`)));
   let query = db.select().from(occurrences);
@@ -1179,7 +1178,10 @@ export async function listOccurrencesWithDb(db: any, opts?: { limit?: number; of
     : [];
 
   const enrichedRows = enrichOccurrenceReportClients(rows, systems, reportClients);
-  const scopedRows = filterOccurrenceReportRowsByPartner(enrichedRows, opts?.partnerCompanyId);
+  const clientFilteredRows = opts?.clientId
+    ? enrichedRows.filter((row) => row.clientId === opts.clientId)
+    : enrichedRows;
+  const scopedRows = filterOccurrenceReportRowsByPartner(clientFilteredRows, opts?.partnerCompanyId);
   const offset = opts?.offset || 0;
   const limit = opts?.limit || 100;
   return scopedRows.slice(offset, offset + limit);

@@ -248,6 +248,8 @@
 
 ## Páginas Faltantes
 - [x] Criar página de Relatórios (/reports) com filtros por data, operador, cliente
+- [x] Revisar e corrigir o funcionamento completo dos Relatórios: dados, filtros, operador, cliente, conta e finalização
+- [ ] Validar na VPS os Relatórios com ocorrências reais, filtros e exportação CSV
 - [x] Redefinido pelo usuário: /finalizations é cadastro de motivos automáticos; o histórico de ocorrências permanece em /reports
 - [x] Criar página de Usuários (/users) com hierarquias Admin/Supervisor/Operador
 - [x] Implementar login próprio com usuário/senha (independente do Manus OAuth)
