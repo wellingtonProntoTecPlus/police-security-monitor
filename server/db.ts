@@ -340,9 +340,9 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
     : (!brand && !receiverPort ? await getAlarmSystemByAccount(normalizedAccount) : undefined);
   if (!found) return undefined;
 
-  const now = new Date();
-  await db.update(alarmSystems).set({ isOnline: true, lastCommunication: now }).where(eq(alarmSystems.id, found.id));
-  return { ...found, isOnline: true, lastCommunication: now };
+  // Evento Contact ID, por si só, não confirma a supervisão do painel. O status
+  // Online é atualizado exclusivamente por recordSystemKeepAlive.
+  return found;
 }
 
 /**
@@ -528,9 +528,9 @@ export async function getAlarmSystemByCapturedPanelIdentifier(input: { brand: st
   const found = systems.find((system) => system.id === candidate.systemId);
   if (!found) return undefined;
 
-  const now = new Date();
-  await db.update(alarmSystems).set({ isOnline: true, lastCommunication: now }).where(eq(alarmSystems.id, found.id));
-  return { ...found, isOnline: true, lastCommunication: now, capturedIdentifier: candidate };
+  // A identificação de conexão comprova qual é o painel, mas não substitui o
+  // Keep Alive real como fonte de verdade para Online/Offline.
+  return { ...found, capturedIdentifier: candidate };
 }
 
 export async function getAlarmSystem(id: number) {
@@ -1089,13 +1089,13 @@ export async function getDashboardStats() {
 
   const [pendingResult] = await db.select({ count: sql<number>`count(*)` }).from(incidents).where(eq(incidents.status, 'waiting'));
   const [clientsResult] = await db.select({ count: sql<number>`count(*)` }).from(clients).where(eq(clients.isActive, true));
-  const [onlineResult] = await db.select({ count: sql<number>`count(*)` }).from(alarmSystems).where(eq(alarmSystems.isOnline, true));
+  const connectionSystems = await listSystemsConnectionStatus();
 
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
   const [eventsResult] = await db.select({ count: sql<number>`count(*)` }).from(alarmEvents).where(sql`${alarmEvents.receivedAt} >= ${fiveMinAgo}`);
 
   return {
-    activeConnections: onlineResult?.count ?? 0,
+    activeConnections: connectionSystems.filter((system) => system.connectionStatus === "online").length,
     pendingEvents: pendingResult?.count ?? 0,
     eventsPerMin: Math.round((eventsResult?.count ?? 0) / 5),
     totalClients: clientsResult?.count ?? 0,

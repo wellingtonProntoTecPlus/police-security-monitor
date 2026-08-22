@@ -32,7 +32,9 @@ export default function ClientDetail() {
 
   const { data: client } = trpc.monitoredClient.get.useQuery({ id: clientId }, { enabled: !!clientId });
   const { data: systems = [], refetch: refetchSystems } = trpc.alarmSystem.list.useQuery({ clientId }, { enabled: !!clientId });
+  const { data: connectionSystems = [] } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
   const { data: cameras = [], refetch: refetchCameras } = trpc.camera.list.useQuery({ clientId }, { enabled: !!clientId });
+  const connectionStatusBySystemId = new Map(connectionSystems.map((system: any) => [system.id, system.connectionStatus]));
 
   // Dados operacionais são sempre vinculados ao sistema selecionado do cliente.
   const [operationalSystemId, setOperationalSystemId] = useState<number | undefined>(undefined);
@@ -340,8 +342,12 @@ export default function ClientDetail() {
             </div>
             <ScrollArea className="h-[400px]">
               <div className="grid gap-3">
-                {systems.map((system: any, index: number) => (
-                  <Card key={system.id} className={`border-l-4 ${system.isOnline ? 'border-l-green-500' : 'border-l-red-500'}`}>
+                {systems.map((system: any, index: number) => {
+                  const connectionStatus = connectionStatusBySystemId.get(system.id) || "offline";
+                  const isOnline = connectionStatus === "online";
+                  const isNotMonitored = connectionStatus === "not_monitored";
+                  return (
+                  <Card key={system.id} className={`border-l-4 ${isOnline ? 'border-l-green-500' : isNotMonitored ? 'border-l-amber-500' : 'border-l-red-500'}`}>
                     <CardContent className="p-4 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Shield className="h-5 w-5 text-primary" />
@@ -352,8 +358,8 @@ export default function ClientDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant={system.isOnline ? "default" : "destructive"}>
-                          {system.isOnline ? "Online" : "Offline"}
+                        <Badge variant={isOnline ? "default" : isNotMonitored ? "secondary" : "destructive"}>
+                          {isOnline ? "Online" : isNotMonitored ? "Não monitorado" : "Offline"}
                         </Badge>
                         <span className="text-xs text-muted-foreground">Porta {system.receiverPort}</span>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingSystem({ ...system })} title="Editar sistema">
@@ -365,7 +371,8 @@ export default function ClientDetail() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
                 {systems.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum sistema cadastrado</p>}
               </div>
             </ScrollArea>

@@ -180,6 +180,7 @@
 - [x] Fluxo de status: Aguardando → Em Atendimento → Observação/Despacho → Finalizado
 - [x] Identificar com precisão as centrais online e offline por comunicação real
 - [x] Atualizar Online e Offline exclusivamente pelo Keep Alive recebido de cada central
+- [x] Unificar o status exibido no cadastro e nos modais Online/Offline para usar exclusivamente lastKeepAliveAt e o prazo configurado
 - [x] Medir e registrar o intervalo real entre Keep Alives por central antes de definir o tempo de Offline
 - [x] Persistir amostras de Keep Alive para calcular frequência por central e fabricante
 - [x] Medir o intervalo de Keep Alive usando lastKeepAliveAt como referência exclusiva, sem misturar outras comunicações
