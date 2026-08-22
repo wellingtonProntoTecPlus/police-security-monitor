@@ -37,6 +37,7 @@ import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepare
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
 import { enrichClientsWithAccounts } from "./clientAccountList";
+import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -719,6 +720,66 @@ export async function listAlarmEvents(limit = 50, offset = 0) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(alarmEvents).orderBy(desc(alarmEvents.receivedAt)).limit(limit).offset(offset);
+}
+
+export async function listOperationalEventReport(opts?: {
+  limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number;
+  dateFrom?: string; dateTo?: string; eventGroup?: EventReportGroup;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [];
+  if (opts?.account?.trim()) conditions.push(like(alarmEvents.account, `%${opts.account.trim()}%`));
+  if (opts?.dateFrom) conditions.push(gte(alarmEvents.receivedAt, new Date(`${opts.dateFrom}T00:00:00`)));
+  if (opts?.dateTo) conditions.push(lte(alarmEvents.receivedAt, new Date(`${opts.dateTo}T23:59:59.999`)));
+  let query = db.select().from(alarmEvents);
+  if (conditions.length) query = query.where(and(...conditions)) as any;
+  query = query.orderBy(desc(alarmEvents.receivedAt)) as any;
+  const eventRows = await query;
+  const systemIds = Array.from(new Set(eventRows.map((row: any) => row.alarmSystemId).filter((id: unknown): id is number => typeof id === "number")));
+  const systems = systemIds.length ? await db.select().from(alarmSystems).where(inArray(alarmSystems.id, systemIds)) : [];
+  const clientIds = Array.from(new Set(systems.map((system: any) => system.clientId).filter((id: unknown): id is number => typeof id === "number")));
+  const reportClients = clientIds.length ? await db.select().from(clients).where(inArray(clients.id, clientIds)) : [];
+  const codes = await db.select().from(contactIdCodes);
+  const systemsById = new Map(systems.map((system: any) => [system.id, system]));
+  const clientsById = new Map(reportClients.map((client: any) => [client.id, client]));
+  const enriched = eventRows.map((event: any) => {
+    const system = event.alarmSystemId ? systemsById.get(event.alarmSystemId) : undefined;
+    const client = system?.clientId ? clientsById.get(system.clientId) : undefined;
+    const category = resolveOperationalEventCategory(event, codes);
+    return {
+      ...event,
+      category,
+      clientId: system?.clientId || null,
+      clientName: client?.fantasyName || client?.name || (event.account === "0000" ? "Conta do Sistema" : null),
+      partnerCompanyId: client?.partnerCompanyId || null,
+    };
+  });
+  const scoped = enriched.filter((event: any) =>
+    (!opts?.clientId || event.clientId === opts.clientId)
+    && (!opts?.partnerCompanyId || event.partnerCompanyId === opts.partnerCompanyId)
+    && matchesOperationalEventGroup(event, event.category, opts?.eventGroup),
+  );
+  const offset = opts?.offset || 0;
+  const limit = opts?.limit || 100;
+  return scoped.slice(offset, offset + limit);
+}
+
+export async function listOperationalConnectionReport(opts?: { clientId?: number; partnerCompanyId?: number; status?: "online" | "offline" }) {
+  const systems = await listSystemsConnectionStatus();
+  const db = await getDb();
+  if (!db) return [];
+  const clientIds = Array.from(new Set(systems.map((system: any) => system.clientId).filter((id: unknown): id is number => typeof id === "number")));
+  const reportClients = clientIds.length ? await db.select().from(clients).where(inArray(clients.id, clientIds)) : [];
+  const clientsById = new Map(reportClients.map((client: any) => [client.id, client]));
+  return systems.map((system: any) => {
+    const client = system.clientId ? clientsById.get(system.clientId) : undefined;
+    return { ...system, clientName: client?.fantasyName || client?.name || null, partnerCompanyId: client?.partnerCompanyId || null };
+  }).filter((system: any) =>
+    (!opts?.clientId || system.clientId === opts.clientId)
+    && (!opts?.partnerCompanyId || system.partnerCompanyId === opts.partnerCompanyId)
+    && (!opts?.status || system.connectionStatus === opts.status),
+  );
 }
 
 export async function getRecentEvents(minutes = 5) {

@@ -322,6 +322,10 @@
 - [x] Corrigir chave React duplicada nos cards da fila de eventos do dashboard
 
 ## Complementos de Relatórios
+- [x] Adicionar períodos rápidos Hoje, Ontem, Semana, Mês e período personalizado em Relatórios
+- [x] Adicionar filtro por categoria de evento: Disparos, Arme, Desarme, Online e Offline
+- [x] Adicionar filtro hierárquico de empresa parceira e cliente nos Relatórios
+- [ ] Validar na VPS os novos períodos, categorias e filtros hierárquicos dos Relatórios
 - [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend
 - [x] Exibir o cliente correto no relatório de eventos identificados por MAC ou IMEI
 - [x] Resolver o cliente do relatório por alarmSystemId nos eventos finalizados automaticamente

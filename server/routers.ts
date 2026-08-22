@@ -526,6 +526,24 @@ export const appRouter = router({
   // ============================================================
   alarmEvent: router({
     list: operatorProcedure.input(z.object({ limit: z.number().optional(), offset: z.number().optional() }).optional()).query(({ input }) => db.listAlarmEvents(input?.limit, input?.offset)),
+    report: protectedProcedure.input(z.object({
+      limit: z.number().optional(), offset: z.number().optional(), account: z.string().optional(), clientId: z.number().optional(),
+      partnerCompanyId: z.number().optional(), dateFrom: z.string().optional(), dateTo: z.string().optional(),
+      eventGroup: z.enum(["all", "alarm", "arm", "disarm", "test", "system"]).optional(),
+    }).optional()).query(({ input, ctx }) => {
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        return db.listOperationalEventReport({ ...(input || {}), partnerCompanyId: ctx.user.partnerId });
+      }
+      return db.listOperationalEventReport(input || {});
+    }),
+    connectionReport: protectedProcedure.input(z.object({ clientId: z.number().optional(), partnerCompanyId: z.number().optional(), status: z.enum(["online", "offline"]).optional() }).optional()).query(({ input, ctx }) => {
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        return db.listOperationalConnectionReport({ ...(input || {}), partnerCompanyId: ctx.user.partnerId });
+      }
+      return db.listOperationalConnectionReport(input || {});
+    }),
     recent: operatorProcedure.input(z.object({ minutes: z.number().optional() }).optional()).query(({ input }) => db.getRecentEvents(input?.minutes)),
     createManual: operatorProcedure.input(z.object({
       account: z.string().min(1).max(10),
