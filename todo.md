@@ -471,6 +471,9 @@
 - [x] Cobrir em testes a ocorrência manual associada a uma conta cadastrada
 
 ## Eventos Recebidos sem Fila
+- [ ] Auditar a conta 0044: recepção, identificação, persistência e abertura de ocorrência no dashboard
+- [x] Corrigir E724 analítico da JFL para abrir ocorrência, mantendo o R724 como restauração automática
+- [ ] Validar na VPS que o próximo E724 da conta 0044 abre ocorrência e o R724 a finaliza
 - [ ] Executar teste controlado com uma conta temporária exclusiva na JFL 0044 e restaurar a conta operacional ao final
 - [x] Confirmar na VPS se os eventos da JFL Active 20 conta 0044 estão no relatório da Conta do Sistema 0000
 - [x] Verificar nos logs e no banco da VPS se a conta 0044 está chegando, persistindo e entrando na fila correta

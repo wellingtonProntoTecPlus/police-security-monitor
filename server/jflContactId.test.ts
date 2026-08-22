@@ -14,6 +14,8 @@ describe("tabela Contact ID JFL", () => {
     expect(source).toContain('analytics("738", "E", "Reconhecimento de face não cadastrada", true)');
     expect(source).toContain('analytics("742", "R", "Cruzamento de linha por veículo B-A", true)');
     expect(source).toContain('analytics("701", "E", "Login ilegal no equipamento de CFTV", false)');
+    expect(source).toContain('analytics("724", "E", "Disparo da zona pelo analítico", true, { fechaComRestauracao: 1, codigoRestauracao: "724" })');
+    expect(source).toContain('analytics("724", "R", "Restauração do disparo da zona pelo analítico", false)');
   });
 
   it("gera uma carga idempotente com dezenas de registros específicos JFL", () => {

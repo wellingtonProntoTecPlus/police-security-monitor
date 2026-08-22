@@ -132,7 +132,7 @@ export const jflContactIdRecords = [
   analytics("722", "R", "Restauração do áudio anormal", false),
   analytics("723", "E", "Entrada de alarme acionada", true, { fechaComRestauracao: 1, codigoRestauracao: "723" }),
   analytics("723", "R", "Entrada de alarme desacionada", false),
-  analytics("724", "E", "Disparo da zona pelo analítico", false),
+  analytics("724", "E", "Disparo da zona pelo analítico", true, { fechaComRestauracao: 1, codigoRestauracao: "724" }),
   analytics("724", "R", "Restauração do disparo da zona pelo analítico", false),
   analytics("730", "E", "Detecção de pessoa", false),
   analytics("731", "E", "Início do alarme de movimento de pessoa", true, { fechaComRestauracao: 1, codigoRestauracao: "731" }),
