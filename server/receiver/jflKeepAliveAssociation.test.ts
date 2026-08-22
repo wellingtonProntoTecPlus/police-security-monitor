@@ -7,8 +7,10 @@ describe("associação de Keep Alive JFL", () => {
     const source = readFileSync(resolve(process.cwd(), "server/receiver/index.ts"), "utf8");
 
     expect(source).toContain("processEvent(evento, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket), socket)");
-    expect(source).toContain("if (system && socket) rememberSystem(socket, system);");
+    expect(source).toContain("if (system && socket) rememberSystem(socket, system, evento.receiverPort);");
     expect(source).toContain("await recordKeepAlive(socket, brand, port, \"0x40\")");
+    expect(source).toContain("JFL Keep Alive 0x40 associado à identidade JFL confirmada recentemente");
+    expect(source).toContain("rememberConfirmedJflEndpoint(socket.remoteAddress || \"\", receiverPort, known);");
     expect(source).toContain("const captureMode = shouldResolveSystemByCapturedPanelIdentifier(evento.brand);");
     expect(source).toContain("Nenhuma central IP pode ser associada somente pela conta.");
     expect(source).toContain("MAC, IMEI ou,");

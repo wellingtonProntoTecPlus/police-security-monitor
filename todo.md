@@ -213,6 +213,7 @@
 - [x] Diagnosticar o retorno HTML transitório da pré-visualização e confirmar a recuperação das consultas da API
 - [x] Identificar e documentar a causa raiz do retorno HTML inesperado da pré-visualização
 - [x] Reproduzir e validar a ausência do erro de pré-visualização com a consulta e a resposta JSON esperada
+- [x] Confirmar a recuperação da pré-visualização: o HTML veio de uma resposta 502 transitória do proxy, e as consultas do dashboard voltaram a responder JSON
 
 ## Player HLS para Câmeras
 - [x] Instalar hls.js no projeto
@@ -364,6 +365,7 @@
 - [ ] Auditar a recepção e a identificação da central JFL conta 0071 na porta 9061
 - [x] Corrigir o IMEI e o MAC cadastrados da central JFL 0071 antes de validar a conexão
 - [x] Corrigir a associação do quadro JFL da conta 0071 ao sistema 27 pelo serial, MAC ou IMEI
+- [x] Associar e persistir o Keep Alive JFL 0x40 da conta 0071 quando o sinal chegar em conexão TCP separada
 - [x] Extrair serial e MAC do quadro JFL de conexão de 102 bytes e vincular os eventos subsequentes ao painel identificado
 - [x] Identificar o protocolo ou canal pelo qual a FullTime obtém o serial da JFL Active 20
 - [x] Validar na VPS que a JFL 0044 restaurada é identificada por serial ou MAC antes do próximo evento Contact ID

@@ -8,6 +8,7 @@ import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, e
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
+import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
@@ -37,16 +38,28 @@ export function setEventCallback(cb: EventCallback) {
   eventCallback = cb;
 }
 
-function rememberSystem(socket: net.Socket, system: any) {
-  if (system?.id) identifiedSystemBySocket.set(socket, { id: system.id, account: system.account, brand: system.brand });
+function rememberSystem(socket: net.Socket, system: any, receiverPort?: number) {
+  if (!system?.id) return;
+  const known = { id: system.id, account: system.account, brand: system.brand };
+  identifiedSystemBySocket.set(socket, known);
+  if (receiverPort && system.brand?.trim().toUpperCase() === "JFL") {
+    rememberConfirmedJflEndpoint(socket.remoteAddress || "", receiverPort, known);
+  }
 }
 
 async function recordKeepAlive(socket: net.Socket, brand: string, port: number, signal: string) {
   let known = identifiedSystemBySocket.get(socket);
+  if (!known && brand === "JFL") {
+    known = getConfirmedJflEndpoint(socket.remoteAddress || "", port);
+    if (known) {
+      identifiedSystemBySocket.set(socket, known);
+      console.log(`[RECIP] JFL Keep Alive 0x40 associado à identidade JFL confirmada recentemente | Conta ${known.account}`);
+    }
+  }
   if (!known && isSafeCaptureEnabled(brand)) {
     const system = await getAlarmSystemByCapturedPanelIdentifier({ brand, frames: getSafeCaptureFrames(socket) });
     if (system) {
-      rememberSystem(socket, system);
+      rememberSystem(socket, system, port);
       known = identifiedSystemBySocket.get(socket);
     }
   }
@@ -54,6 +67,7 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
     console.log(`[KEEPALIVE] ${brand} porta ${port} | ${signal} | central ainda não identificada`);
     return;
   }
+  if (brand === "JFL") refreshConfirmedJflEndpoint(socket.remoteAddress || "", port);
   const measurement = await recordSystemKeepAlive(known.id);
   if (measurement) console.log(`[KEEPALIVE] ${brand} | Conta ${known.account} | ${signal} | ${formatKeepAliveInterval(measurement.intervalMs)}`);
 }
@@ -115,7 +129,7 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
         if (identity) {
           const system = await getAlarmSystemByCapturedPanelIdentifier({ brand, frames: getSafeCaptureFrames(socket) });
           if (system) {
-            rememberSystem(socket, system);
+            rememberSystem(socket, system, port);
             console.log(`[RECIP] JFL conexão identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);
           } else {
             console.log(`[RECIP] JFL conexão sem painel cadastrado | Serial ${identity.serialNumber || "—"} | MAC ${identity.fullMac || "—"}`);
@@ -352,7 +366,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
 
     // JFL transmite o Keep Alive 0x40 sem conta. Depois de identificar a conta
     // em um evento da mesma conexão, os próximos sinais usam esse vínculo seguro.
-    if (system && socket) rememberSystem(socket, system);
+    if (system && socket) rememberSystem(socket, system, evento.receiverPort);
 
     const accountResolution = resolveSystemAccount(evento.account, Boolean(system));
     const receivedAccount = accountResolution.receivedAccount;
