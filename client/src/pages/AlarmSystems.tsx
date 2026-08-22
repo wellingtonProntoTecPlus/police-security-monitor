@@ -25,6 +25,8 @@ const INITIAL_FORM = {
   communicationType: "ethernet" as "ethernet" | "gprs" | "both",
   macAddress: "",
   imeiGprs: "",
+  simCardNumber: "",
+  simPhoneNumber: "",
   viawebCode: "",
   receiverPort: 0,
   partitions: 1,
@@ -103,6 +105,8 @@ export default function AlarmSystems() {
       communicationType: form.communicationType,
       macAddress: form.macAddress || undefined,
       imeiGprs: form.imeiGprs || undefined,
+      simCardNumber: form.simCardNumber || undefined,
+      simPhoneNumber: form.simPhoneNumber || undefined,
       receiverPort: form.receiverPort || undefined,
       partitions: form.partitions,
       ipAddress: form.ipAddress || undefined,
@@ -241,6 +245,7 @@ export default function AlarmSystems() {
                         <Input className="mt-1 font-mono uppercase" placeholder="123456" maxLength={6} value={form.imeiGprs} onChange={(e) => setForm({ ...form, imeiGprs: e.target.value.toUpperCase().replace(/[^0-9A-F]/gi, "").slice(0, 6) })} />
                         <span className="text-xs text-muted-foreground">Use quando a central comunica por GPRS</span>
                       </div>
+                      {(form.communicationType === "gprs" || form.communicationType === "both") && <><div className="col-span-3"><Label className="text-sm font-medium">Número do SIM Card</Label><Input className="mt-1 font-mono" placeholder="ICCID do chip" value={form.simCardNumber} onChange={(e) => setForm({ ...form, simCardNumber: e.target.value })} /></div><div className="col-span-3"><Label className="text-sm font-medium">Número da Linha</Label><Input className="mt-1" placeholder="(00) 00000-0000" value={form.simPhoneNumber} onChange={(e) => setForm({ ...form, simPhoneNumber: e.target.value })} /></div></>}
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">IP do Receptor</Label>
                         <Input className="mt-1 font-mono" placeholder="192.168.0.100" value={form.ipAddress} onChange={(e) => setForm({ ...form, ipAddress: e.target.value })} />
@@ -303,6 +308,8 @@ export default function AlarmSystems() {
                       <div className="flex justify-between"><span className="text-muted-foreground">Marca:</span><span>{form.brand || "—"}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Comunicação:</span><span>{form.communicationType === "both" ? "ETH+GPRS" : form.communicationType.toUpperCase()}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">MAC:</span><span className="font-mono">{form.macAddress || "—"}</span></div>
+                      {form.simCardNumber && <div className="flex justify-between gap-3"><span className="text-muted-foreground">SIM:</span><span className="truncate font-mono">{form.simCardNumber}</span></div>}
+                      {form.simPhoneNumber && <div className="flex justify-between"><span className="text-muted-foreground">Linha:</span><span>{form.simPhoneNumber}</span></div>}
                       {form.serialNumber && <div className="flex justify-between"><span className="text-muted-foreground">Serial:</span><span className="font-mono">{form.serialNumber}</span></div>}
                       <div className="flex justify-between"><span className="text-muted-foreground">Partições:</span><span>{form.partitions}</span></div>
                     </div>

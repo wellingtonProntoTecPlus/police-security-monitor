@@ -69,6 +69,8 @@
 - [x] Exibir eventos novos instantaneamente no grid do dashboard
 
 ## Cadastro Completo do Cliente
+- [x] Adicionar tipo de cliente: Residência, Empresa ou Condomínio
+- [x] Exibir e persistir Número do Apartamento nos usuários do painel quando o cliente for Condomínio
 - [x] Atualizar schema do banco com campos: nomefantasia, complemento, bairro, numero
 - [x] Formulário profissional com seções: Empresa Responsável, Dados do Cliente, Endereço, Contatos
 - [x] Busca de CEP automática (ViaCEP)
@@ -81,6 +83,7 @@
 - [x] Melhor aproveitamento do espaço horizontal nos formulários
 
 ## Cadastro de Sistema de Alarme (Completo)
+- [x] Adicionar Número do SIM Card e Número da Linha ao cadastro do sistema de alarme
 - [x] Padronizar perfis técnicos automáticos de cadastro para JFL, Compatec, Vetti, Radioenge, Intelbras e ViaWeb
 - [ ] Validar na VPS o cadastro de uma nova central a partir do perfil técnico selecionado
 - [x] Compactar a lista de Usuários do Painel para reduzir espaços vazios entre nomes

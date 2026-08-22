@@ -80,6 +80,7 @@ function validateCnpj(cnpj: string): boolean {
 const INITIAL_FORM = {
   partnerCompanyId: 0,
   type: "pj" as "pf" | "pj",
+  propertyType: "residence" as "residence" | "company" | "condominium",
   name: "",
   fantasyName: "",
   document: "",
@@ -194,6 +195,7 @@ export default function Clients() {
       setForm({
         partnerCompanyId: client.partnerCompanyId || 0,
         type: client.type || "pj",
+        propertyType: client.propertyType || "residence",
         name: client.name || "",
         fantasyName: client.fantasyName || "",
         document: maskCpfCnpj(client.document || "", client.type || "pj"),
@@ -270,7 +272,18 @@ export default function Clients() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="col-span-4">
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Classificação *</Label>
+                        <Select value={form.propertyType} onValueChange={(propertyType) => setForm({ ...form, propertyType: propertyType as typeof form.propertyType })}>
+                          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="residence">Residência</SelectItem>
+                            <SelectItem value="company">Empresa</SelectItem>
+                            <SelectItem value="condominium">Condomínio</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
                         <Label className="text-sm font-medium">{form.type === "pf" ? "CPF *" : "CNPJ *"}</Label>
                         <Input
                           className="mt-1 font-mono"

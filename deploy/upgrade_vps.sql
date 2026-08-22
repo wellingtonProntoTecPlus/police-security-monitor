@@ -315,6 +315,55 @@ DEALLOCATE PREPARE migration_statement;
 ALTER TABLE contact_id_codes
   MODIFY COLUMN category ENUM('alarm','restore','fault','arm_disarm','test','system','access','analytics') NOT NULL DEFAULT 'alarm';
 
+-- Dados operacionais complementares de cliente, comunicação móvel e condomínio.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE clients ADD COLUMN propertyType ENUM(''residence'',''company'',''condominium'') NOT NULL DEFAULT ''residence'' AFTER type',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'propertyType'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN simCardNumber VARCHAR(50) NULL AFTER imeiGprs',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'simCardNumber'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN simPhoneNumber VARCHAR(30) NULL AFTER simCardNumber',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'simPhoneNumber'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_users ADD COLUMN apartmentNumber VARCHAR(30) NULL AFTER name',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_users' AND COLUMN_NAME = 'apartmentNumber'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 SELECT 'Atualização de schema concluída sem apagar dados.' AS resultado;
 
 CREATE TABLE IF NOT EXISTS system_technical_accounts (

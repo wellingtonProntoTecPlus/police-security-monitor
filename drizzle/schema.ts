@@ -96,6 +96,7 @@ export const clients = mysqlTable("clients", {
   id: int("id").autoincrement().primaryKey(),
   partnerCompanyId: int("partnerCompanyId").notNull(),
   type: mysqlEnum("type", ["pf", "pj"]).notNull(),
+  propertyType: mysqlEnum("propertyType", ["residence", "company", "condominium"]).default("residence").notNull(),
   name: varchar("name", { length: 255 }).notNull(), // Razão Social ou Nome Completo
   fantasyName: varchar("fantasyName", { length: 255 }), // Nome Fantasia
   document: varchar("document", { length: 18 }).notNull(), // CPF ou CNPJ
@@ -156,6 +157,8 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   communicationType: mysqlEnum("communicationType", ["ethernet", "gprs", "both"]).default("ethernet").notNull(),
   macAddress: varchar("macAddress", { length: 6 }), // Últimos 6 caracteres do MAC Ethernet
   imeiGprs: varchar("imeiGprs", { length: 6 }), // Últimos 6 dígitos do IMEI GPRS
+  simCardNumber: varchar("simCardNumber", { length: 50 }),
+  simPhoneNumber: varchar("simPhoneNumber", { length: 30 }),
   serialNumber: varchar("serialNumber", { length: 10 }).unique(), // Serial de 10 dígitos para modelos que o exigem
   isepId: varchar("isepId", { length: 4 }), // Identificador ISEP gerado pelo sistema
   viawebCode: varchar("viawebCode", { length: 4 }), // Código ViaWeb 4 dígitos
@@ -225,6 +228,7 @@ export const alarmUsers = mysqlTable("alarm_users", {
   alarmSystemId: int("alarmSystemId").notNull(),
   userNumber: int("userNumber").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
+  apartmentNumber: varchar("apartmentNumber", { length: 30 }),
   phone: varchar("phone", { length: 20 }),
   password: varchar("password", { length: 50 }),
   counterPassword: varchar("counterPassword", { length: 50 }),

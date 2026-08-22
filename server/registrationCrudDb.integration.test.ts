@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createAlarmSystem,
+  createAlarmUser,
+  createClient,
   createClientProcedure,
   createContactId,
   createFinalization,
   createSystemUser,
   setDbForTesting,
   updateAlarmSystem,
+  updateAlarmUser,
+  updateClient,
   updateContactId,
   updateFinalization,
   updateSystemUser,
@@ -48,11 +52,31 @@ describe("CRUDs reais com textos padronizados", () => {
   });
 
   it("persiste sistema normalizado e preserva identificadores técnicos", async () => {
-    await createAlarmSystem({ clientId: 1, brand: "VIAWEB", account: "03-36", model: "central principal", macAddress: "c1-bd-cb", imeiGprs: "12 34 56", serialNumber: "2801-936621", isepId: "69-3e", firmwareVersion: "V4.0" } as any);
-    await updateAlarmSystem(1, { model: "central reserva", account: "03-37", macAddress: "aa-bb-cc", imeiGprs: "65 43 21", serialNumber: "9876-543210", isepId: "69-3e", firmwareVersion: "V5.0" } as any);
+    await createAlarmSystem({ clientId: 1, brand: "VIAWEB", account: "03-36", model: "central principal", macAddress: "c1-bd-cb", imeiGprs: "12 34 56", simCardNumber: "8955032123456789012", simPhoneNumber: "11987654321", serialNumber: "2801-936621", isepId: "69-3e", firmwareVersion: "V4.0" } as any);
+    await updateAlarmSystem(1, { model: "central reserva", account: "03-37", macAddress: "aa-bb-cc", imeiGprs: "65 43 21", simCardNumber: "8955032123456789013", simPhoneNumber: "11987654322", serialNumber: "9876-543210", isepId: "69-3e", firmwareVersion: "V5.0" } as any);
 
-    expect(inserted[0]).toMatchObject({ model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", serialNumber: "2801936621", isepId: "693E", firmwareVersion: "V4.0" });
-    expect(updated[0]).toMatchObject({ model: "Central Reserva", account: "0337", macAddress: "AABBCC", imeiGprs: "654321", serialNumber: "9876543210", isepId: "693E", firmwareVersion: "V5.0" });
+    expect(inserted[0]).toMatchObject({ model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", simCardNumber: "8955032123456789012", simPhoneNumber: "11987654321", serialNumber: "2801936621", isepId: "693E", firmwareVersion: "V4.0" });
+    expect(updated[0]).toMatchObject({ model: "Central Reserva", account: "0337", macAddress: "AABBCC", imeiGprs: "654321", simCardNumber: "8955032123456789013", simPhoneNumber: "11987654322", serialNumber: "9876543210", isepId: "693E", firmwareVersion: "V5.0" });
+  });
+
+  it("persiste a classificação do cliente e apartamentos sem restringir vários usuários por unidade", async () => {
+    await createClient({ partnerCompanyId: 1, type: "pj", propertyType: "condominium", name: "condomínio das flores", document: "12345678000199" } as any);
+    await updateClient(1, { propertyType: "company" } as any);
+    currentSystem = { id: 1, alarmSystemId: 1, userNumber: 11, name: "Porteiro Manhã", apartmentNumber: "1204" };
+    await createAlarmUser({ alarmSystemId: 1, userNumber: 11, name: "porteiro manhã", apartmentNumber: "1204" } as any);
+    currentSystem = { id: 2, alarmSystemId: 1, userNumber: 12, name: "Morador", apartmentNumber: "1204" };
+    await createAlarmUser({ alarmSystemId: 1, userNumber: 12, name: "morador", apartmentNumber: "1204" } as any);
+    await updateAlarmUser(1, { apartmentNumber: "1205" } as any);
+
+    expect(inserted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ propertyType: "condominium", name: "Condomínio das Flores" }),
+      expect.objectContaining({ alarmSystemId: 1, userNumber: 11, apartmentNumber: "1204" }),
+      expect.objectContaining({ alarmSystemId: 1, userNumber: 12, apartmentNumber: "1204" }),
+    ]));
+    expect(updated).toEqual(expect.arrayContaining([
+      expect.objectContaining({ propertyType: "company" }),
+      expect.objectContaining({ apartmentNumber: "1205" }),
+    ]));
   });
 
   it("persiste usuários, finalizações, procedimentos e códigos com a regra correta", async () => {
