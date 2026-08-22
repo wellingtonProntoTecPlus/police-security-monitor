@@ -16,7 +16,7 @@ export const ALARM_SYSTEM_PROFILES: Record<AlarmSystemBrand, AlarmSystemProfile>
     primaryReceiverPort: 9061,
     expectedKeepAliveSeconds: 60,
     offlineAfterMinutes: 5,
-    identificationLabel: "JFL v7 ou superior: serial de 10 dígitos. Nas demais versões, informe MAC ou IMEI quando disponível.",
+    identificationLabel: "Informe o serial de 10 dígitos sempre que disponível. Em JFL v5 ou superior ele é obrigatório; abaixo disso, informe MAC ou IMEI.",
   },
   INTELBRAS: {
     receiverPorts: [9071, 9271],
@@ -59,9 +59,9 @@ export function getAlarmSystemProfile(brand: string): AlarmSystemProfile | undef
   return ALARM_SYSTEM_PROFILES[brand as AlarmSystemBrand];
 }
 
-export function isJflVersion7OrLater(brand: string | null | undefined, firmwareVersion: string | null | undefined) {
+export function isJflVersion5OrLater(brand: string | null | undefined, firmwareVersion: string | null | undefined) {
   const majorVersion = Number((firmwareVersion || "").trim().replace(/^v/i, "").split(".")[0]);
-  return brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+  return brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 5;
 }
 
 export function getAlarmSystemIdentifierValidationError(input: {
@@ -77,8 +77,8 @@ export function getAlarmSystemIdentifierValidationError(input: {
   const serial = (input.serialNumber || "").replace(/\D/g, "");
 
   if (brand === "VIAWEB") return null;
-  if (isJflVersion7OrLater(brand, input.firmwareVersion) && !/^\d{10}$/.test(serial)) {
-    return "A central JFL versão 7 ou superior exige o número de série com 10 dígitos";
+  if (isJflVersion5OrLater(brand, input.firmwareVersion) && !/^\d{10}$/.test(serial)) {
+    return "A central JFL versão 5 ou superior exige o número de série com 10 dígitos";
   }
   if (["VETTI", "COMPATEC", "RADIOENGE"].includes(brand) && mac.length !== 6) {
     return `A central ${brand} exige o MAC Ethernet com os 6 últimos caracteres`;

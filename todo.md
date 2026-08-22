@@ -373,6 +373,7 @@
 - [x] Confirmar que a JFL 0044 envia apenas Contact ID de 24 bytes à porta 9061, sem serial, MAC ou IMEI
 - [ ] Obter da FullTime ou JFL a documentação do canal proprietário que fornece o serial da JFL versão 7 ou superior
 - [x] Exigir e validar o serial de 10 caracteres para centrais JFL Active versão 7 ou superior
+- [x] Exibir o campo Serial para todas as centrais JFL e torná-lo obrigatório somente a partir da versão 5.0
 - [x] Impedir a associação de qualquer central IP somente pela conta Contact ID; exigir MAC e/ou IMEI confirmado
 - [x] Capturar os quadros da JFL Active 20 e documentar que a conta 0044 chegou sem serial ou MAC confirmado
 - [x] Substituído por decisão operacional: JFL sem MAC ou IMEI confirmado segue para a Conta do Sistema 0000, sem associação por conta

@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
-import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion7OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
+import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
 
 const CONTACTS_PER_PAGE = 20;
 
@@ -22,8 +22,8 @@ function portsForBrand(brand: string) {
   return getAlarmSystemProfile(brand)?.receiverPorts || [];
 }
 
-function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
-  return isJflVersion7OrLater(brand, firmwareVersion);
+function requiresJflVersion5OrLaterSerial(brand: string, firmwareVersion: string) {
+  return isJflVersion5OrLater(brand, firmwareVersion);
 }
 
 export default function ClientDetail() {
@@ -299,7 +299,7 @@ export default function ClientDetail() {
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} placeholder="A1B2C3" value={systemForm.macAddress} onChange={(e) => setSystemForm({ ...systemForm, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} placeholder="123456" value={systemForm.imeiGprs} onChange={(e) => setSystemForm({ ...systemForm, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     {(systemForm.communicationType === "gprs" || systemForm.communicationType === "both") && <><div><Label>Número do SIM Card</Label><Input placeholder="ICCID do chip" value={systemForm.simCardNumber} onChange={(e) => setSystemForm({ ...systemForm, simCardNumber: e.target.value })} /></div><div><Label>Número da linha</Label><Input placeholder="(00) 00000-0000" value={systemForm.simPhoneNumber} onChange={(e) => setSystemForm({ ...systemForm, simPhoneNumber: maskPhone(e.target.value) })} /></div></>}
-                    {requiresJflVersion7OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) && <div className="col-span-2"><Label>Número de série * (JFL v7 ou superior)</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos, ex.: 2801936621" value={systemForm.serialNumber} onChange={(e) => setSystemForm({ ...systemForm, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><p className="mt-1 text-[11px] text-amber-300">Obrigatório para centrais JFL versão 7 ou superior. Informe os 10 dígitos exibidos no Programador JFL.</p></div>}
+                    {systemForm.brand === "JFL" && <div className="col-span-2"><Label>Número de série {requiresJflVersion5OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) ? "* (JFL v5 ou superior)" : "(opcional abaixo da v5)"}</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos, ex.: 2801936621" value={systemForm.serialNumber} onChange={(e) => setSystemForm({ ...systemForm, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><p className="mt-1 text-[11px] text-amber-300">Informe sempre que disponível. A partir da versão 5.0, os 10 dígitos são obrigatórios.</p></div>}
                     {systemForm.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value="Gerado ao salvar" disabled /></div>}
                     <div>
                       <Label>Porta receptora</Label>
@@ -388,7 +388,7 @@ export default function ClientDetail() {
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} value={editingSystem.macAddress || ""} onChange={(e) => setEditingSystem({ ...editingSystem, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} value={editingSystem.imeiGprs || ""} onChange={(e) => setEditingSystem({ ...editingSystem, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     {(editingSystem.communicationType === "gprs" || editingSystem.communicationType === "both") && <><div><Label>Número do SIM Card</Label><Input value={editingSystem.simCardNumber || ""} onChange={(e) => setEditingSystem({ ...editingSystem, simCardNumber: e.target.value })} /></div><div><Label>Número da linha</Label><Input value={editingSystem.simPhoneNumber || ""} onChange={(e) => setEditingSystem({ ...editingSystem, simPhoneNumber: maskPhone(e.target.value) })} /></div></>}
-                    {requiresJflVersion7OrLaterSerial(editingSystem.brand, editingSystem.firmwareVersion || "") && <div className="col-span-2"><Label>Número de série * (JFL v7 ou superior)</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos" value={editingSystem.serialNumber || ""} onChange={(e) => setEditingSystem({ ...editingSystem, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /></div>}
+                    {editingSystem.brand === "JFL" && <div className="col-span-2"><Label>Número de série {requiresJflVersion5OrLaterSerial(editingSystem.brand, editingSystem.firmwareVersion || "") ? "* (JFL v5 ou superior)" : "(opcional abaixo da v5)"}</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos" value={editingSystem.serialNumber || ""} onChange={(e) => setEditingSystem({ ...editingSystem, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><p className="mt-1 text-[11px] text-amber-300">A partir da versão 5.0, os 10 dígitos são obrigatórios.</p></div>}
                     {editingSystem.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value={editingSystem.isepId || "Será gerado ao salvar"} disabled /></div>}
                     <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">A porta é sugerida ao selecionar a central e pode ser ajustada manualmente.</p></div>
                   </div>

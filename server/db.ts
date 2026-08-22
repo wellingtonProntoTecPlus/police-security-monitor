@@ -33,7 +33,7 @@ import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
-import { getAlarmSystemIdentifierValidationError, isJflVersion7OrLater as isJflVersion7OrLaterByProfile } from "@shared/alarmSystemProfiles";
+import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
@@ -460,14 +460,14 @@ function normalizePanelIdentifier(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-export function isJflVersion7OrLater(input: { brand?: string | null; firmwareVersion?: string | null }) {
-  return isJflVersion7OrLaterByProfile(input.brand, input.firmwareVersion);
+export function isJflVersion5OrLater(input: { brand?: string | null; firmwareVersion?: string | null }) {
+  return isJflVersion5OrLaterByProfile(input.brand, input.firmwareVersion);
 }
 
-export function assertRequiredJflVersion7OrLaterSerial(input: { brand?: string | null; firmwareVersion?: string | null; serialNumber?: string | null }) {
-  if (!isJflVersion7OrLater(input)) return;
+export function assertRequiredJflVersion5OrLaterSerial(input: { brand?: string | null; firmwareVersion?: string | null; serialNumber?: string | null }) {
+  if (!isJflVersion5OrLater(input)) return;
   if (!/^\d{10}$/.test(input.serialNumber || "")) {
-    throw new Error("A central JFL versão 7 ou superior exige o número de série com 10 dígitos");
+    throw new Error("A central JFL versão 5 ou superior exige o número de série com 10 dígitos");
   }
 }
 
@@ -553,7 +553,7 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
     serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null,
     isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId()) : null,
   };
-  assertRequiredJflVersion7OrLaterSerial(normalizedData);
+  assertRequiredJflVersion5OrLaterSerial(normalizedData);
   assertRequiredPanelIdentifier(normalizedData);
   const result = await db.insert(alarmSystems).values(normalizedData);
   return { id: result[0].insertId };
@@ -573,7 +573,7 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
     ...(data.serialNumber !== undefined ? { serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null } : {}),
   };
   const effectiveBrand = normalizedData.brand || current?.brand;
-  assertRequiredJflVersion7OrLaterSerial({
+  assertRequiredJflVersion5OrLaterSerial({
     brand: effectiveBrand,
     firmwareVersion: normalizedData.firmwareVersion ?? current?.firmwareVersion,
     serialNumber: normalizedData.serialNumber ?? current?.serialNumber,
