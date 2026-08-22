@@ -16,6 +16,7 @@ import {
   contactIdCodes,
   systemTechnicalAccounts,
   systemKeepAliveSamples,
+  systemDisconnectAlerts,
 } from "../drizzle/schema";
 import {
   alarmPgms, InsertAlarmPgm,
@@ -37,6 +38,7 @@ import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflV
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
+import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 
@@ -383,10 +385,10 @@ export async function endSystemMaintenance(systemId: number) {
   }).where(eq(alarmSystems.id, systemId));
 }
 
-export async function listSystemsConnectionStatus() {
+export async function listSystemsConnectionStatus(referenceTime = new Date()) {
   const systems = await listAlarmSystems();
   const db = await getDb();
-  if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const }));
+  if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const, cutoffMs: null }));
 
   const systemIds = systems.map((system) => system.id);
   const samples = await db.select({
@@ -412,6 +414,7 @@ export async function listSystemsConnectionStatus() {
       lastKeepAliveAt: system.lastKeepAliveAt,
       intervals: intervalsBySystem.get(system.id),
       configuredOfflineAfterMinutes: system.keepAliveOfflineAfterMinutes,
+      now: referenceTime,
     });
     return { ...system, ...status };
   });
@@ -438,7 +441,131 @@ export async function recordSystemKeepAlive(systemId: number, receivedAt = new D
     receivedAt,
     intervalMs: measurement.intervalMs,
   });
-  return { system, ...measurement };
+  await markDisconnectAlertsRestored(systemId, receivedAt);
+  return measurement;
+}
+
+export type KeepAliveDisconnectOpening = {
+  id: number;
+  incidentId: number;
+  alarmSystemId: number;
+  account: string;
+  brand: string;
+  eventCode: string;
+  qualifier: string;
+  description: string;
+  priority: "critical" | "high" | "medium" | "low";
+  receiverPort: number | null;
+  receivedAt: Date;
+};
+
+function isDuplicateKeyError(error: unknown) {
+  const code = (error as { code?: string } | undefined)?.code;
+  return code === "ER_DUP_ENTRY";
+}
+
+/**
+ * Cria apenas uma ocorrência por período contínuo sem Keep Alive. A chave única
+ * combina sistema e o último sinal recebido, portanto qualquer novo Keep Alive
+ * reinicia a janela e permite uma futura queda legítima sem somar períodos.
+ */
+export async function sweepKeepAliveDisconnects(referenceTime = new Date()) {
+  const db = await getDb();
+  if (!db) return { opened: [] as KeepAliveDisconnectOpening[], skipped: 0 };
+
+  const systems = await listSystemsConnectionStatus(referenceTime);
+  return processKeepAliveDisconnectCandidates<KeepAliveDisconnectOpening>({
+    systems: systems as KeepAliveDisconnectCandidate[],
+    isInMaintenance: (system) => isSystemInMaintenance({
+      maintenanceStartAt: system.maintenanceStartAt,
+      maintenanceEndAt: system.maintenanceEndAt,
+    }, referenceTime),
+    openOnce: async (system) => {
+    const lastKeepAliveAt = new Date(system.lastKeepAliveAt);
+    const description = "Painel desconectado — prazo de Keep Alive excedido";
+    const notes = `Sem Keep Alive desde ${lastKeepAliveAt.toLocaleString("pt-BR")}. Prazo configurado: ${system.keepAliveOfflineAfterMinutes || Math.round((system.cutoffMs || 0) / 60_000)} minuto(s). Aguardando tratamento do operador.`;
+
+    try {
+      const opening = await db.transaction(async (tx) => {
+        // A reserva vem antes do evento. Caso outro disparo concorrente já tenha
+        // criado a mesma ocorrência, a chave única interrompe esta transação.
+        const claim = await tx.insert(systemDisconnectAlerts).values({
+          alarmSystemId: system.id,
+          outageStartedAt: lastKeepAliveAt,
+          detectedAt: referenceTime,
+        });
+        const alertId = Number(claim[0].insertId);
+        const eventResult = await tx.insert(alarmEvents).values({
+          alarmSystemId: system.id,
+          account: system.account,
+          brand: system.brand,
+          qualifier: "E",
+          eventCode: "KOFF",
+          description,
+          priority: "high",
+          receiverPort: system.receiverPort || null,
+          remoteIp: "SYSTEM",
+          rawData: `KEEP_ALIVE_TIMEOUT|last=${lastKeepAliveAt.toISOString()}|cutoffMs=${system.cutoffMs || 0}`,
+          receivedAt: referenceTime,
+        });
+        const eventId = Number(eventResult[0].insertId);
+        const incidentResult = await tx.insert(incidents).values({
+          eventId,
+          alarmSystemId: system.id,
+          clientId: system.clientId,
+          status: "waiting",
+          priority: "high",
+          notes,
+        });
+        const incidentId = Number(incidentResult[0].insertId);
+        await tx.update(systemDisconnectAlerts).set({ eventId, incidentId }).where(eq(systemDisconnectAlerts.id, alertId));
+        return {
+          id: eventId,
+          incidentId,
+          alarmSystemId: system.id,
+          account: system.account,
+          brand: system.brand,
+          eventCode: "KOFF",
+          qualifier: "E",
+          description,
+          priority: "high" as const,
+          receiverPort: system.receiverPort || null,
+          receivedAt: referenceTime,
+        };
+      });
+      return opening;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) return null;
+      throw error;
+    }
+    },
+  });
+}
+
+/** O retorno do Keep Alive não apaga o histórico: transfere a ocorrência de desconexão para Observação. */
+export async function markDisconnectAlertsRestored(systemId: number, receivedAt = new Date()) {
+  const db = await getDb();
+  if (!db) return 0;
+  const activeAlerts = await db.select().from(systemDisconnectAlerts).where(and(
+    eq(systemDisconnectAlerts.alarmSystemId, systemId),
+    sql`${systemDisconnectAlerts.restoredAt} IS NULL`,
+  ));
+  if (activeAlerts.length === 0) return 0;
+
+  const message = `Keep Alive restabelecido em ${receivedAt.toLocaleString("pt-BR")}. Ocorrência em observação, aguardando finalização do operador.`;
+  return restoreKeepAliveDisconnectAlerts({
+    alerts: activeAlerts,
+    markRestored: async (alertId) => {
+      await db.update(systemDisconnectAlerts).set({ restoredAt: receivedAt, restoredKeepAliveAt: receivedAt }).where(eq(systemDisconnectAlerts.id, alertId));
+    },
+    moveIncidentToObservation: async (incidentId) => {
+      await db.update(incidents).set({
+        status: "observing",
+        observationUntil: null,
+        notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${message}`})`,
+      }).where(and(eq(incidents.id, incidentId), ne(incidents.status, "closed")));
+    },
+  });
 }
 
 export async function ensureSystemTechnicalAccount() {

@@ -10,7 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startReceivers, setEventCallback } from "../receiver/index";
-import { normalizeExistingRegistrationText } from "../db";
+import { normalizeExistingRegistrationText, sweepKeepAliveDisconnects } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -59,6 +59,23 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // A VPS chama este endpoint apenas por loopback a cada minuto. O sweep é
+  // idempotente e abre uma única ocorrência depois de ultrapassar o prazo.
+  app.post("/api/internal/keep-alive-disconnect-sweep", async (req, res) => {
+    const remoteAddress = req.socket.remoteAddress || "";
+    const isLocal = remoteAddress === "127.0.0.1" || remoteAddress === "::1" || remoteAddress === "::ffff:127.0.0.1";
+    if (!isLocal) return res.status(403).json({ error: "loopback-only" });
+    try {
+      const result = await sweepKeepAliveDisconnects(new Date());
+      for (const event of result.opened) {
+        io.emit("alarm:event", { ...event, timestamp: event.receivedAt.getTime() });
+      }
+      return res.json({ ok: true, opened: result.opened.length, skipped: result.skipped });
+    } catch (error) {
+      console.error("[KEEPALIVE] Falha no sweep de desconexão", error);
+      return res.status(500).json({ error: error instanceof Error ? error.message : "unknown", timestamp: new Date().toISOString() });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

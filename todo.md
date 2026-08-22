@@ -208,7 +208,10 @@
 - [x] Diagnosticar por que a conta 0035 não foi exibida como Online no dashboard
 - [x] Vincular de forma segura o Keep Alive JFL da porta 9061 à central cadastrada da conta 0035
 - [ ] Criar uma única ocorrência de painel desconectado quando o Keep Alive expirar, sem alertas recorrentes automáticos
+- [ ] Alertar o operador e criar ocorrência tratável na fila quando uma central exceder o prazo sem Keep Alive real
 - [ ] Manter a ocorrência de desconexão em Observação até a finalização manual após o retorno Online
+- [ ] Ativar no procedimento real de atualização da VPS a varredura automática de desconexão e validar o cron instalado
+- [ ] Cobrir o ciclo completo: limite estrito, abertura única, ausência de duplicidade e retorno para Observação
 - [ ] Exibir nos modais Online e Offline as listas informativas das centrais e suas ocorrências em acompanhamento
 - [ ] Preservar histórico de contatos, observações e operador entre turnos para a próxima operadora continuar o atendimento
 - [x] Diagnosticar o retorno HTML transitório da pré-visualização e confirmar a recuperação das consultas da API

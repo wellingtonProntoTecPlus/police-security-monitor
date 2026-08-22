@@ -8,8 +8,14 @@ describe("persistência de Keep Alive", () => {
     const updates: unknown[] = [];
     const samples: unknown[] = [];
     const previous = new Date("2026-08-13T12:00:00.000Z");
+    let selectCount = 0;
     const fakeDb: any = {
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: 17, brand: "VETTI", lastKeepAliveAt: previous }] }) }) }),
+      select: () => ({ from: () => ({ where: () => {
+        selectCount += 1;
+        return selectCount === 1
+          ? { limit: async () => [{ id: 17, brand: "VETTI", lastKeepAliveAt: previous }] }
+          : Promise.resolve([]);
+      } }) }),
       update: () => ({ set: (values: unknown) => ({ where: async () => updates.push(values) }) }),
       insert: () => ({ values: async (values: unknown) => samples.push(values) }),
     };
@@ -23,13 +29,19 @@ describe("persistência de Keep Alive", () => {
 
   it("não usa um evento comum como referência do intervalo de Keep Alive", async () => {
     const samples: any[] = [];
+    let selectCount = 0;
     const fakeDb: any = {
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{
-        id: 17,
-        brand: "RADIOENGE",
-        lastKeepAliveAt: new Date("2026-08-13T12:00:00.000Z"),
-        lastCommunication: new Date("2026-08-13T12:00:25.000Z"),
-      }] }) }) }),
+      select: () => ({ from: () => ({ where: () => {
+        selectCount += 1;
+        return selectCount === 1
+          ? { limit: async () => [{
+            id: 17,
+            brand: "RADIOENGE",
+            lastKeepAliveAt: new Date("2026-08-13T12:00:00.000Z"),
+            lastCommunication: new Date("2026-08-13T12:00:25.000Z"),
+          }] }
+          : Promise.resolve([]);
+      } }) }),
       update: () => ({ set: () => ({ where: async () => undefined }) }),
       insert: () => ({ values: async (values: unknown) => samples.push(values) }),
     };
