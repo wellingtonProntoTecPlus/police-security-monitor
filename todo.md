@@ -262,6 +262,7 @@
 - [x] Fazer o receptor priorizar a descrição Contact ID do fabricante identificado antes do código universal
 
 ## Contact ID - Qualifier E/R e Códigos Universais
+- [x] Exibir códigos universais somente na aba Universal, sem repeti-los visualmente nas abas de fabricantes
 - [x] Atualizar a tabela JFL com os códigos convencionais e analíticos fornecidos, incluindo restaurações e regra de disparo
 - [x] Adicionar campo qualifier (E/R/both) na tabela contact_id_codes
 - [x] Adicionar campo isUniversal para marcar códigos universais

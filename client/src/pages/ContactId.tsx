@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const FABRICANTES = ["COMPATEC", "VETTI", "JFL", "INTELBRAS", "RADIOENGE", "VIAWEB"];
+const ABAS_CONTACT_ID = ["UNIVERSAL", ...FABRICANTES];
 
 const CORES = [
   { valor: "#EF4444", nome: "Vermelho (Alarme)" },
@@ -61,7 +62,8 @@ export default function ContactId() {
 
   function abrirNovo() {
     setEditando(null);
-    setForm({ codigo: "", qualifier: "E", fabricante, isUniversal: false, descricao: "", tipo: "alarme", cor: "#EF4444", abreTela: true, fechaAutomatico: false, fechaComRestauracao: false, codigoRestauracao: "", tempoEsperaSegundos: 0, prioridade: 1 });
+    const isUniversalTab = fabricante === "UNIVERSAL";
+    setForm({ codigo: "", qualifier: "E", fabricante, isUniversal: isUniversalTab, descricao: "", tipo: "alarme", cor: "#EF4444", abreTela: true, fechaAutomatico: false, fechaComRestauracao: false, codigoRestauracao: "", tempoEsperaSegundos: 0, prioridade: 1 });
     setModalOpen(true);
   }
 
@@ -125,18 +127,18 @@ export default function ContactId() {
         {/* Abas por fabricante */}
         <Tabs value={fabricante} onValueChange={setFabricante}>
           <TabsList className="bg-muted">
-            {FABRICANTES.map((f) => (
+            {ABAS_CONTACT_ID.map((f) => (
               <TabsTrigger key={f} value={f} className="text-xs font-bold">{f}</TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
 
         {/* Seção de Códigos Universais */}
-        {universalCodes.length > 0 && (
+        {fabricante === "UNIVERSAL" && universalCodes.length > 0 && (
           <div className="border border-blue-500/30 rounded-lg overflow-hidden">
             <div className="bg-blue-500/10 px-4 py-2 flex items-center gap-2">
               <Globe className="h-4 w-4 text-blue-400" />
-              <span className="text-sm font-bold text-blue-400">Códigos Universais (aparecem em todas as abas)</span>
+              <span className="text-sm font-bold text-blue-400">Códigos Universais</span>
             </div>
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
@@ -177,7 +179,7 @@ export default function ContactId() {
         )}
 
         {/* Tabela de Códigos do Fabricante */}
-        <div className="border border-border rounded-lg overflow-hidden">
+        {fabricante !== "UNIVERSAL" && <div className="border border-border rounded-lg overflow-hidden">
           <div className="bg-muted/30 px-4 py-2">
             <span className="text-sm font-bold text-foreground">Códigos {fabricante}</span>
           </div>
@@ -231,7 +233,7 @@ export default function ContactId() {
               )}
             </tbody>
           </table>
-        </div>
+        </div>}
 
         {/* Modal de Criação/Edição */}
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -273,8 +275,8 @@ export default function ContactId() {
               </div>
 
               <div className="flex items-center gap-3">
-                <Switch checked={form.isUniversal} onCheckedChange={(v) => setForm({ ...form, isUniversal: v, fabricante: v ? 'UNIVERSAL' : fabricante })} />
-                <Label className="text-sm">Código Universal (aparece em todas as abas de fabricantes)</Label>
+                <Switch checked={form.isUniversal} onCheckedChange={(v) => setForm({ ...form, isUniversal: v, fabricante: v ? 'UNIVERSAL' : (fabricante === 'UNIVERSAL' ? 'COMPATEC' : fabricante) })} />
+                <Label className="text-sm">Código Universal (exibido apenas na aba Universal)</Label>
               </div>
 
               <div>
