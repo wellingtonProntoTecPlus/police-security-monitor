@@ -10,8 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Search, Shield, ArrowLeft, Save, Wifi, Radio, Clock, Camera, Users, Layers } from "lucide-react";
 import { toast } from "sonner";
+import { ALARM_SYSTEM_BRANDS, applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion7OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
 
-const BRANDS = ["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"] as const;
+const BRANDS = ALARM_SYSTEM_BRANDS;
 
 const INITIAL_FORM = {
   clientId: 0,
@@ -23,7 +24,9 @@ const INITIAL_FORM = {
   serialNumber: "",
   communicationType: "ethernet" as "ethernet" | "gprs" | "both",
   macAddress: "",
+  imeiGprs: "",
   viawebCode: "",
+  receiverPort: 0,
   partitions: 1,
   ipAddress: "",
   installDate: "",
@@ -38,8 +41,7 @@ const INITIAL_FORM = {
 };
 
 function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
-  const majorVersion = Number(firmwareVersion.trim().replace(/^v/i, "").split(".")[0]);
-  return brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+  return isJflVersion7OrLater(brand, firmwareVersion);
 }
 
 export default function AlarmSystems() {
@@ -88,8 +90,8 @@ export default function AlarmSystems() {
     if (!form.clientId) { toast.error("Selecione o cliente"); return; }
     if (!form.account.trim()) { toast.error("Informe o número da conta"); return; }
     if (!form.brand) { toast.error("Selecione a marca"); return; }
-    if (form.brand === "VIAWEB" && !form.viawebCode) { toast.error("Informe o código ViaWeb (4 dígitos)"); return; }
-    if (requiresJflVersion7OrLaterSerial(form.brand, form.firmwareVersion) && !/^\d{10}$/.test(form.serialNumber)) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
+    const identifierError = getAlarmSystemIdentifierValidationError(form);
+    if (identifierError) { toast.error(identifierError); return; }
 
     const payload: any = {
       clientId: form.clientId,
@@ -100,7 +102,8 @@ export default function AlarmSystems() {
       serialNumber: form.serialNumber || undefined,
       communicationType: form.communicationType,
       macAddress: form.macAddress || undefined,
-      viawebCode: form.viawebCode || undefined,
+      imeiGprs: form.imeiGprs || undefined,
+      receiverPort: form.receiverPort || undefined,
       partitions: form.partitions,
       ipAddress: form.ipAddress || undefined,
       installDate: form.installDate ? new Date(form.installDate) : undefined,
@@ -176,7 +179,7 @@ export default function AlarmSystems() {
                     <div className="grid grid-cols-6 gap-4">
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Marca *</Label>
-                        <Select onValueChange={(v) => setForm({ ...form, brand: v })}>
+                        <Select value={form.brand} onValueChange={(v) => setForm(applyAlarmSystemBrandProfile(form, v as AlarmSystemBrand) as typeof form)}>
                           <SelectTrigger className="mt-1"><SelectValue placeholder="Marca" /></SelectTrigger>
                           <SelectContent>
                             {BRANDS.map((b) => (
@@ -184,6 +187,7 @@ export default function AlarmSystems() {
                             ))}
                           </SelectContent>
                         </Select>
+                        <p className="mt-1 text-xs text-muted-foreground">{getAlarmSystemProfile(form.brand)?.identificationLabel}</p>
                       </div>
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Modelo</Label>
@@ -203,12 +207,7 @@ export default function AlarmSystems() {
                         <Label className="text-sm font-medium">Partições (até 8)</Label>
                         <Input className="mt-1" type="number" min={1} max={8} value={form.partitions} onChange={(e) => setForm({ ...form, partitions: Number(e.target.value) })} />
                       </div>
-                      {form.brand === "VIAWEB" && (
-                        <div className="col-span-2">
-                          <Label className="text-sm font-medium text-orange-400">Código ViaWeb *</Label>
-                          <Input className="mt-1 font-mono" placeholder="0000" maxLength={4} value={form.viawebCode} onChange={(e) => setForm({ ...form, viawebCode: e.target.value.replace(/\D/g, "").slice(0, 4) })} />
-                        </div>
-                      )}
+                      {form.brand === "VIAWEB" && <div className="col-span-2 rounded border border-orange-500/30 bg-orange-500/5 p-3 text-sm text-orange-200">O ID ISEP de quatro caracteres será gerado automaticamente ao salvar este sistema.</div>}
                     </div>
                   </CardContent>
                 </Card>
@@ -238,8 +237,20 @@ export default function AlarmSystems() {
                         <span className="text-xs text-muted-foreground">Identifica no dashboard</span>
                       </div>
                       <div className="col-span-2">
+                        <Label className="text-sm font-medium">IMEI GPRS (últimos 6 dígitos)</Label>
+                        <Input className="mt-1 font-mono uppercase" placeholder="123456" maxLength={6} value={form.imeiGprs} onChange={(e) => setForm({ ...form, imeiGprs: e.target.value.toUpperCase().replace(/[^0-9A-F]/gi, "").slice(0, 6) })} />
+                        <span className="text-xs text-muted-foreground">Use quando a central comunica por GPRS</span>
+                      </div>
+                      <div className="col-span-2">
                         <Label className="text-sm font-medium">IP do Receptor</Label>
                         <Input className="mt-1 font-mono" placeholder="192.168.0.100" value={form.ipAddress} onChange={(e) => setForm({ ...form, ipAddress: e.target.value })} />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-sm font-medium">Porta receptora</Label>
+                        <Select value={String(form.receiverPort || "")} onValueChange={(value) => setForm({ ...form, receiverPort: Number(value) })} disabled={!form.brand}>
+                          <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione a marca" /></SelectTrigger>
+                          <SelectContent>{(getAlarmSystemProfile(form.brand)?.receiverPorts || []).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </CardContent>

@@ -81,6 +81,8 @@
 - [x] Melhor aproveitamento do espaço horizontal nos formulários
 
 ## Cadastro de Sistema de Alarme (Completo)
+- [x] Padronizar perfis técnicos automáticos de cadastro para JFL, Compatec, Vetti, Radioenge, Intelbras e ViaWeb
+- [ ] Validar na VPS o cadastro de uma nova central a partir do perfil técnico selecionado
 - [x] Compactar a lista de Usuários do Painel para reduzir espaços vazios entre nomes
 - [x] Permitir cadastrar, editar e exibir o código de Usuário 0 como usuário mestre da central
 - [x] Exibir o usuário mestre como código 0, sem preencher o código para 00
@@ -128,6 +130,8 @@
 - [x] Busca de endereço por CEP em todos os cadastros com endereço (já implementado no cliente)
 
 ## Dashboard Operacional Funcional
+- [ ] Auditar a central Compatec que aparece Offline apesar de permanecer online no equipamento
+- [ ] Capturar lastKeepAliveAt, prazo e logs no momento em que a Compatec 0334 voltar a aparecer Offline
 - [x] Remover o uso do teste periódico E602 como supervisão Online da JFL
 - [x] Monitorar por pelo menos cinco minutos o Keep Alive real da JFL identificada por serial e MAC
 - [x] Definir o limite de desconexão da JFL conforme o intervalo real de Keep Alive medido

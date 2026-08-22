@@ -37,7 +37,8 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("Frequência técnica (segundos)");
     expect(source).toContain("Painel desconectado após (minutos)");
     expect(source).toContain("Repetir alerta de painel desconectado");
-    expect(source).toContain("receiverPort: portsForBrand(v)[0] || 0");
+    expect(source).toContain("applyAlarmSystemBrandProfile(systemForm, v as AlarmSystemBrand)");
+    expect(source).toContain("getAlarmSystemProfile(systemForm.brand)?.identificationLabel");
     expect(source).toContain("A porta é sugerida ao selecionar a central");
     expect(source).toContain("onValueChange={(value) => setSystemForm({ ...systemForm, receiverPort: Number(value) })}");
   });

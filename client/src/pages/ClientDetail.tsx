@@ -14,25 +14,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
+import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion7OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
 
 const CONTACTS_PER_PAGE = 20;
 
-const RECEIVER_PORTS: Record<string, number[]> = {
-  JFL: [9061, 9191, 9131],
-  INTELBRAS: [9071, 9271],
-  VETTI: [9161],
-  COMPATEC: [9112],
-  RADIOENGE: [9035, 9040],
-  VIAWEB: [9111],
-};
-
 function portsForBrand(brand: string) {
-  return RECEIVER_PORTS[brand] || [];
+  return getAlarmSystemProfile(brand)?.receiverPorts || [];
 }
 
 function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
-  const majorVersion = Number(firmwareVersion.trim().replace(/^v/i, "").split(".")[0]);
-  return brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+  return isJflVersion7OrLater(brand, firmwareVersion);
 }
 
 export default function ClientDetail() {
@@ -277,7 +268,7 @@ export default function ClientDetail() {
                     <div><Label>Conta (Contact ID) *</Label><Input placeholder="0001" value={systemForm.account} onChange={(e) => setSystemForm({ ...systemForm, account: e.target.value })} /></div>
                     <div>
                       <Label>Marca da central</Label>
-                      <Select value={systemForm.brand} onValueChange={(v) => setSystemForm({ ...systemForm, brand: v, receiverPort: portsForBrand(v)[0] || 0 })}>
+                      <Select value={systemForm.brand} onValueChange={(v) => setSystemForm(applyAlarmSystemBrandProfile(systemForm, v as AlarmSystemBrand) as typeof systemForm)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="JFL">JFL</SelectItem>
@@ -288,6 +279,7 @@ export default function ClientDetail() {
                           <SelectItem value="VIAWEB">ViaWeb</SelectItem>
                         </SelectContent>
                       </Select>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{getAlarmSystemProfile(systemForm.brand)?.identificationLabel}</p>
                     </div>
                     <div><Label>Modelo</Label><Input placeholder="Ex: Active 20" value={systemForm.model} onChange={(e) => setSystemForm({ ...systemForm, model: e.target.value })} /></div>
                     <div><Label>Versão / Firmware</Label><Input placeholder="Ex: 8.0.0" value={systemForm.firmwareVersion} onChange={(e) => setSystemForm({ ...systemForm, firmwareVersion: e.target.value })} /></div>
@@ -332,7 +324,8 @@ export default function ClientDetail() {
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres. Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
                   <Button className="mt-3" onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
-                    if (requiresJflVersion7OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) && !/^\d{10}$/.test(systemForm.serialNumber)) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
+                    const identifierError = getAlarmSystemIdentifierValidationError(systemForm);
+                    if (identifierError) { toast.error(identifierError); return; }
                     createSystem.mutate({ clientId, ...systemForm });
                     setShowSystemForm(false);
                     setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", firmwareVersion: "", macAddress: "", imeiGprs: "", serialNumber: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveExpectedIntervalSeconds: 60, keepAliveFailureEventEnabled: false, keepAliveOfflineAfterMinutes: 5, keepAliveDisconnectAlertEnabled: true, keepAliveRepeatAlertEnabled: false, keepAliveRepeatAlertEveryMinutes: 60 });
@@ -377,7 +370,7 @@ export default function ClientDetail() {
                   <DialogHeader><DialogTitle>Editar Sistema de Alarme</DialogTitle></DialogHeader>
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label>Conta *</Label><Input value={editingSystem.account || ""} onChange={(e) => setEditingSystem({ ...editingSystem, account: e.target.value })} /></div>
-                    <div><Label>Marca</Label><Select value={editingSystem.brand} onValueChange={(brand) => setEditingSystem({ ...editingSystem, brand, receiverPort: portsForBrand(brand)[0] || 0 })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="JFL">JFL</SelectItem><SelectItem value="INTELBRAS">Intelbras</SelectItem><SelectItem value="VETTI">Vetti</SelectItem><SelectItem value="COMPATEC">Compatec</SelectItem><SelectItem value="RADIOENGE">Radioenge</SelectItem><SelectItem value="VIAWEB">ViaWeb</SelectItem></SelectContent></Select></div>
+                    <div><Label>Marca</Label><Select value={editingSystem.brand} onValueChange={(brand) => setEditingSystem(applyAlarmSystemBrandProfile(editingSystem, brand as AlarmSystemBrand))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="JFL">JFL</SelectItem><SelectItem value="INTELBRAS">Intelbras</SelectItem><SelectItem value="VETTI">Vetti</SelectItem><SelectItem value="COMPATEC">Compatec</SelectItem><SelectItem value="RADIOENGE">Radioenge</SelectItem><SelectItem value="VIAWEB">ViaWeb</SelectItem></SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">{getAlarmSystemProfile(editingSystem.brand)?.identificationLabel}</p></div>
                     <div><Label>Modelo</Label><Input value={editingSystem.model || ""} onChange={(e) => setEditingSystem({ ...editingSystem, model: e.target.value })} /></div>
                     <div><Label>Versão / Firmware</Label><Input placeholder="Ex: 8.0.0" value={editingSystem.firmwareVersion || ""} onChange={(e) => setEditingSystem({ ...editingSystem, firmwareVersion: e.target.value })} /></div>
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} value={editingSystem.macAddress || ""} onChange={(e) => setEditingSystem({ ...editingSystem, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
@@ -407,7 +400,8 @@ export default function ClientDetail() {
                   </div>
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
-                    if (requiresJflVersion7OrLaterSerial(editingSystem.brand, editingSystem.firmwareVersion || "") && !/^\d{10}$/.test(editingSystem.serialNumber || "")) { toast.error("Informe os 10 dígitos do número de série da JFL versão 7 ou superior"); return; }
+                    const identifierError = getAlarmSystemIdentifierValidationError(editingSystem);
+                    if (identifierError) { toast.error(identifierError); return; }
                     updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveExpectedIntervalSeconds: Number(editingSystem.keepAliveExpectedIntervalSeconds) || 60, keepAliveFailureEventEnabled: editingSystem.keepAliveFailureEventEnabled === true, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5, keepAliveDisconnectAlertEnabled: editingSystem.keepAliveDisconnectAlertEnabled !== false, keepAliveRepeatAlertEnabled: editingSystem.keepAliveRepeatAlertEnabled === true, keepAliveRepeatAlertEveryMinutes: Number(editingSystem.keepAliveRepeatAlertEveryMinutes) || 60 });
                   }}>Salvar Alterações</Button>
                 </DialogContent>

@@ -33,6 +33,7 @@ import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
+import { getAlarmSystemIdentifierValidationError, isJflVersion7OrLater as isJflVersion7OrLaterByProfile } from "@shared/alarmSystemProfiles";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
@@ -460,9 +461,7 @@ function normalizePanelIdentifier(value: string) {
 }
 
 export function isJflVersion7OrLater(input: { brand?: string | null; firmwareVersion?: string | null }) {
-  const version = (input.firmwareVersion || "").trim().replace(/^v/i, "");
-  const majorVersion = Number(version.split(".")[0]);
-  return input.brand === "JFL" && Number.isInteger(majorVersion) && majorVersion >= 7;
+  return isJflVersion7OrLaterByProfile(input.brand, input.firmwareVersion);
 }
 
 export function assertRequiredJflVersion7OrLaterSerial(input: { brand?: string | null; firmwareVersion?: string | null; serialNumber?: string | null }) {
@@ -470,6 +469,11 @@ export function assertRequiredJflVersion7OrLaterSerial(input: { brand?: string |
   if (!/^\d{10}$/.test(input.serialNumber || "")) {
     throw new Error("A central JFL versão 7 ou superior exige o número de série com 10 dígitos");
   }
+}
+
+export function assertRequiredPanelIdentifier(input: { brand?: string | null; firmwareVersion?: string | null; macAddress?: string | null; imeiGprs?: string | null; serialNumber?: string | null }) {
+  const error = getAlarmSystemIdentifierValidationError(input);
+  if (error) throw new Error(error);
 }
 
 const ISEP_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -550,6 +554,7 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
     isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId()) : null,
   };
   assertRequiredJflVersion7OrLaterSerial(normalizedData);
+  assertRequiredPanelIdentifier(normalizedData);
   const result = await db.insert(alarmSystems).values(normalizedData);
   return { id: result[0].insertId };
 }
@@ -571,6 +576,13 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
   assertRequiredJflVersion7OrLaterSerial({
     brand: effectiveBrand,
     firmwareVersion: normalizedData.firmwareVersion ?? current?.firmwareVersion,
+    serialNumber: normalizedData.serialNumber ?? current?.serialNumber,
+  });
+  assertRequiredPanelIdentifier({
+    brand: effectiveBrand,
+    firmwareVersion: normalizedData.firmwareVersion ?? current?.firmwareVersion,
+    macAddress: normalizedData.macAddress ?? current?.macAddress,
+    imeiGprs: normalizedData.imeiGprs ?? current?.imeiGprs,
     serialNumber: normalizedData.serialNumber ?? current?.serialNumber,
   });
   if (effectiveBrand === "VIAWEB" && !current?.isepId && !normalizedData.isepId) normalizedData.isepId = await generateIsepId();
