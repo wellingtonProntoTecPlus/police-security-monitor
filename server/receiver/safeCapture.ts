@@ -10,7 +10,7 @@ export type SafeCaptureFrame = {
 
 export type CapturedPanelCandidate = {
   systemId: number;
-  identifierType: "mac_hex" | "mac_decimal" | "mac_ascii" | "serial_ascii";
+  identifierType: "mac_hex" | "mac_decimal" | "mac_ascii" | "imei_ascii" | "serial_ascii";
   identifier: string;
 };
 
@@ -79,12 +79,25 @@ function normalizeIdentifier(value: string | null | undefined) {
 export function parseJflConnectionIdentity(payload: Buffer) {
   if (payload.length < 16 || payload[0] !== 0x7b || payload[3] !== 0x21) return undefined;
   const packetText = payload.toString("latin1");
-  const serialNumber = packetText.match(/(?<!\d)(\d{10})(?!\d)/)?.[1];
-  const fullMac = packetText.match(/[A-F0-9]{12}/)?.[0];
-  if (!serialNumber && !fullMac) return undefined;
+  // Nos quadros JFL Active v7+, os identificadores ficam após o cabeçalho
+  // 7B/len/seq/21. A leitura fixa impede que uma parte do IMEI seja confundida
+  // com o serial de 10 dígitos da central.
+  const serialAtFixedOffset = packetText.slice(4, 14);
+  const imeiAtFixedOffset = packetText.slice(14, 29);
+  const macAtFixedOffset = packetText.slice(29, 41);
+  const serialNumber = /^\d{10}$/.test(serialAtFixedOffset)
+    ? serialAtFixedOffset
+    : packetText.match(/(?<!\d)(\d{10})(?!\d)/)?.[1];
+  const imeiNumber = /^\d{15}$/.test(imeiAtFixedOffset) ? imeiAtFixedOffset : undefined;
+  const fullMac = /^[A-F0-9]{12}$/.test(macAtFixedOffset)
+    ? macAtFixedOffset
+    : packetText.match(/[A-F0-9]{12}/)?.[0];
+  if (!serialNumber && !imeiNumber && !fullMac) return undefined;
 
   return {
     serialNumber,
+    imeiNumber,
+    imeiSuffix: imeiNumber?.slice(-6),
     fullMac,
     macSuffix: fullMac?.slice(-6),
   };
@@ -107,7 +120,9 @@ export function findCapturedPanelCandidates(
     : [];
 
   for (const system of systems) {
-    const identifier = normalizeIdentifier(system.macAddress || system.imeiGprs);
+    const macAddress = normalizeIdentifier(system.macAddress);
+    const imeiGprs = normalizeIdentifier(system.imeiGprs);
+    const identifier = macAddress || imeiGprs;
     const serialNumber = normalizeIdentifier(system.serialNumber);
 
     if (normalizedBrand === "JFL") {
@@ -115,8 +130,11 @@ export function findCapturedPanelCandidates(
         if (serialNumber.length === 10 && connectionIdentity!.serialNumber === serialNumber) {
           candidates.push({ systemId: system.id, identifierType: "serial_ascii", identifier: serialNumber });
         }
-        if (identifier.length === 6 && connectionIdentity!.macSuffix === identifier) {
-          candidates.push({ systemId: system.id, identifierType: "mac_ascii", identifier });
+        if (macAddress.length === 6 && connectionIdentity!.macSuffix === macAddress) {
+          candidates.push({ systemId: system.id, identifierType: "mac_ascii", identifier: macAddress });
+        }
+        if (imeiGprs.length === 6 && connectionIdentity!.imeiSuffix === imeiGprs) {
+          candidates.push({ systemId: system.id, identifierType: "imei_ascii", identifier: imeiGprs });
         }
       }
       continue;
@@ -146,7 +164,22 @@ export function findCapturedPanelCandidates(
 }
 
 export function resolveUniqueCapturedPanelCandidate(candidates: CapturedPanelCandidate[]) {
-  const uniqueSystemIds = Array.from(new Set(candidates.map((candidate) => candidate.systemId)));
-  if (uniqueSystemIds.length !== 1) return undefined;
-  return candidates.find((candidate) => candidate.systemId === uniqueSystemIds[0]);
+  const identifierPriority: CapturedPanelCandidate["identifierType"][] = [
+    "serial_ascii",
+    "mac_ascii",
+    "imei_ascii",
+    "mac_hex",
+    "mac_decimal",
+  ];
+
+  for (const identifierType of identifierPriority) {
+    const candidatesForType = candidates.filter((candidate) => candidate.identifierType === identifierType);
+    const systemIds = Array.from(new Set(candidatesForType.map((candidate) => candidate.systemId)));
+    if (systemIds.length === 1) return candidatesForType[0];
+    // Um identificador do mesmo tipo que aponta para mais de um cadastro é ambíguo
+    // e jamais pode ser substituído por uma conta Contact ID ou outro cadastro.
+    if (systemIds.length > 1) return undefined;
+  }
+
+  return undefined;
 }

@@ -80,7 +80,7 @@ describe("captura segura de pacotes", () => {
   it("extrai serial e MAC do quadro de conexão JFL e encontra o painel por identificador único", () => {
     const payloadHex = "7B661D2132383031393336363231FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF343431443634334243453234A7383030020101060000015000004400000000000000000000000000000000000000000000000000000000000200000000000000000000000000000056";
     const identity = parseJflConnectionIdentity(Buffer.from(payloadHex, "hex"));
-    expect(identity).toEqual({ serialNumber: "2801936621", fullMac: "441D643BCE24", macSuffix: "3BCE24" });
+    expect(identity).toEqual({ serialNumber: "2801936621", imeiNumber: undefined, imeiSuffix: undefined, fullMac: "441D643BCE24", macSuffix: "3BCE24" });
 
     const candidates = findCapturedPanelCandidates("JFL", [{
       brand: "JFL", receiverPort: 9061, remoteIp: "190.111.129.105", capturedAt: "2026-08-21T00:00:00.000Z", totalBytes: 102, payloadHex, truncated: false,
@@ -90,5 +90,32 @@ describe("captura segura de pacotes", () => {
       { systemId: 44, identifierType: "mac_ascii", identifier: "3BCE24" },
     ]);
     expect(resolveUniqueCapturedPanelCandidate(candidates)).toEqual({ systemId: 44, identifierType: "serial_ascii", identifier: "2801936621" });
+  });
+
+  it("identifica a JFL Active 32 DUO da conta 0071 pelos campos fixos do quadro real", () => {
+    const payloadHex = "7B66C72132363834363736323937333537313239303736363038343433313430383038373539354343A0373530020100021900010071000200030004000000000000000000000000000000000000000000000000000000000000003A";
+    const identity = parseJflConnectionIdentity(Buffer.from(payloadHex, "hex"));
+    expect(identity).toEqual({
+      serialNumber: "2684676297",
+      imeiNumber: "357129076608443",
+      imeiSuffix: "608443",
+      fullMac: "1408087595CC",
+      macSuffix: "7595CC",
+    });
+
+    const candidates = findCapturedPanelCandidates("JFL", [{
+      brand: "JFL", receiverPort: 9061, remoteIp: "37.25.88.1", capturedAt: "2026-08-22T19:55:00.000Z", totalBytes: 102, payloadHex, truncated: false,
+    }], [
+      { id: 27, macAddress: "7595CC", imeiGprs: "608443", serialNumber: "2684676297" },
+      { id: 88, macAddress: "7595CC", imeiGprs: "999999", serialNumber: "1234567890" },
+    ]);
+
+    expect(candidates).toEqual([
+      { systemId: 27, identifierType: "serial_ascii", identifier: "2684676297" },
+      { systemId: 27, identifierType: "mac_ascii", identifier: "7595CC" },
+      { systemId: 27, identifierType: "imei_ascii", identifier: "608443" },
+      { systemId: 88, identifierType: "mac_ascii", identifier: "7595CC" },
+    ]);
+    expect(resolveUniqueCapturedPanelCandidate(candidates)).toEqual({ systemId: 27, identifierType: "serial_ascii", identifier: "2684676297" });
   });
 });

@@ -71,6 +71,7 @@
 ## Cadastro Completo do Cliente
 - [x] Adicionar tipo de cliente: Residência, Empresa ou Condomínio
 - [x] Exibir e persistir Número do Apartamento nos usuários do painel quando o cliente for Condomínio
+- [ ] Corrigir a sincronização da VPS para exibir os novos campos de classificação e apartamento
 - [x] Atualizar schema do banco com campos: nomefantasia, complemento, bairro, numero
 - [x] Formulário profissional com seções: Empresa Responsável, Dados do Cliente, Endereço, Contatos
 - [x] Busca de CEP automática (ViaCEP)
@@ -357,6 +358,12 @@
 - [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
 
 ## Identificação de Sistemas de Alarme
+- [x] Confirmar que o tráfego TLS da porta 9191 é uma sondagem externa, não uma central JFL
+- [ ] Conferir no Programador JFL a porta configurada e validar a recepção da central real
+- [ ] Diagnosticar a central JFL indicada como conectada no programador, mas ausente na Police Central
+- [ ] Auditar a recepção e a identificação da central JFL conta 0071 na porta 9061
+- [x] Corrigir o IMEI e o MAC cadastrados da central JFL 0071 antes de validar a conexão
+- [x] Corrigir a associação do quadro JFL da conta 0071 ao sistema 27 pelo serial, MAC ou IMEI
 - [x] Extrair serial e MAC do quadro JFL de conexão de 102 bytes e vincular os eventos subsequentes ao painel identificado
 - [x] Identificar o protocolo ou canal pelo qual a FullTime obtém o serial da JFL Active 20
 - [x] Validar na VPS que a JFL 0044 restaurada é identificada por serial ou MAC antes do próximo evento Contact ID
