@@ -16,6 +16,7 @@ import {
   contactIdCodes,
   systemTechnicalAccounts,
   systemKeepAliveSamples,
+  systemDisconnectAlerts,
   alarmRemoteCommands, InsertAlarmRemoteCommand,
 } from "../drizzle/schema";
 import {
@@ -34,10 +35,11 @@ import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
-import { getAlarmSystemIdentifierValidationError, isJflVersion7OrLater as isJflVersion7OrLaterByProfile } from "@shared/alarmSystemProfiles";
+import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
+import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 
@@ -341,9 +343,9 @@ export async function getAlarmSystemByReceivedAccount(account: string, brand?: s
     : (!brand && !receiverPort ? await getAlarmSystemByAccount(normalizedAccount) : undefined);
   if (!found) return undefined;
 
-  const now = new Date();
-  await db.update(alarmSystems).set({ isOnline: true, lastCommunication: now }).where(eq(alarmSystems.id, found.id));
-  return { ...found, isOnline: true, lastCommunication: now };
+  // Evento Contact ID, por si só, não confirma a supervisão do painel. O status
+  // Online é atualizado exclusivamente por recordSystemKeepAlive.
+  return found;
 }
 
 /**
@@ -384,10 +386,10 @@ export async function endSystemMaintenance(systemId: number) {
   }).where(eq(alarmSystems.id, systemId));
 }
 
-export async function listSystemsConnectionStatus() {
+export async function listSystemsConnectionStatus(referenceTime = new Date()) {
   const systems = await listAlarmSystems();
   const db = await getDb();
-  if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const }));
+  if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const, cutoffMs: null }));
 
   const systemIds = systems.map((system) => system.id);
   const samples = await db.select({
@@ -413,6 +415,7 @@ export async function listSystemsConnectionStatus() {
       lastKeepAliveAt: system.lastKeepAliveAt,
       intervals: intervalsBySystem.get(system.id),
       configuredOfflineAfterMinutes: system.keepAliveOfflineAfterMinutes,
+      now: referenceTime,
     });
     return { ...system, ...status };
   });
@@ -439,7 +442,131 @@ export async function recordSystemKeepAlive(systemId: number, receivedAt = new D
     receivedAt,
     intervalMs: measurement.intervalMs,
   });
-  return { system, ...measurement };
+  await markDisconnectAlertsRestored(systemId, receivedAt);
+  return measurement;
+}
+
+export type KeepAliveDisconnectOpening = {
+  id: number;
+  incidentId: number;
+  alarmSystemId: number;
+  account: string;
+  brand: string;
+  eventCode: string;
+  qualifier: string;
+  description: string;
+  priority: "critical" | "high" | "medium" | "low";
+  receiverPort: number | null;
+  receivedAt: Date;
+};
+
+function isDuplicateKeyError(error: unknown) {
+  const code = (error as { code?: string } | undefined)?.code;
+  return code === "ER_DUP_ENTRY";
+}
+
+/**
+ * Cria apenas uma ocorrência por período contínuo sem Keep Alive. A chave única
+ * combina sistema e o último sinal recebido, portanto qualquer novo Keep Alive
+ * reinicia a janela e permite uma futura queda legítima sem somar períodos.
+ */
+export async function sweepKeepAliveDisconnects(referenceTime = new Date()) {
+  const db = await getDb();
+  if (!db) return { opened: [] as KeepAliveDisconnectOpening[], skipped: 0 };
+
+  const systems = await listSystemsConnectionStatus(referenceTime);
+  return processKeepAliveDisconnectCandidates<KeepAliveDisconnectOpening>({
+    systems: systems as KeepAliveDisconnectCandidate[],
+    isInMaintenance: (system) => isSystemInMaintenance({
+      maintenanceStartAt: system.maintenanceStartAt,
+      maintenanceEndAt: system.maintenanceEndAt,
+    }, referenceTime),
+    openOnce: async (system) => {
+    const lastKeepAliveAt = new Date(system.lastKeepAliveAt);
+    const description = "Painel desconectado — prazo de Keep Alive excedido";
+    const notes = `Sem Keep Alive desde ${lastKeepAliveAt.toLocaleString("pt-BR")}. Prazo configurado: ${system.keepAliveOfflineAfterMinutes || Math.round((system.cutoffMs || 0) / 60_000)} minuto(s). Aguardando tratamento do operador.`;
+
+    try {
+      const opening = await db.transaction(async (tx) => {
+        // A reserva vem antes do evento. Caso outro disparo concorrente já tenha
+        // criado a mesma ocorrência, a chave única interrompe esta transação.
+        const claim = await tx.insert(systemDisconnectAlerts).values({
+          alarmSystemId: system.id,
+          outageStartedAt: lastKeepAliveAt,
+          detectedAt: referenceTime,
+        });
+        const alertId = Number(claim[0].insertId);
+        const eventResult = await tx.insert(alarmEvents).values({
+          alarmSystemId: system.id,
+          account: system.account,
+          brand: system.brand,
+          qualifier: "E",
+          eventCode: "KOFF",
+          description,
+          priority: "high",
+          receiverPort: system.receiverPort || null,
+          remoteIp: "SYSTEM",
+          rawData: `KEEP_ALIVE_TIMEOUT|last=${lastKeepAliveAt.toISOString()}|cutoffMs=${system.cutoffMs || 0}`,
+          receivedAt: referenceTime,
+        });
+        const eventId = Number(eventResult[0].insertId);
+        const incidentResult = await tx.insert(incidents).values({
+          eventId,
+          alarmSystemId: system.id,
+          clientId: system.clientId,
+          status: "waiting",
+          priority: "high",
+          notes,
+        });
+        const incidentId = Number(incidentResult[0].insertId);
+        await tx.update(systemDisconnectAlerts).set({ eventId, incidentId }).where(eq(systemDisconnectAlerts.id, alertId));
+        return {
+          id: eventId,
+          incidentId,
+          alarmSystemId: system.id,
+          account: system.account,
+          brand: system.brand,
+          eventCode: "KOFF",
+          qualifier: "E",
+          description,
+          priority: "high" as const,
+          receiverPort: system.receiverPort || null,
+          receivedAt: referenceTime,
+        };
+      });
+      return opening;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) return null;
+      throw error;
+    }
+    },
+  });
+}
+
+/** O retorno do Keep Alive não apaga o histórico: transfere a ocorrência de desconexão para Observação. */
+export async function markDisconnectAlertsRestored(systemId: number, receivedAt = new Date()) {
+  const db = await getDb();
+  if (!db) return 0;
+  const activeAlerts = await db.select().from(systemDisconnectAlerts).where(and(
+    eq(systemDisconnectAlerts.alarmSystemId, systemId),
+    sql`${systemDisconnectAlerts.restoredAt} IS NULL`,
+  ));
+  if (activeAlerts.length === 0) return 0;
+
+  const message = `Keep Alive restabelecido em ${receivedAt.toLocaleString("pt-BR")}. Ocorrência em observação, aguardando finalização do operador.`;
+  return restoreKeepAliveDisconnectAlerts({
+    alerts: activeAlerts,
+    markRestored: async (alertId) => {
+      await db.update(systemDisconnectAlerts).set({ restoredAt: receivedAt, restoredKeepAliveAt: receivedAt }).where(eq(systemDisconnectAlerts.id, alertId));
+    },
+    moveIncidentToObservation: async (incidentId) => {
+      await db.update(incidents).set({
+        status: "observing",
+        observationUntil: null,
+        notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${message}`})`,
+      }).where(and(eq(incidents.id, incidentId), ne(incidents.status, "closed")));
+    },
+  });
 }
 
 export async function ensureSystemTechnicalAccount() {
@@ -461,14 +588,14 @@ function normalizePanelIdentifier(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-export function isJflVersion7OrLater(input: { brand?: string | null; firmwareVersion?: string | null }) {
-  return isJflVersion7OrLaterByProfile(input.brand, input.firmwareVersion);
+export function isJflVersion5OrLater(input: { brand?: string | null; firmwareVersion?: string | null }) {
+  return isJflVersion5OrLaterByProfile(input.brand, input.firmwareVersion);
 }
 
-export function assertRequiredJflVersion7OrLaterSerial(input: { brand?: string | null; firmwareVersion?: string | null; serialNumber?: string | null }) {
-  if (!isJflVersion7OrLater(input)) return;
+export function assertRequiredJflVersion5OrLaterSerial(input: { brand?: string | null; firmwareVersion?: string | null; serialNumber?: string | null }) {
+  if (!isJflVersion5OrLater(input)) return;
   if (!/^\d{10}$/.test(input.serialNumber || "")) {
-    throw new Error("A central JFL versão 7 ou superior exige o número de série com 10 dígitos");
+    throw new Error("A central JFL versão 5 ou superior exige o número de série com 10 dígitos");
   }
 }
 
@@ -529,9 +656,9 @@ export async function getAlarmSystemByCapturedPanelIdentifier(input: { brand: st
   const found = systems.find((system) => system.id === candidate.systemId);
   if (!found) return undefined;
 
-  const now = new Date();
-  await db.update(alarmSystems).set({ isOnline: true, lastCommunication: now }).where(eq(alarmSystems.id, found.id));
-  return { ...found, isOnline: true, lastCommunication: now, capturedIdentifier: candidate };
+  // A identificação de conexão comprova qual é o painel, mas não substitui o
+  // Keep Alive real como fonte de verdade para Online/Offline.
+  return { ...found, capturedIdentifier: candidate };
 }
 
 export async function getAlarmSystem(id: number) {
@@ -590,7 +717,7 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
     serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null,
     isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId()) : null,
   };
-  assertRequiredJflVersion7OrLaterSerial(normalizedData);
+  assertRequiredJflVersion5OrLaterSerial(normalizedData);
   assertRequiredPanelIdentifier(normalizedData);
   const result = await db.insert(alarmSystems).values(normalizedData);
   return { id: result[0].insertId };
@@ -610,7 +737,7 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
     ...(data.serialNumber !== undefined ? { serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null } : {}),
   };
   const effectiveBrand = normalizedData.brand || current?.brand;
-  assertRequiredJflVersion7OrLaterSerial({
+  assertRequiredJflVersion5OrLaterSerial({
     brand: effectiveBrand,
     firmwareVersion: normalizedData.firmwareVersion ?? current?.firmwareVersion,
     serialNumber: normalizedData.serialNumber ?? current?.serialNumber,
@@ -1126,13 +1253,13 @@ export async function getDashboardStats() {
 
   const [pendingResult] = await db.select({ count: sql<number>`count(*)` }).from(incidents).where(eq(incidents.status, 'waiting'));
   const [clientsResult] = await db.select({ count: sql<number>`count(*)` }).from(clients).where(eq(clients.isActive, true));
-  const [onlineResult] = await db.select({ count: sql<number>`count(*)` }).from(alarmSystems).where(eq(alarmSystems.isOnline, true));
+  const connectionSystems = await listSystemsConnectionStatus();
 
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
   const [eventsResult] = await db.select({ count: sql<number>`count(*)` }).from(alarmEvents).where(sql`${alarmEvents.receivedAt} >= ${fiveMinAgo}`);
 
   return {
-    activeConnections: onlineResult?.count ?? 0,
+    activeConnections: connectionSystems.filter((system) => system.connectionStatus === "online").length,
     pendingEvents: pendingResult?.count ?? 0,
     eventsPerMin: Math.round((eventsResult?.count ?? 0) / 5),
     totalClients: clientsResult?.count ?? 0,

@@ -180,6 +180,7 @@
 - [x] Fluxo de status: Aguardando → Em Atendimento → Observação/Despacho → Finalizado
 - [x] Identificar com precisão as centrais online e offline por comunicação real
 - [x] Atualizar Online e Offline exclusivamente pelo Keep Alive recebido de cada central
+- [x] Unificar o status exibido no cadastro e nos modais Online/Offline para usar exclusivamente lastKeepAliveAt e o prazo configurado
 - [x] Medir e registrar o intervalo real entre Keep Alives por central antes de definir o tempo de Offline
 - [x] Persistir amostras de Keep Alive para calcular frequência por central e fabricante
 - [x] Medir o intervalo de Keep Alive usando lastKeepAliveAt como referência exclusiva, sem misturar outras comunicações
@@ -207,7 +208,10 @@
 - [x] Diagnosticar por que a conta 0035 não foi exibida como Online no dashboard
 - [x] Vincular de forma segura o Keep Alive JFL da porta 9061 à central cadastrada da conta 0035
 - [ ] Criar uma única ocorrência de painel desconectado quando o Keep Alive expirar, sem alertas recorrentes automáticos
+- [ ] Alertar o operador e criar ocorrência tratável na fila quando uma central exceder o prazo sem Keep Alive real
 - [ ] Manter a ocorrência de desconexão em Observação até a finalização manual após o retorno Online
+- [ ] Ativar no procedimento real de atualização da VPS a varredura automática de desconexão e validar o cron instalado
+- [ ] Cobrir o ciclo completo: limite estrito, abertura única, ausência de duplicidade e retorno para Observação
 - [ ] Exibir nos modais Online e Offline as listas informativas das centrais e suas ocorrências em acompanhamento
 - [ ] Preservar histórico de contatos, observações e operador entre turnos para a próxima operadora continuar o atendimento
 - [x] Diagnosticar o retorno HTML transitório da pré-visualização e confirmar a recuperação das consultas da API
@@ -372,6 +376,7 @@
 - [x] Confirmar que a JFL 0044 envia apenas Contact ID de 24 bytes à porta 9061, sem serial, MAC ou IMEI
 - [ ] Obter da FullTime ou JFL a documentação do canal proprietário que fornece o serial da JFL versão 7 ou superior
 - [x] Exigir e validar o serial de 10 caracteres para centrais JFL Active versão 7 ou superior
+- [x] Exibir o campo Serial para todas as centrais JFL e torná-lo obrigatório somente a partir da versão 5.0
 - [x] Impedir a associação de qualquer central IP somente pela conta Contact ID; exigir MAC e/ou IMEI confirmado
 - [x] Capturar os quadros da JFL Active 20 e documentar que a conta 0044 chegou sem serial ou MAC confirmado
 - [x] Substituído por decisão operacional: JFL sem MAC ou IMEI confirmado segue para a Conta do Sistema 0000, sem associação por conta
@@ -584,3 +589,7 @@
 - [x] Criar no popup de atendimento as ações Compatec de Arme, Desarme, Isolar/Restaurar Zona e Acionar PGM com confirmação dupla
 - [x] Implementar o gerador MicroBus Compatec para CMD_GRUPO, CMD_SETOR, CMD_MASK_SETOR e CMD_PGM em modo de simulação
 - [x] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional
+- [ ] Atualizar a VPS com o receptor Compatec e o histórico de simulação antes da homologação em bancada
+- [ ] Validar em bancada a simulação auditável sem transmitir MicroBus à central
+- [ ] Confirmar com a Compatec ou por captura controlada a porta, rota e resposta MicroBus da central de bancada
+- [ ] Homologar em bancada, um por vez, consulta de estado, arme, desarme, isolamento/restauração e PGM

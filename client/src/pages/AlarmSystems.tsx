@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Search, Shield, ArrowLeft, Save, Wifi, Radio, Clock, Camera, Users, Layers } from "lucide-react";
 import { toast } from "sonner";
-import { ALARM_SYSTEM_BRANDS, applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion7OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
+import { ALARM_SYSTEM_BRANDS, applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
 
 const BRANDS = ALARM_SYSTEM_BRANDS;
 
@@ -42,8 +42,8 @@ const INITIAL_FORM = {
   keepAliveRepeatAlertEveryMinutes: 60,
 };
 
-function requiresJflVersion7OrLaterSerial(brand: string, firmwareVersion: string) {
-  return isJflVersion7OrLater(brand, firmwareVersion);
+function requiresJflVersion5OrLaterSerial(brand: string, firmwareVersion: string) {
+  return isJflVersion5OrLater(brand, firmwareVersion);
 }
 
 export default function AlarmSystems() {
@@ -201,7 +201,7 @@ export default function AlarmSystems() {
                         <Label className="text-sm font-medium">Versão/Firmware</Label>
                         <Input className="mt-1" placeholder="Ex: v3.2.1" value={form.firmwareVersion} onChange={(e) => setForm({ ...form, firmwareVersion: e.target.value })} />
                       </div>
-                      {requiresJflVersion7OrLaterSerial(form.brand, form.firmwareVersion) && <div className="col-span-3"><Label className="text-sm font-medium text-amber-300">Número de Série * (JFL v7 ou superior)</Label><Input className="mt-1 font-mono" inputMode="numeric" maxLength={10} placeholder="2801936621" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><span className="text-xs text-muted-foreground">Informe os 10 caracteres do número de série.</span></div>}
+                      {form.brand === "JFL" && <div className="col-span-3"><Label className="text-sm font-medium text-amber-300">Número de Série {requiresJflVersion5OrLaterSerial(form.brand, form.firmwareVersion) ? "* (JFL v5 ou superior)" : "(opcional abaixo da v5)"}</Label><Input className="mt-1 font-mono" inputMode="numeric" maxLength={10} placeholder="2801936621" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><span className="text-xs text-muted-foreground">Informe sempre que disponível. A partir da versão 5.0, são obrigatórios 10 dígitos.</span></div>}
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Nº da Conta *</Label>
                         <Input className="mt-1 font-mono font-bold text-lg" placeholder="PS0001" value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value.toUpperCase() })} />

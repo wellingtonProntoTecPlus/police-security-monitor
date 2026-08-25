@@ -204,6 +204,25 @@ export const systemKeepAliveSamples = mysqlTable("system_keep_alive_samples", {
 export type SystemKeepAliveSample = typeof systemKeepAliveSamples.$inferSelect;
 
 // ============================================================
+// ALERTAS DE DESCONEXÃO POR KEEP ALIVE
+// ============================================================
+export const systemDisconnectAlerts = mysqlTable("system_disconnect_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  outageStartedAt: timestamp("outageStartedAt").notNull(),
+  detectedAt: timestamp("detectedAt").defaultNow().notNull(),
+  eventId: int("eventId"),
+  incidentId: int("incidentId"),
+  restoredAt: timestamp("restoredAt"),
+  restoredKeepAliveAt: timestamp("restoredKeepAliveAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("system_disconnect_alerts_system_outage_unique").on(table.alarmSystemId, table.outageStartedAt),
+]);
+
+export type SystemDisconnectAlert = typeof systemDisconnectAlerts.$inferSelect;
+
+// ============================================================
 // ZONAS/SETORES DO SISTEMA DE ALARME
 // ============================================================
 export const alarmZones = mysqlTable("alarm_zones", {

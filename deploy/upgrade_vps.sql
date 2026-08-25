@@ -499,6 +499,20 @@ CREATE TABLE IF NOT EXISTS system_keep_alive_samples (
   INDEX system_keep_alive_samples_system_received (alarmSystemId, receivedAt)
 );
 
+-- Cada período contínuo sem Keep Alive gera no máximo uma ocorrência.
+CREATE TABLE IF NOT EXISTS system_disconnect_alerts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  outageStartedAt TIMESTAMP NOT NULL,
+  detectedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  eventId INT NULL,
+  incidentId INT NULL,
+  restoredAt TIMESTAMP NULL,
+  restoredKeepAliveAt TIMESTAMP NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY system_disconnect_alerts_system_outage_unique (alarmSystemId, outageStartedAt)
+);
+
 -- Histórico imutável de comandos remotos; o primeiro uso é somente simulação.
 CREATE TABLE IF NOT EXISTS alarm_remote_commands (
   id INT AUTO_INCREMENT PRIMARY KEY,
