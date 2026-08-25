@@ -698,7 +698,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional do comando").max(2000),
       password: z.string().min(1, "Informe a senha do operador para confirmar"),
       partition: z.number().int().min(0).max(16).optional(),
-      zoneNumber: z.number().int().min(1).max(999).optional(),
+      zoneNumber: z.number().int().min(1).max(10).optional(),
       pgmNumber: z.number().int().min(1).max(16).optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);

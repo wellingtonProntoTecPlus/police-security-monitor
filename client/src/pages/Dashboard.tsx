@@ -91,6 +91,15 @@ function dateTimeLocalValue(date: Date) {
   return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
 }
 
+function getSimulatedMicroBusFrames(commandPayload?: string | null) {
+  try {
+    const parsed = JSON.parse(commandPayload || "{}");
+    return Array.isArray(parsed.frames) ? parsed.frames.filter((frame: unknown) => typeof frame === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function incidentStatusToQueueStatus(status?: string): QueueStatus {
   if (status === "attending") return "attending";
   if (status === "observing") return "observing";
@@ -1049,7 +1058,7 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-2">
                   {(Object.keys(REMOTE_COMMAND_LABELS) as RemoteCommandType[]).map((command) => <Button key={command} type="button" variant={remoteCommandType === command ? "default" : "outline"} className="h-auto min-h-11 justify-start whitespace-normal text-left text-xs" onClick={() => setRemoteCommandType(command)}>{REMOTE_COMMAND_LABELS[command]}</Button>)}
                 </div>
-                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">Zona <input type="number" min="1" max="999" value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Ex.: 1" /></label>}
+                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">Zona <input type="number" min="1" max="10" value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="De 1 a 10" /></label>}
                 {remoteCommandType === "activate_pgm" && <label className="block text-sm font-medium text-foreground">PGM <select value={remoteCommandPgm} onChange={(event) => setRemoteCommandPgm(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a PGM</option>{compatecPgms.map((pgm: any) => <option key={pgm.id} value={pgm.pgmNumber}>PGM {pgm.pgmNumber} · {pgm.name}</option>)}{compatecPgms.length === 0 && Array.from({ length: 16 }, (_, index) => <option key={index + 1} value={index + 1}>PGM {index + 1}</option>)}</select></label>}
                 <label className="block text-sm font-medium text-foreground">Motivo operacional <Textarea className="mt-1 min-h-24" value={remoteCommandReason} onChange={(event) => setRemoteCommandReason(event.target.value)} placeholder="Ex.: cliente confirmado por telefone; operador solicitou o comando durante o atendimento." /></label>
                 <label className="block text-sm font-medium text-foreground">Senha do operador <input type="password" value={remoteCommandPassword} onChange={(event) => setRemoteCommandPassword(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Confirmação obrigatória" autoComplete="current-password" /></label>
@@ -1059,7 +1068,7 @@ export default function Dashboard() {
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
                 <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. O modo atual impede envio físico à central.</p>
                 <div className="mt-3 max-h-[390px] space-y-2 overflow-y-auto pr-1">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_LABELS[command.commandType as RemoteCommandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p></div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_LABELS[command.commandType as RemoteCommandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedMicroBusFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro MicroBus simulado</p>{getSimulatedMicroBusFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>
