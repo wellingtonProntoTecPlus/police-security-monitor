@@ -382,6 +382,33 @@ export type AlarmPgm = typeof alarmPgms.$inferSelect;
 export type InsertAlarmPgm = typeof alarmPgms.$inferInsert;
 
 // ============================================================
+// COMANDOS REMOTOS AUDITÁVEIS (SIMULAÇÃO OU ENVIO CONTROLADO)
+// ============================================================
+export const alarmRemoteCommands = mysqlTable("alarm_remote_commands", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  incidentId: int("incidentId"),
+  operatorId: int("operatorId").notNull(),
+  brand: varchar("brand", { length: 30 }).notNull(),
+  commandType: varchar("commandType", { length: 40 }).notNull(),
+  transportMode: varchar("transportMode", { length: 20 }).notNull().default("simulation"),
+  status: varchar("status", { length: 30 }).notNull().default("simulated"),
+  partition: int("partition"),
+  zoneNumber: int("zoneNumber"),
+  pgmNumber: int("pgmNumber"),
+  reason: text("reason").notNull(),
+  commandPayload: text("commandPayload").notNull(),
+  responsePayload: text("responsePayload"),
+  confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
+  executedAt: timestamp("executedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AlarmRemoteCommand = typeof alarmRemoteCommands.$inferSelect;
+export type InsertAlarmRemoteCommand = typeof alarmRemoteCommands.$inferInsert;
+
+// ============================================================
 // TABELA DE HORÁRIOS (Arme/Desarme programado)
 // ============================================================
 export const alarmSchedules = mysqlTable("alarm_schedules", {

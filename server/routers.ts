@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
+import { buildCompatecSimulationPayload, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -684,6 +685,53 @@ export const appRouter = router({
     armDisarmStatus: operatorProcedure.query(() => db.getArmDisarmStatus()),
     recentAutoFinalizedArmDisarm: operatorProcedure.query(() => db.listRecentAutoFinalizedArmDisarmConfirmations()),
     connectionStatus: operatorProcedure.query(() => db.listSystemsConnectionStatus()),
+  }),
+  remoteCommand: router({
+    list: operatorProcedure.input(z.object({ alarmSystemId: z.number(), limit: z.number().int().min(1).max(100).optional() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listAlarmRemoteCommands(input.alarmSystemId, input.limit);
+    }),
+    simulate: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      incidentId: z.number().optional(),
+      commandType: z.enum(remoteCommandTypes),
+      reason: z.string().trim().min(5, "Informe o motivo operacional do comando").max(2000),
+      password: z.string().min(1, "Informe a senha do operador para confirmar"),
+      partition: z.number().int().min(0).max(16).optional(),
+      zoneNumber: z.number().int().min(1).max(999).optional(),
+      pgmNumber: z.number().int().min(1).max(16).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+      if (system.brand !== "COMPATEC") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos são exclusivos para centrais Compatec" });
+      const targetError = validateRemoteCommandTarget(input);
+      if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
+
+      const operator = await db.getUserById(ctx.user.id);
+      if (!operator?.password || !await bcrypt.compare(input.password, operator.password)) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha do operador inválida" });
+      }
+
+      const commandPayload = buildCompatecSimulationPayload(input);
+      const created = await db.createAlarmRemoteCommand({
+        alarmSystemId: system.id,
+        incidentId: input.incidentId ?? null,
+        operatorId: ctx.user.id,
+        brand: "COMPATEC",
+        commandType: input.commandType,
+        transportMode: "simulation",
+        status: "simulated",
+        partition: input.partition ?? null,
+        zoneNumber: input.zoneNumber ?? null,
+        pgmNumber: input.pgmNumber ?? null,
+        reason: input.reason,
+        commandPayload,
+        responsePayload: "SIMULAÇÃO CONCLUÍDA — nenhum pacote MicroBus foi transmitido à central.",
+        executedAt: new Date(),
+      });
+      return { ...created, status: "simulated" as const };
+    }),
   }),
   alarmPgm: router({
     list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {

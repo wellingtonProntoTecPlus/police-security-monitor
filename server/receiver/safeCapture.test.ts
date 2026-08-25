@@ -70,6 +70,15 @@ describe("captura segura de pacotes", () => {
     expect(resolveUniqueCapturedPanelCandidate(compatecCandidates)).toEqual({ systemId: 3, identifierType: "mac_ascii", identifier: "C1BDCB" });
   });
 
+  it("reconhece o identificador Compatec como IMEI quando a central usa MG1/GPRS", () => {
+    const candidates = findCapturedPanelCandidates("COMPATEC", [{
+      brand: "COMPATEC", receiverPort: 9112, remoteIp: "198.51.100.11", capturedAt: "2026-08-23T12:00:00.000Z", totalBytes: 7, payloadHex: "2A363038343433", truncated: false,
+    }], [{ id: 9, macAddress: "C1BDCB", imeiGprs: "608443" }]);
+
+    expect(candidates).toEqual([{ systemId: 9, identifierType: "imei_ascii", identifier: "608443" }]);
+    expect(resolveUniqueCapturedPanelCandidate(candidates)).toEqual({ systemId: 9, identifierType: "imei_ascii", identifier: "608443" });
+  });
+
   it("não associa uma captura quando o mesmo MAC estiver duplicado no cadastro", () => {
     expect(resolveUniqueCapturedPanelCandidate([
       { systemId: 3, identifierType: "mac_ascii", identifier: "C1BDCB" },

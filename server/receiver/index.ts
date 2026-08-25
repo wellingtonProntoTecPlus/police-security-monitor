@@ -14,6 +14,7 @@ import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccoun
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
+import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -33,6 +34,9 @@ type EventCallback = (event: any) => void;
 
 let eventCallback: EventCallback | null = null;
 const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
+const compatecPendingBytesBySocket = new WeakMap<object, Buffer>();
+const compatecAccountBySocket = new WeakMap<object, string>();
+const compatecRecentEventsBySocket = new WeakMap<object, Map<string, number>>();
 
 export function setEventCallback(cb: EventCallback) {
   eventCallback = cb;
@@ -282,47 +286,73 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
   }
 }
 
-// Driver Compatec
+// Driver Compatec. O protocolo universal possui mensagens de tamanho fixo que
+// podem chegar juntas ou fracionadas em um mesmo stream TCP.
 async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
-  const texto = data.toString('latin1');
+  const pending = compatecPendingBytesBySocket.get(socket) || Buffer.alloc(0);
+  const { frames, remainder } = extractCompatecFrames(Buffer.concat([pending, data]));
+  compatecPendingBytesBySocket.set(socket, remainder);
 
-  if (texto.startsWith('*')) {
-    const macSuffix = texto.substring(1).trim().toUpperCase();
-    const system = await getAlarmSystemByPanelIdentifier(macSuffix, "mac", "COMPATEC", port);
-    if (system) rememberSystem(socket, system);
-    socket.write('+');
-    return;
-  }
-  if (texto.startsWith('#')) { socket.write('@'); return; }
-  if (texto === '@') { await recordKeepAlive(socket, "COMPATEC", port, "@"); socket.write('@'); return; }
+  for (const frame of frames) {
+    const parsed = parseCompatecFrame(frame);
+    if (!parsed) continue;
 
-  if (texto.startsWith('$')) {
-    const payload = texto.substring(1, texto.length - 2);
-    const account = payload.substring(0, 4);
-    const qualificador = payload.substring(4, 5);
-    const evento = payload.substring(5, 8);
-    const particao = payload.substring(8, 10);
-    const zona = payload.substring(10, 13);
+    if (parsed.kind === "identity") {
+      const system = await getAlarmSystemByCapturedPanelIdentifier({ brand: "COMPATEC", frames: getSafeCaptureFrames(socket) });
+      if (system) {
+        rememberSystem(socket, system, port);
+        console.log(`[RECIP] COMPATEC identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);
+      } else {
+        console.log(`[RECIP] COMPATEC identificação sem painel cadastrado | ID ${parsed.identifier}`);
+      }
+      socket.write('+');
+      continue;
+    }
 
-    const eventoObj = {
+    if (parsed.kind === "account") {
+      compatecAccountBySocket.set(socket, parsed.account);
+      socket.write('@');
+      continue;
+    }
+
+    if (parsed.kind === "keep_alive") {
+      await recordKeepAlive(socket, "COMPATEC", port, "@");
+      socket.write('@');
+      continue;
+    }
+
+    const announcedAccount = compatecAccountBySocket.get(socket);
+    if (announcedAccount && announcedAccount !== parsed.account) {
+      console.warn(`[RECIP] COMPATEC conta do evento ${parsed.account} diverge da conta anunciada ${announcedAccount}; o vínculo permanece físico.`);
+    }
+
+    const recentEvents = compatecRecentEventsBySocket.get(socket) || new Map<string, number>();
+    compatecRecentEventsBySocket.set(socket, recentEvents);
+    if (!shouldProcessCompatecEvent(recentEvents, parsed.rawData)) {
+      console.log(`[RECIP] COMPATEC retransmissão confirmada sem duplicar evento | Conta ${parsed.account} | contador ${parsed.packetCounter}`);
+      socket.write('@');
+      continue;
+    }
+
+    const accepted = await processEvent({
       brand: 'COMPATEC',
-      account,
-      qualifier: qualificador === '1' || qualificador === 'E' ? 'E' : 'R',
-      eventCode: evento,
-      partition: particao,
-      zoneUser: zona,
+      account: parsed.account,
+      qualifier: parsed.qualifier === '1' || parsed.qualifier === 'E' ? 'E' : 'R',
+      eventCode: parsed.eventCode,
+      partition: parsed.partition,
+      zoneUser: parsed.zoneUser,
       receiverPort: port,
-      rawData: texto,
-    };
+      rawData: parsed.rawData,
+    }, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket), socket);
 
-    await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket), socket);
-    socket.write('@');
-    return;
+    // ACK @ somente após persistência. Sem ACK, a central retransmite o pacote.
+    if (accepted) socket.write('@');
+    else recentEvents.delete(parsed.rawData);
   }
 }
 
 // Processa e salva o evento
-async function processEvent(evento: any, remoteIp: string, captureSummary = "", captureFrames = [] as ReturnType<typeof getSafeCaptureFrames>, socket?: net.Socket) {
+async function processEvent(evento: any, remoteIp: string, captureSummary = "", captureFrames = [] as ReturnType<typeof getSafeCaptureFrames>, socket?: net.Socket): Promise<boolean> {
   try {
     // Buscar descrição do código
     let description = `Evento ${evento.eventCode}`;
@@ -435,7 +465,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     } catch (e: any) {
       const databaseError = e?.cause?.message || e?.cause?.sqlMessage || e?.message;
       console.error(`[RECIP] Evento não emitido: falha ao persistir evento/incidente: ${databaseError}`);
-      return;
+      return false;
     }
 
     if (deliveryPlan.shouldPersistReport) {
@@ -461,12 +491,12 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         },
       });
       console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
-      return;
+      return true;
     }
 
     if (!hasPersistedOpenIncident(savedEvent?.id, incident?.id)) {
       console.error("[RECIP] Evento não emitido: ocorrência aberta sem persistência confirmada");
-      return;
+      return false;
     }
 
     if (automaticAction === "try_restoration") {
@@ -489,7 +519,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
           });
         }
         console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | Finalizado com a restauração do evento`);
-        return;
+        return true;
       }
     }
 
@@ -511,8 +541,10 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${description}`);
+    return true;
   } catch (err: any) {
     console.error('[RECIP] Erro ao processar evento:', err.message);
+    return false;
   }
 }
 
