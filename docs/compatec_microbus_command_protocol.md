@@ -37,3 +37,37 @@ Para `CMD_GRUPO`, grupo `0` é arme/desarme; grupos `5`, `6`, `7`, `16` a `20` a
 As ações de comando não necessariamente geram um evento Contact ID. Portanto, qualquer envio deve persistir: sistema, operador, motivo, tipo de comando, parâmetros, quadro MicroBus, data/hora, resposta, tempo de retorno e resultado.
 
 O envio real ficará bloqueado por padrão. A primeira entrega implementará o fluxo auditável e o gerador MicroBus em modo de simulação. Antes de habilitar uma central física, confirmar com a Compatec: modelos compatíveis, porta/rota de comandos, abertura ou reaproveitamento de sessão TCP, modo de programação necessário, resposta esperada e autorização operacional.
+
+## Quadros documentados confirmados para a etapa de simulação
+
+As páginas 7 a 10 do manual de comandos mostram exemplos suficientes para montar uma **simulação fiel**, ainda sem transmissão real. Os quadros abaixo devem ser tratados como **fonte externa documentada**, não como descoberta por engenharia reversa do receptor atual [1].
+
+| Ação | Quadro documentado | Observação |
+|---|---|---|
+| Armar todos os setores | `MB=AJ4[0,03FF]\r\n` | `CMD_GRUPO '4'`, grupo `0`, máscara de 10 setores habilitados |
+| Armar apenas o setor 1 | `MB=AJ4[0,0001]\r\n` | Exemplo explícito do manual |
+| Desarmar todos os setores | `MB=AJ4[0,0000]\r\n` | Exemplo explícito do manual |
+| Acionar PGM 1 | `MB=AJ4[5]\r\n` | Grupo `5` corresponde à PGM 1 |
+| Solicitar estado do setor | `MB=AJ1\r\n` | Sem argumentos |
+| Máscara do setor | `MB=AJ2[...]\r\n` | Deve anteceder `CMD_SETOR '1'` |
+
+> “Para envio de configurações nos comandos é necessário enviar todo pacote juntamente com um pacote idêntico contendo a máscara dos bits que se deseja alterar. (...) No caso do comando de setor a máscara foi separada em um novo comando que deve ser enviado antes do envio da configuração dos setores.” — Compatec, Parte 2 Comandos, página 7 [1]
+
+Nos exemplos visuais da mesma página, a **anulação do Setor 1** usa a sequência `CMD_MASK_SETOR` seguida de `CMD_SETOR`, ambos com o primeiro campo em `0008`; a **restauração** usa a mesma sequência com o primeiro campo em `0000` [1]. Como a etapa atual continua em simulação, o Police Central pode registrar exatamente essa dupla de quadros na auditoria sem transmiti-la.
+
+## Mapeamento de grupos para PGM
+
+| PGM | Grupo `CMD_GRUPO` |
+|---|---:|
+| PGM 1 | 5 |
+| PGM 2 | 6 |
+| PGM 3 | 7 |
+| PGM 4 | 16 |
+| PGM 5 | 17 |
+| PGM 6 | 18 |
+| PGM 7 | 19 |
+| PGM 8 | 20 |
+
+## References
+
+[1]: file:///home/ubuntu/upload/IntegraçãoCompatec-Monitoramento-Parte2-Comandos.pdf "Integração das centrais de alarme Compatec monitoradas com os softwares de monitoramento — Parte 2 Comandos"

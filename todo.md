@@ -587,5 +587,5 @@
 - [x] Validar em testes o ciclo Compatec de identificação, conta, Keep Alive e evento com ACKs documentados
 - [x] Modelar registros auditáveis de comandos Compatec com operador, motivo, parâmetros, quadro MicroBus, resposta e resultado de simulação
 - [x] Criar no popup de atendimento as ações Compatec de Arme, Desarme, Isolar/Restaurar Zona e Acionar PGM com confirmação dupla
-- [ ] Implementar o gerador MicroBus Compatec para CMD_GRUPO, CMD_SETOR, CMD_MASK_SETOR e CMD_PGM em modo de simulação
-- [ ] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional
+- [x] Implementar o gerador MicroBus Compatec para CMD_GRUPO, CMD_SETOR, CMD_MASK_SETOR e CMD_PGM em modo de simulação
+- [x] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional
