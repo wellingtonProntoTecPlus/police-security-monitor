@@ -225,6 +225,13 @@
       "when": 1787632373268,
       "tag": "0031_open_jubilee",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1787632963182,
+      "tag": "0032_known_mandroid",
+      "breakpoints": true
     }
   ]
 }

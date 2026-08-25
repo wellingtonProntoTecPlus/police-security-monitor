@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
+import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
 import { buildCompatecSimulationPayload, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 // ============================================================
@@ -444,15 +445,15 @@ export const appRouter = router({
     }),
     setRemoteCommandCredential: adminProcedure.input(z.object({
       alarmSystemId: z.number(),
-      credentialKind: z.enum(["panel_master", "remote_access", "vetti_protocol", "compatec_transport"]),
+      credentialKind: z.enum(remoteCommandCredentialKinds),
       credential: z.string().trim().min(1, "Informe a credencial técnica da central").max(255),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.setAlarmRemoteCredential({ ...input, updatedBy: ctx.user.id });
     }),
-    clearRemoteCommandCredential: adminProcedure.input(z.object({ alarmSystemId: z.number() })).mutation(async ({ input, ctx }) => {
+    clearRemoteCommandCredential: adminProcedure.input(z.object({ alarmSystemId: z.number(), credentialKind: z.enum(remoteCommandCredentialKinds) })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      return db.clearAlarmRemoteCredential(input.alarmSystemId);
+      return db.clearAlarmRemoteCredential(input);
     }),
   }),
 

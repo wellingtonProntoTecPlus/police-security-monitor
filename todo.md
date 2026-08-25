@@ -579,7 +579,12 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
-- [ ] Mapear por fabricante a credencial técnica necessária ao comando remoto, separada da autenticação do operador
+- [x] Substituir o campo genérico por credenciais técnicas específicas no cadastro de cada sistema
+- [x] Cadastrar para JFL Senha Master do Usuário 0 e Senha de Instalador do Programador JFL
+- [x] Cadastrar para Intelbras Senha Master do Usuário 0, Senha de Instalador e Senha de Configuração Remota
+- [x] Cadastrar para Vetti Senha de Instalador e Senha de Usuário de Comando, exibindo o usuário derivado da senha
+- [x] Derivar e validar o usuário Vetti como prefixo `3` mais os dois primeiros dígitos da senha de comando
+- [x] Mapear por fabricante a credencial técnica necessária ao comando remoto, separada da autenticação do operador
 - [x] Criar no cadastro do sistema a credencial técnica protegida para comandos remotos
 - [ ] Usar a senha Master do painel nos fluxos JFL e Intelbras, e a credencial de protocolo exigida por Vetti e Compatec
 - [x] Remover a dependência da senha do operador como credencial da central na simulação Compatec

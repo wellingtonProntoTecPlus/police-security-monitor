@@ -543,12 +543,52 @@ CREATE TABLE IF NOT EXISTS alarm_remote_credentials (
   id INT AUTO_INCREMENT PRIMARY KEY,
   alarmSystemId INT NOT NULL,
   credentialKind VARCHAR(40) NOT NULL,
+  technicalUserCode VARCHAR(20) NULL,
   encryptedSecret TEXT NOT NULL,
   updatedBy INT NOT NULL,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY alarm_remote_credentials_system_unique (alarmSystemId)
+  UNIQUE KEY alarm_remote_credentials_system_kind_unique (alarmSystemId, credentialKind)
 );
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_remote_credentials ADD COLUMN technicalUserCode VARCHAR(20) NULL AFTER credentialKind',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_remote_credentials' AND COLUMN_NAME = 'technicalUserCode'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @remote_credentials_legacy_unique_index = (
+  SELECT INDEX_NAME FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_remote_credentials'
+    AND INDEX_NAME IN ('alarm_remote_credentials_system_unique', 'alarm_remote_credentials_alarmSystemId_unique')
+  LIMIT 1
+);
+SET @statement = IF(
+  @remote_credentials_legacy_unique_index IS NOT NULL,
+  CONCAT('ALTER TABLE alarm_remote_credentials DROP INDEX `', @remote_credentials_legacy_unique_index, '`'),
+  'SELECT 1'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'CREATE UNIQUE INDEX alarm_remote_credentials_system_kind_unique ON alarm_remote_credentials (alarmSystemId, credentialKind)',
+    'SELECT 1'
+  )
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_remote_credentials' AND INDEX_NAME = 'alarm_remote_credentials_system_kind_unique'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
 
 -- Configuração individual de Keep Alive para cada sistema de alarme.
 SET @statement = (

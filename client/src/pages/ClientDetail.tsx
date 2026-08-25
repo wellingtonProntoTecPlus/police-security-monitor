@@ -15,6 +15,7 @@ import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers,
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
+import { getRemoteCommandCredentialProfiles } from "@shared/remoteCommandCredentialProfiles";
 
 const CONTACTS_PER_PAGE = 20;
 
@@ -24,13 +25,6 @@ function portsForBrand(brand: string) {
 
 function requiresJflVersion5OrLaterSerial(brand: string, firmwareVersion: string) {
   return isJflVersion5OrLater(brand, firmwareVersion);
-}
-
-function credentialOptionsForBrand(brand: string) {
-  if (brand === "COMPATEC") return [{ value: "compatec_transport", label: "Chave/senha de transporte Compatec" }];
-  if (brand === "VETTI") return [{ value: "vetti_protocol", label: "Senha do protocolo Vetti" }];
-  if (brand === "INTELBRAS") return [{ value: "remote_access", label: "Senha remota ou Master, conforme o modelo" }];
-  return [{ value: "panel_master", label: "Senha Master do painel" }];
 }
 
 export default function ClientDetail() {
@@ -60,7 +54,7 @@ export default function ClientDetail() {
   const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema cadastrado!"); } });
   const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema excluído!"); } });
   const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
-  const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); setRemoteCredentialValue(""); toast.success("Credencial técnica protegida e atualizada."); } });
+  const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); setRemoteCredentialValues({}); toast.success("Credencial técnica protegida e atualizada."); } });
   const clearRemoteCredential = trpc.alarmSystem.clearRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Credencial técnica removida."); } });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
@@ -87,8 +81,7 @@ export default function ClientDetail() {
   const [showZoneForm, setShowZoneForm] = useState(false);
   const [editingContact, setEditingContact] = useState<any>(null);
   const [editingSystem, setEditingSystem] = useState<any>(null);
-  const [remoteCredentialKind, setRemoteCredentialKind] = useState("panel_master");
-  const [remoteCredentialValue, setRemoteCredentialValue] = useState("");
+  const [remoteCredentialValues, setRemoteCredentialValues] = useState<Record<string, string>>({});
   const [editingZone, setEditingZone] = useState<any>(null);
   const [showAlarmUserForm, setShowAlarmUserForm] = useState(false);
   const [editingAlarmUser, setEditingAlarmUser] = useState<any>(null);
@@ -375,7 +368,7 @@ export default function ClientDetail() {
                           {isOnline ? "Online" : isNotMonitored ? "Não monitorado" : "Offline"}
                         </Badge>
                         <span className="text-xs text-muted-foreground">Porta {system.receiverPort}</span>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-300" onClick={() => { const options = credentialOptionsForBrand(system.brand); setCredentialSystem(system); setRemoteCredentialKind(options[0]?.value || "panel_master"); setRemoteCredentialValue(""); }} title="Credencial técnica para comandos remotos">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-300" onClick={() => { setCredentialSystem(system); setRemoteCredentialValues({}); }} title="Credenciais técnicas do sistema">
                           <KeyRound className="h-3.5 w-3.5" />
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingSystem({ ...system })} title="Editar sistema">
@@ -437,18 +430,22 @@ export default function ClientDetail() {
               </Dialog>
             )}
             {credentialSystem && (
-              <Dialog open={!!credentialSystem} onOpenChange={(open) => { if (!open) { setCredentialSystem(null); setRemoteCredentialValue(""); } }}>
+              <Dialog open={!!credentialSystem} onOpenChange={(open) => { if (!open) { setCredentialSystem(null); setRemoteCredentialValues({}); } }}>
                 <DialogContent className="sm:max-w-lg">
                   <DialogHeader><DialogTitle>Credencial técnica de comando remoto</DialogTitle></DialogHeader>
                   <div className="space-y-4">
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
                       <p className="font-semibold text-amber-100">Conta {credentialSystem.account} · {credentialSystem.brand} {credentialSystem.model || ""}</p>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Esta credencial é exigida pela central. Ela é cifrada no servidor, não aparece no histórico e não será exibida novamente depois de salva.</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Cada credencial é cifrada no servidor, não aparece no histórico e não será exibida novamente depois de salva.</p>
                     </div>
                     <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs text-cyan-50"><strong>Operador:</strong> a sessão ativa registra quem solicitou a ação; ela não substitui a credencial técnica do painel.</div>
-                    <div><Label>Tipo de credencial</Label><Select value={remoteCredentialKind} onValueChange={setRemoteCredentialKind}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{credentialOptionsForBrand(credentialSystem.brand).map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
-                    <div><Label>Credencial técnica</Label><Input className="mt-1" type="password" autoComplete="new-password" value={remoteCredentialValue} onChange={(event) => setRemoteCredentialValue(event.target.value)} placeholder={remoteCredentialStatus?.configured ? "Digite somente para substituir a atual" : "Digite a credencial da central"} /><p className="mt-1 text-[11px] text-muted-foreground">Status atual: {remoteCredentialStatus?.configured ? "cadastrada" : "não cadastrada"}.</p></div>
-                    <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => { setCredentialSystem(null); setRemoteCredentialValue(""); }}>Cancelar</Button>{remoteCredentialStatus?.configured && <Button variant="destructive" disabled={clearRemoteCredential.isPending} onClick={() => { if (confirm("Remover a credencial técnica desta central?")) clearRemoteCredential.mutate({ alarmSystemId: credentialSystem.id }); }}>Remover</Button>}<Button disabled={setRemoteCredential.isPending || !remoteCredentialValue.trim()} onClick={() => setRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: remoteCredentialKind as "panel_master" | "remote_access" | "vetti_protocol" | "compatec_transport", credential: remoteCredentialValue })}>{setRemoteCredential.isPending ? "Protegendo..." : remoteCredentialStatus?.configured ? "Substituir credencial" : "Salvar credencial"}</Button></div>
+                    <div className="space-y-3">{getRemoteCommandCredentialProfiles(credentialSystem.brand).map((profile) => {
+                      const saved = remoteCredentialStatus?.credentials.find((credential) => credential.credentialKind === profile.kind);
+                      const value = remoteCredentialValues[profile.kind] || "";
+                      const vettiUserPreview = profile.kind === "vetti_command_user" && /^\d{2}/.test(value) ? `3${value.slice(0, 2)}` : null;
+                      return <div key={profile.kind} className="rounded-lg border border-border bg-background/40 p-3"><div className="flex items-start justify-between gap-3"><div><Label>{profile.label}</Label><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{profile.help}</p>{saved?.technicalUserCode && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti registrado: {saved.technicalUserCode}</p>}{vettiUserPreview && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti que será registrado: {vettiUserPreview}</p>}</div><Badge variant={saved ? "default" : "secondary"}>{saved ? "Cadastrada" : "Não cadastrada"}</Badge></div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><Input type="password" autoComplete="new-password" value={value} onChange={(event) => setRemoteCredentialValues({ ...remoteCredentialValues, [profile.kind]: event.target.value })} placeholder={saved ? "Digite somente para substituir" : "Digite a credencial"} /><div className="flex gap-2"><Button size="sm" disabled={setRemoteCredential.isPending || !value.trim()} onClick={() => setRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind, credential: value })}>{setRemoteCredential.isPending ? "Salvando..." : saved ? "Substituir" : "Salvar"}</Button>{saved && <Button variant="destructive" size="sm" disabled={clearRemoteCredential.isPending} onClick={() => { if (confirm(`Remover ${profile.label}?`)) clearRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind }); }}>Remover</Button>}</div></div></div>;
+                    })}</div>
+                    <div className="flex justify-end"><Button variant="outline" onClick={() => { setCredentialSystem(null); setRemoteCredentialValues({}); }}>Concluir</Button></div>
                   </div>
                 </DialogContent>
               </Dialog>

@@ -197,13 +197,16 @@ export type InsertAlarmSystem = typeof alarmSystems.$inferInsert;
 // retornada em consultas de sistemas, relatórios ou histórico operacional.
 export const alarmRemoteCredentials = mysqlTable("alarm_remote_credentials", {
   id: int("id").autoincrement().primaryKey(),
-  alarmSystemId: int("alarmSystemId").notNull().unique(),
+  alarmSystemId: int("alarmSystemId").notNull(),
   credentialKind: varchar("credentialKind", { length: 40 }).notNull(),
+  technicalUserCode: varchar("technicalUserCode", { length: 20 }),
   encryptedSecret: text("encryptedSecret").notNull(),
   updatedBy: int("updatedBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("alarm_remote_credentials_system_kind_unique").on(table.alarmSystemId, table.credentialKind),
+]);
 
 export type AlarmRemoteCredential = typeof alarmRemoteCredentials.$inferSelect;
 export type InsertAlarmRemoteCredential = typeof alarmRemoteCredentials.$inferInsert;

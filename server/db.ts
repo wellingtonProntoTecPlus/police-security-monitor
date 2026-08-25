@@ -44,6 +44,7 @@ import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts,
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 import { encryptRemoteCommandCredential } from "./remoteCommandCredentials";
+import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -709,14 +710,13 @@ export async function listAlarmRemoteCommands(alarmSystemId: number, limit = 20)
 /** Retorna somente o estado da credencial; o segredo cifrado nunca sai do servidor. */
 export async function getAlarmRemoteCredentialStatus(alarmSystemId: number) {
   const db = await getDb();
-  if (!db) return { configured: false as const, credentialKind: null, updatedAt: null };
-  const [credential] = await db.select({
+  if (!db) return { configured: false as const, credentials: [] };
+  const credentials = await db.select({
     credentialKind: alarmRemoteCredentials.credentialKind,
+    technicalUserCode: alarmRemoteCredentials.technicalUserCode,
     updatedAt: alarmRemoteCredentials.updatedAt,
-  }).from(alarmRemoteCredentials).where(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId)).limit(1);
-  return credential
-    ? { configured: true as const, credentialKind: credential.credentialKind, updatedAt: credential.updatedAt }
-    : { configured: false as const, credentialKind: null, updatedAt: null };
+  }).from(alarmRemoteCredentials).where(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId));
+  return { configured: credentials.length > 0, credentials };
 }
 
 /** Apenas a API administrativa recebe o texto curto, cifra-o e persiste o resultado. */
@@ -724,22 +724,29 @@ export async function setAlarmRemoteCredential(input: { alarmSystemId: number; c
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   const encryptedSecret = encryptRemoteCommandCredential(input.credential);
+  const technicalUserCode = input.credentialKind === "vetti_command_user"
+    ? deriveVettiCommandUser(input.credential)
+    : null;
   await db.insert(alarmRemoteCredentials).values({
     alarmSystemId: input.alarmSystemId,
     credentialKind: input.credentialKind,
+    technicalUserCode,
     encryptedSecret,
     updatedBy: input.updatedBy,
   }).onDuplicateKeyUpdate({
-    set: { credentialKind: input.credentialKind, encryptedSecret, updatedBy: input.updatedBy, updatedAt: new Date() },
+    set: { technicalUserCode, encryptedSecret, updatedBy: input.updatedBy, updatedAt: new Date() },
   });
   return getAlarmRemoteCredentialStatus(input.alarmSystemId);
 }
 
-export async function clearAlarmRemoteCredential(alarmSystemId: number) {
+export async function clearAlarmRemoteCredential(input: { alarmSystemId: number; credentialKind: string }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
-  await db.delete(alarmRemoteCredentials).where(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId));
-  return { configured: false as const, credentialKind: null, updatedAt: null };
+  await db.delete(alarmRemoteCredentials).where(and(
+    eq(alarmRemoteCredentials.alarmSystemId, input.alarmSystemId),
+    eq(alarmRemoteCredentials.credentialKind, input.credentialKind),
+  ));
+  return getAlarmRemoteCredentialStatus(input.alarmSystemId);
 }
 
 export async function createAlarmSystem(data: InsertAlarmSystem) {
