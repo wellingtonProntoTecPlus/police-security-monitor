@@ -1,0 +1,21 @@
+CREATE TABLE `alarm_remote_commands` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`alarmSystemId` int NOT NULL,
+	`incidentId` int,
+	`operatorId` int NOT NULL,
+	`brand` varchar(30) NOT NULL,
+	`commandType` varchar(40) NOT NULL,
+	`transportMode` varchar(20) NOT NULL DEFAULT 'simulation',
+	`status` varchar(30) NOT NULL DEFAULT 'simulated',
+	`partition` int,
+	`zoneNumber` int,
+	`pgmNumber` int,
+	`reason` text NOT NULL,
+	`commandPayload` text NOT NULL,
+	`responsePayload` text,
+	`confirmedAt` timestamp NOT NULL DEFAULT (now()),
+	`executedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `alarm_remote_commands_id` PRIMARY KEY(`id`)
+);
