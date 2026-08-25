@@ -589,3 +589,7 @@
 - [x] Criar no popup de atendimento as ações Compatec de Arme, Desarme, Isolar/Restaurar Zona e Acionar PGM com confirmação dupla
 - [x] Implementar o gerador MicroBus Compatec para CMD_GRUPO, CMD_SETOR, CMD_MASK_SETOR e CMD_PGM em modo de simulação
 - [x] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional
+- [ ] Atualizar a VPS com o receptor Compatec e o histórico de simulação antes da homologação em bancada
+- [ ] Validar em bancada a simulação auditável sem transmitir MicroBus à central
+- [ ] Confirmar com a Compatec ou por captura controlada a porta, rota e resposta MicroBus da central de bancada
+- [ ] Homologar em bancada, um por vez, consulta de estado, arme, desarme, isolamento/restauração e PGM
