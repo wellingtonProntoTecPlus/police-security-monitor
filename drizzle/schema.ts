@@ -168,6 +168,7 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   installDate: timestamp("installDate"),
   batteryDate: timestamp("batteryDate"),
   isActive: boolean("isActive").default(true).notNull(),
+  remoteCommandLabEnabled: boolean("remoteCommandLabEnabled").default(false).notNull(),
   isOnline: boolean("isOnline").default(false).notNull(),
   lastCommunication: timestamp("lastCommunication"),
   lastKeepAliveAt: timestamp("lastKeepAliveAt"),

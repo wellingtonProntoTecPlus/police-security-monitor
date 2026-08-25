@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const remoteCommandTypes = ["arm", "disarm", "isolate_zone", "restore_zone", "activate_pgm"] as const;
 export type RemoteCommandType = typeof remoteCommandTypes[number];
+export const COMPATEC_BENCH_MAC_SUFFIX = "C1BDCB";
 
 export const remoteCommandSimulationInputSchema = z.object({
   alarmSystemId: z.number(),
@@ -51,6 +52,12 @@ export function validateRemoteCommandTarget(input: { commandType: RemoteCommandT
     return "Informe a PGM a acionar";
   }
   return undefined;
+}
+
+export function isConfirmedCompatecBenchSystem(system: { brand?: string | null; macAddress?: string | null; remoteCommandLabEnabled?: boolean | null }) {
+  return system.brand === "COMPATEC"
+    && Boolean(system.remoteCommandLabEnabled)
+    && (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().endsWith(COMPATEC_BENCH_MAC_SUFFIX);
 }
 
 export function buildCompatecSimulationPayload(input: {

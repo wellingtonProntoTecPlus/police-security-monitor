@@ -10,7 +10,8 @@ import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
-import { buildCompatecSimulationPayload, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { sendCompatecMw1StatusQuery } from "./receiver";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -455,6 +456,12 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.clearAlarmRemoteCredential(input);
     }),
+    setRemoteCommandLaboratory: adminProcedure.input(z.object({ alarmSystemId: z.number(), enabled: z.boolean() })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system || system.brand !== "COMPATEC") throw new TRPCError({ code: "BAD_REQUEST", message: "O modo de bancada é exclusivo para a Compatec nesta etapa" });
+      return db.setAlarmSystemRemoteCommandLabEnabled(input.alarmSystemId, input.enabled);
+    }),
   }),
 
   // ============================================================
@@ -734,6 +741,40 @@ export const appRouter = router({
         executedAt: new Date(),
       });
       return { ...created, status: "simulated" as const };
+    }),
+    queryBenchStatus: adminProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      incidentId: z.number().optional(),
+      reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+      if (!isConfirmedCompatecBenchSystem(system)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "A consulta MicroBus real está habilitada somente para a central Compatec de bancada identificada pelo MAC C1BDCB" });
+      }
+      const created = await db.createAlarmRemoteCommand({
+        alarmSystemId: system.id,
+        incidentId: input.incidentId ?? null,
+        operatorId: ctx.user.id,
+        brand: "COMPATEC",
+        commandType: "query_status",
+        transportMode: "microbus_bench",
+        status: "queued",
+        partition: null,
+        zoneNumber: null,
+        pgmNumber: null,
+        reason: input.reason,
+        commandPayload: "MB=AK0\\r\\n",
+        responsePayload: "Aguardando a conexão autenticada da central de bancada.",
+      });
+      const dispatched = sendCompatecMw1StatusQuery({ alarmSystemId: system.id, commandId: created.id });
+      if (!dispatched.sent) {
+        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
+        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
+      }
+      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK0 enviada; aguardando a resposta da central.", executedAt: new Date() });
+      return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
   }),
   alarmPgm: router({

@@ -58,6 +58,7 @@ vi.mock("@/lib/trpc", () => ({
     remoteCommand: {
       list: { useQuery: () => ({ data: [] }) },
       simulate: { useMutation: () => standardMutation },
+      queryBenchStatus: { useMutation: () => standardMutation },
     },
     clientContact: { list: { useQuery: () => ({ data: [] }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) } },

@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, isSystemInMaintenance, recordSystemKeepAlive } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -15,6 +15,7 @@ import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociat
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
+import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -31,6 +32,8 @@ const RECEIVERS_CONFIG = [
 ];
 
 type EventCallback = (event: any) => void;
+
+export { sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 
 let eventCallback: EventCallback | null = null;
 const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
@@ -289,6 +292,14 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
 // Driver Compatec. O protocolo universal possui mensagens de tamanho fixo que
 // podem chegar juntas ou fracionadas em um mesmo stream TCP.
 async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
+  const microbusResponse = getCompatecMw1StatusResponseLine(data);
+  if (microbusResponse) {
+    const completed = consumeCompatecMw1StatusResponse(socket, microbusResponse);
+    if (completed) {
+      await updateAlarmRemoteCommandDelivery(completed.commandId, { status: "responded", responsePayload: microbusResponse, executedAt: new Date() });
+      console.log(`[MICROBUS] COMPATEC consulta confirmada pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+    }
+  }
   const pending = compatecPendingBytesBySocket.get(socket) || Buffer.alloc(0);
   const { frames, remainder } = extractCompatecFrames(Buffer.concat([pending, data]));
   compatecPendingBytesBySocket.set(socket, remainder);
@@ -301,6 +312,7 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
       const system = await getAlarmSystemByCapturedPanelIdentifier({ brand: "COMPATEC", frames: getSafeCaptureFrames(socket) });
       if (system) {
         rememberSystem(socket, system, port);
+        if (system.remoteCommandLabEnabled) rememberActiveCompatecSession(socket, system);
         console.log(`[RECIP] COMPATEC identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);
       } else {
         console.log(`[RECIP] COMPATEC identificação sem painel cadastrado | ID ${parsed.identifier}`);

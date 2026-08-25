@@ -1,0 +1,1 @@
+ALTER TABLE `alarm_systems` ADD `remoteCommandLabEnabled` boolean DEFAULT false NOT NULL;

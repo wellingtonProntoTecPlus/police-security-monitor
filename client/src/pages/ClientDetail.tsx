@@ -56,6 +56,7 @@ export default function ClientDetail() {
   const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
   const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); setRemoteCredentialValues({}); toast.success("Credencial técnica protegida e atualizada."); } });
   const clearRemoteCredential = trpc.alarmSystem.clearRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Credencial técnica removida."); } });
+  const setRemoteCommandLaboratory = trpc.alarmSystem.setRemoteCommandLaboratory.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Modo de bancada atualizado."); } });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
   const updateCamera = trpc.camera.update.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera atualizada!"); setEditingCamera(null); } });
@@ -439,6 +440,7 @@ export default function ClientDetail() {
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Cada credencial é cifrada no servidor, não aparece no histórico e não será exibida novamente depois de salva.</p>
                     </div>
                     <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs text-cyan-50"><strong>Operador:</strong> a sessão ativa registra quem solicitou a ação; ela não substitui a credencial técnica do painel.</div>
+                    {credentialSystem.brand === "COMPATEC" && <div className="rounded-md border border-orange-400/30 bg-orange-400/5 p-3"><p className="text-sm font-semibold text-orange-100">Modo de bancada MicroBus</p><p className="mt-1 text-xs text-muted-foreground">Ative somente na central física de testes. Enquanto desligado, nenhum comando MicroBus real poderá ser transmitido.</p><Button className="mt-3" size="sm" variant={remoteCredentialStatus?.laboratoryEnabled ? "destructive" : "outline"} disabled={setRemoteCommandLaboratory.isPending} onClick={() => { const enabled = !remoteCredentialStatus?.laboratoryEnabled; if (confirm(enabled ? "Ativar MicroBus real exclusivamente para esta central de bancada?" : "Desativar MicroBus real desta central?")) setRemoteCommandLaboratory.mutate({ alarmSystemId: credentialSystem.id, enabled }); }}>{remoteCredentialStatus?.laboratoryEnabled ? "Desativar modo de bancada" : "Ativar modo de bancada"}</Button></div>}
                     <div className="space-y-3">{getRemoteCommandCredentialProfiles(credentialSystem.brand).map((profile) => {
                       const saved = remoteCredentialStatus?.credentials.find((credential) => credential.credentialKind === profile.kind);
                       const value = remoteCredentialValues[profile.kind] || "";

@@ -579,6 +579,17 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [ ] Criar uma autorização explícita de modo bancada por sistema antes de permitir transmissão MicroBus real
+- [ ] Registrar e encerrar a consulta MicroBus de bancada com a resposta real da central
+- [x] Implementar a consulta MicroBus Wi-Fi MW1 `MB=AK0` exclusivamente para a central Compatec de bancada
+- [x] Restringir o transporte MicroBus real à central de bancada identificada pelo MAC C1BDCB até homologação completa
+- [x] Capturar a conexão da Compatec F024F9C1BDCB na porta 9112 para confirmar a janela de resposta MicroBus
+- [ ] Testar resposta MicroBus somente na conexão confirmada da central de bancada, sem mudar sua configuração de monitoramento
+- [ ] Confirmar endereço, porta, módulo e rota MicroBus da central Compatec de bancada
+- [ ] Implementar transporte MicroBus real bloqueado para sistemas fora da bancada
+- [ ] Testar consulta de estado e resposta MicroBus na central de bancada antes de qualquer comando de ação
+- [ ] Homologar em bancada Arme, Desarme, Isolar/Restaurar Zona e PGM com resposta registrada
+- [x] Diagnosticar e restaurar a resposta do ambiente de desenvolvimento após a indisponibilidade reportada
 - [x] Substituir o campo genérico por credenciais técnicas específicas no cadastro de cada sistema
 - [x] Cadastrar para JFL Senha Master do Usuário 0 e Senha de Instalador do Programador JFL
 - [x] Cadastrar para Intelbras Senha Master do Usuário 0, Senha de Instalador e Senha de Configuração Remota

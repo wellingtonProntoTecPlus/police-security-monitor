@@ -4,6 +4,19 @@
 
 SET @schema_name = DATABASE();
 
+-- Bloqueia qualquer transmissão MicroBus real fora de sistemas marcados explicitamente como bancada.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_systems ADD COLUMN remoteCommandLabEnabled TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_systems' AND COLUMN_NAME = 'remoteCommandLabEnabled'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Compatibilidade com instalações antigas que usavam alarmEventId.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

@@ -681,6 +681,19 @@ export async function createAlarmRemoteCommand(data: InsertAlarmRemoteCommand) {
   return { id: Number(result[0].insertId) };
 }
 
+export async function updateAlarmRemoteCommandDelivery(id: number, data: { status: string; responsePayload?: string | null; executedAt?: Date | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
+}
+
+export async function setAlarmSystemRemoteCommandLabEnabled(alarmSystemId: number, enabled: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(alarmSystems).set({ remoteCommandLabEnabled: enabled }).where(eq(alarmSystems.id, alarmSystemId));
+  return getAlarmRemoteCredentialStatus(alarmSystemId);
+}
+
 export async function listAlarmRemoteCommands(alarmSystemId: number, limit = 20) {
   const db = await getDb();
   if (!db) return [];
@@ -716,7 +729,8 @@ export async function getAlarmRemoteCredentialStatus(alarmSystemId: number) {
     technicalUserCode: alarmRemoteCredentials.technicalUserCode,
     updatedAt: alarmRemoteCredentials.updatedAt,
   }).from(alarmRemoteCredentials).where(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId));
-  return { configured: credentials.length > 0, credentials };
+  const system = await getAlarmSystem(alarmSystemId);
+  return { configured: credentials.length > 0, credentials, laboratoryEnabled: Boolean(system?.remoteCommandLabEnabled) };
 }
 
 /** Apenas a API administrativa recebe o texto curto, cifra-o e persiste o resultado. */

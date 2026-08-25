@@ -68,6 +68,16 @@ Nos exemplos visuais da mesma página, a **anulação do Setor 1** usa a sequên
 | PGM 7 | 19 |
 | PGM 8 | 20 |
 
+## Evidência da central de bancada — 25/08/2026
+
+As telas fornecidas pelo operador confirmam o MAC completo `F024F9C1BDCB`, cujo sufixo `C1BDCB` identifica a conta Compatec `0334` no receptor Police Central. A tela de monitoramento configura a VPS como **Servidor 1** em `104.207.144.231:9112`; o Servidor 2 é `monitoramento1.servebbs.com:9112`.
+
+A central usa somente o módulo **Wi-Fi MW1**, sem GPRS. A origem MicroBus aplicável é, portanto, `K`, e a primeira consulta de estado de bancada é `MB=AK0\r\n`. Não há, nas telas de monitoramento apresentadas, uma porta adicional de recebimento de comandos. O Police Central testará somente a conexão TCP que a central já abre para a VPS, com bloqueio explícito ao MAC de bancada e sem alterar a configuração existente.
+
+O relatório do aplicativo confirma arme/desarme por App e as telas iniciais mostram PGM 1 e PGM 2 disponíveis. Esses comandos físicos continuam pendentes de homologação individual após a consulta de estado.
+
+Fontes visuais fornecidas pelo usuário: `Screenshot_20260825_072007_ContinentePro.jpg`, `Screenshot_20260825_072056_ContinentePro.jpg`, `Screenshot_20260825_072156_ContinentePro.jpg` e `Screenshot_20260825_072219_ContinentePro.jpg`.
+
 ## References
 
 [1]: file:///home/ubuntu/upload/IntegraçãoCompatec-Monitoramento-Parte2-Comandos.pdf "Integração das centrais de alarme Compatec monitoradas com os softwares de monitoramento — Parte 2 Comandos"

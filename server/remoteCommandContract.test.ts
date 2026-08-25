@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
+  it("libera a consulta física inicial somente para o MAC da bancada habilitada", () => {
+    expect(isConfirmedCompatecBenchSystem({ brand: "COMPATEC", macAddress: "C1BDCB", remoteCommandLabEnabled: true })).toBe(true);
+    expect(isConfirmedCompatecBenchSystem({ brand: "COMPATEC", macAddress: "C1BDCB", remoteCommandLabEnabled: false })).toBe(false);
+    expect(isConfirmedCompatecBenchSystem({ brand: "COMPATEC", macAddress: "F0F0F0", remoteCommandLabEnabled: true })).toBe(false);
+  });
+
   it("exige o alvo operacional para isolamento, restauração e PGM", () => {
     expect(validateRemoteCommandTarget({ commandType: "isolate_zone" })).toBe("Informe uma zona Compatec entre 1 e 10 para isolar ou restaurar");
     expect(validateRemoteCommandTarget({ commandType: "restore_zone" })).toBe("Informe uma zona Compatec entre 1 e 10 para isolar ou restaurar");
