@@ -176,7 +176,6 @@ export default function Dashboard() {
   const [remoteCommandOpen, setRemoteCommandOpen] = useState(false);
   const [remoteCommandType, setRemoteCommandType] = useState<RemoteCommandType>("arm");
   const [remoteCommandReason, setRemoteCommandReason] = useState("");
-  const [remoteCommandPassword, setRemoteCommandPassword] = useState("");
   const [remoteCommandZone, setRemoteCommandZone] = useState("");
   const [remoteCommandPgm, setRemoteCommandPgm] = useState("");
 
@@ -841,7 +840,6 @@ export default function Dashboard() {
     }
     setRemoteCommandType(commandType);
     setRemoteCommandReason("");
-    setRemoteCommandPassword("");
     setRemoteCommandZone(commandType === "isolate_zone" || commandType === "restore_zone" ? String(Number(selectedEvent.zoneUser || 0) || "") : "");
     setRemoteCommandPgm("");
     setRemoteCommandOpen(true);
@@ -865,7 +863,6 @@ export default function Dashboard() {
       incidentId: selectedEvent.incidentId,
       commandType: remoteCommandType,
       reason: remoteCommandReason,
-      password: remoteCommandPassword,
       zoneNumber: (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") ? zoneNumber : undefined,
       pgmNumber: remoteCommandType === "activate_pgm" ? pgmNumber : undefined,
     }, {
@@ -1061,8 +1058,8 @@ export default function Dashboard() {
                 {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">Zona <input type="number" min="1" max="10" value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="De 1 a 10" /></label>}
                 {remoteCommandType === "activate_pgm" && <label className="block text-sm font-medium text-foreground">PGM <select value={remoteCommandPgm} onChange={(event) => setRemoteCommandPgm(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a PGM</option>{compatecPgms.map((pgm: any) => <option key={pgm.id} value={pgm.pgmNumber}>PGM {pgm.pgmNumber} · {pgm.name}</option>)}{compatecPgms.length === 0 && Array.from({ length: 16 }, (_, index) => <option key={index + 1} value={index + 1}>PGM {index + 1}</option>)}</select></label>}
                 <label className="block text-sm font-medium text-foreground">Motivo operacional <Textarea className="mt-1 min-h-24" value={remoteCommandReason} onChange={(event) => setRemoteCommandReason(event.target.value)} placeholder="Ex.: cliente confirmado por telefone; operador solicitou o comando durante o atendimento." /></label>
-                <label className="block text-sm font-medium text-foreground">Senha do operador <input type="password" value={remoteCommandPassword} onChange={(event) => setRemoteCommandPassword(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Confirmação obrigatória" autoComplete="current-password" /></label>
-                <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5 || !remoteCommandPassword} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
+                <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Operador autenticado:</strong> sua sessão ativa identificará automaticamente quem confirmou esta ação. A senha técnica do painel será cadastrada separadamente antes de habilitar envio físico.</div>
+                <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
   it("exige o alvo operacional para isolamento, restauração e PGM", () => {
@@ -18,6 +18,17 @@ describe("contrato de comandos remotos Compatec", () => {
     expect(payload.note).toContain("nenhum pacote");
     expect(payload).not.toHaveProperty("password");
     expect(payload).not.toHaveProperty("frame");
+  });
+
+  it("aceita a confirmação pela sessão ativa sem exigir a senha do operador", () => {
+    const input = remoteCommandSimulationInputSchema.parse({
+      alarmSystemId: 27,
+      commandType: "arm",
+      reason: "Teste controlado na central de bancada",
+    });
+
+    expect(input).toMatchObject({ alarmSystemId: 27, commandType: "arm" });
+    expect(input).not.toHaveProperty("password");
   });
 
   it("gera os quadros documentados para arme, desarme, isolamento e restauração de setor", () => {

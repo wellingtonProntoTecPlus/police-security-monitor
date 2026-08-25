@@ -579,6 +579,14 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [ ] Mapear por fabricante a credencial técnica necessária ao comando remoto, separada da autenticação do operador
+- [x] Criar no cadastro do sistema a credencial técnica protegida para comandos remotos
+- [ ] Usar a senha Master do painel nos fluxos JFL e Intelbras, e a credencial de protocolo exigida por Vetti e Compatec
+- [x] Remover a dependência da senha do operador como credencial da central na simulação Compatec
+- [x] Remover o campo de senha do operador da confirmação de comando, mantendo sessão, motivo e confirmação explícita
+- [x] Diagnosticar a senha do operador recusada na confirmação dos comandos Compatec
+- [x] Confirmar que a recuperação da senha do operador não é necessária para comandos remotos autenticados por sessão
+- [x] Testar o contrato de confirmação pela sessão ativa, sem exigir senha repetida do operador
 - [ ] Definir protocolo, autenticação, confirmação e permissões para Arme, Desarme, Isolamento de Zona e PGM por fabricante
 - [x] Criar solicitações auditáveis de Arme, Desarme, Isolamento de Zona e PGM no atendimento da ocorrência para Compatec em modo de simulação
 - [ ] Validar comandos em simulação antes de habilitar qualquer envio real ao painel
@@ -590,7 +598,7 @@
 - [x] Implementar o gerador MicroBus Compatec para CMD_GRUPO, CMD_SETOR, CMD_MASK_SETOR e CMD_PGM em modo de simulação
 - [x] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional
 - [x] Corrigir a palavra reservada `partition` na migração SQL da auditoria Compatec para MySQL da VPS
-- [ ] Atualizar a VPS com o receptor Compatec e o histórico de simulação antes da homologação em bancada
+- [x] Atualizar a VPS com o receptor Compatec e o histórico de simulação antes da homologação em bancada
 - [ ] Validar em bancada a simulação auditável sem transmitir MicroBus à central
 - [ ] Confirmar com a Compatec ou por captura controlada a porta, rota e resposta MicroBus da central de bancada
 - [ ] Homologar em bancada, um por vez, consulta de estado, arme, desarme, isolamento/restauração e PGM

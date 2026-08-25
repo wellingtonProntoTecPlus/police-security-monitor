@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2 } from "lucide-react";
+import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
@@ -24,6 +24,13 @@ function portsForBrand(brand: string) {
 
 function requiresJflVersion5OrLaterSerial(brand: string, firmwareVersion: string) {
   return isJflVersion5OrLater(brand, firmwareVersion);
+}
+
+function credentialOptionsForBrand(brand: string) {
+  if (brand === "COMPATEC") return [{ value: "compatec_transport", label: "Chave/senha de transporte Compatec" }];
+  if (brand === "VETTI") return [{ value: "vetti_protocol", label: "Senha do protocolo Vetti" }];
+  if (brand === "INTELBRAS") return [{ value: "remote_access", label: "Senha remota ou Master, conforme o modelo" }];
+  return [{ value: "panel_master", label: "Senha Master do painel" }];
 }
 
 export default function ClientDetail() {
@@ -43,6 +50,8 @@ export default function ClientDetail() {
   const { data: contacts = [], refetch: refetchContacts } = trpc.clientContact.list.useQuery({ clientId, alarmSystemId: activeSystemId }, { enabled: !!clientId && !!activeSystemId });
   const { data: zones = [], refetch: refetchZones } = trpc.alarmZone.list.useQuery({ alarmSystemId: activeSystemId || 0 }, { enabled: !!activeSystemId });
   const { data: alarmUsers = [], refetch: refetchAlarmUsers } = trpc.alarmUser.list.useQuery({ alarmSystemId: activeSystemId || 0 }, { enabled: !!activeSystemId });
+  const [credentialSystem, setCredentialSystem] = useState<any>(null);
+  const { data: remoteCredentialStatus, refetch: refetchRemoteCredentialStatus } = trpc.alarmSystem.remoteCommandCredentialStatus.useQuery({ alarmSystemId: credentialSystem?.id || 0 }, { enabled: Boolean(credentialSystem?.id) });
 
   // Mutations
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
@@ -51,6 +60,8 @@ export default function ClientDetail() {
   const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema cadastrado!"); } });
   const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema excluído!"); } });
   const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
+  const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); setRemoteCredentialValue(""); toast.success("Credencial técnica protegida e atualizada."); } });
+  const clearRemoteCredential = trpc.alarmSystem.clearRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Credencial técnica removida."); } });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
   const updateCamera = trpc.camera.update.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera atualizada!"); setEditingCamera(null); } });
@@ -76,6 +87,8 @@ export default function ClientDetail() {
   const [showZoneForm, setShowZoneForm] = useState(false);
   const [editingContact, setEditingContact] = useState<any>(null);
   const [editingSystem, setEditingSystem] = useState<any>(null);
+  const [remoteCredentialKind, setRemoteCredentialKind] = useState("panel_master");
+  const [remoteCredentialValue, setRemoteCredentialValue] = useState("");
   const [editingZone, setEditingZone] = useState<any>(null);
   const [showAlarmUserForm, setShowAlarmUserForm] = useState(false);
   const [editingAlarmUser, setEditingAlarmUser] = useState<any>(null);
@@ -362,6 +375,9 @@ export default function ClientDetail() {
                           {isOnline ? "Online" : isNotMonitored ? "Não monitorado" : "Offline"}
                         </Badge>
                         <span className="text-xs text-muted-foreground">Porta {system.receiverPort}</span>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-300" onClick={() => { const options = credentialOptionsForBrand(system.brand); setCredentialSystem(system); setRemoteCredentialKind(options[0]?.value || "panel_master"); setRemoteCredentialValue(""); }} title="Credencial técnica para comandos remotos">
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingSystem({ ...system })} title="Editar sistema">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -417,6 +433,23 @@ export default function ClientDetail() {
                     if (identifierError) { toast.error(identifierError); return; }
                     updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", simCardNumber: editingSystem.simCardNumber || "", simPhoneNumber: editingSystem.simPhoneNumber || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveExpectedIntervalSeconds: Number(editingSystem.keepAliveExpectedIntervalSeconds) || 60, keepAliveFailureEventEnabled: editingSystem.keepAliveFailureEventEnabled === true, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5, keepAliveDisconnectAlertEnabled: editingSystem.keepAliveDisconnectAlertEnabled !== false, keepAliveRepeatAlertEnabled: editingSystem.keepAliveRepeatAlertEnabled === true, keepAliveRepeatAlertEveryMinutes: Number(editingSystem.keepAliveRepeatAlertEveryMinutes) || 60 });
                   }}>Salvar Alterações</Button>
+                </DialogContent>
+              </Dialog>
+            )}
+            {credentialSystem && (
+              <Dialog open={!!credentialSystem} onOpenChange={(open) => { if (!open) { setCredentialSystem(null); setRemoteCredentialValue(""); } }}>
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader><DialogTitle>Credencial técnica de comando remoto</DialogTitle></DialogHeader>
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+                      <p className="font-semibold text-amber-100">Conta {credentialSystem.account} · {credentialSystem.brand} {credentialSystem.model || ""}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Esta credencial é exigida pela central. Ela é cifrada no servidor, não aparece no histórico e não será exibida novamente depois de salva.</p>
+                    </div>
+                    <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs text-cyan-50"><strong>Operador:</strong> a sessão ativa registra quem solicitou a ação; ela não substitui a credencial técnica do painel.</div>
+                    <div><Label>Tipo de credencial</Label><Select value={remoteCredentialKind} onValueChange={setRemoteCredentialKind}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{credentialOptionsForBrand(credentialSystem.brand).map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div><Label>Credencial técnica</Label><Input className="mt-1" type="password" autoComplete="new-password" value={remoteCredentialValue} onChange={(event) => setRemoteCredentialValue(event.target.value)} placeholder={remoteCredentialStatus?.configured ? "Digite somente para substituir a atual" : "Digite a credencial da central"} /><p className="mt-1 text-[11px] text-muted-foreground">Status atual: {remoteCredentialStatus?.configured ? "cadastrada" : "não cadastrada"}.</p></div>
+                    <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => { setCredentialSystem(null); setRemoteCredentialValue(""); }}>Cancelar</Button>{remoteCredentialStatus?.configured && <Button variant="destructive" disabled={clearRemoteCredential.isPending} onClick={() => { if (confirm("Remover a credencial técnica desta central?")) clearRemoteCredential.mutate({ alarmSystemId: credentialSystem.id }); }}>Remover</Button>}<Button disabled={setRemoteCredential.isPending || !remoteCredentialValue.trim()} onClick={() => setRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: remoteCredentialKind as "panel_master" | "remote_access" | "vetti_protocol" | "compatec_transport", credential: remoteCredentialValue })}>{setRemoteCredential.isPending ? "Protegendo..." : remoteCredentialStatus?.configured ? "Substituir credencial" : "Salvar credencial"}</Button></div>
+                  </div>
                 </DialogContent>
               </Dialog>
             )}

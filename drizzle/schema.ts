@@ -191,6 +191,24 @@ export type AlarmSystem = typeof alarmSystems.$inferSelect;
 export type InsertAlarmSystem = typeof alarmSystems.$inferInsert;
 
 // ============================================================
+// CREDENCIAL TÉCNICA PARA COMANDO REMOTO
+// ============================================================
+// A credencial é mantida em tabela própria e cifrada no servidor. Ela nunca é
+// retornada em consultas de sistemas, relatórios ou histórico operacional.
+export const alarmRemoteCredentials = mysqlTable("alarm_remote_credentials", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull().unique(),
+  credentialKind: varchar("credentialKind", { length: 40 }).notNull(),
+  encryptedSecret: text("encryptedSecret").notNull(),
+  updatedBy: int("updatedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AlarmRemoteCredential = typeof alarmRemoteCredentials.$inferSelect;
+export type InsertAlarmRemoteCredential = typeof alarmRemoteCredentials.$inferInsert;
+
+// ============================================================
 // AMOSTRAS DE KEEP ALIVE POR CENTRAL
 // ============================================================
 export const systemKeepAliveSamples = mysqlTable("system_keep_alive_samples", {

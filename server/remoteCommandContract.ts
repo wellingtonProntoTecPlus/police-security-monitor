@@ -1,5 +1,17 @@
+import { z } from "zod";
+
 export const remoteCommandTypes = ["arm", "disarm", "isolate_zone", "restore_zone", "activate_pgm"] as const;
 export type RemoteCommandType = typeof remoteCommandTypes[number];
+
+export const remoteCommandSimulationInputSchema = z.object({
+  alarmSystemId: z.number(),
+  incidentId: z.number().optional(),
+  commandType: z.enum(remoteCommandTypes),
+  reason: z.string().trim().min(5, "Informe o motivo operacional do comando").max(2000),
+  partition: z.number().int().min(0).max(16).optional(),
+  zoneNumber: z.number().int().min(1).max(10).optional(),
+  pgmNumber: z.number().int().min(1).max(16).optional(),
+});
 
 const COMPATEC_LINE_END = "\r\n";
 const COMPATEC_ALL_SECTORS_MASK = "03FF";

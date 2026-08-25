@@ -537,6 +537,19 @@ CREATE TABLE IF NOT EXISTS alarm_remote_commands (
   INDEX alarm_remote_commands_incident (incidentId)
 );
 
+-- Credenciais técnicas de painel para comando remoto. O segredo chega cifrado
+-- pelo servidor e não é exposto em consultas, eventos ou histórico operacional.
+CREATE TABLE IF NOT EXISTS alarm_remote_credentials (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  credentialKind VARCHAR(40) NOT NULL,
+  encryptedSecret TEXT NOT NULL,
+  updatedBy INT NOT NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY alarm_remote_credentials_system_unique (alarmSystemId)
+);
+
 -- Configuração individual de Keep Alive para cada sistema de alarme.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
