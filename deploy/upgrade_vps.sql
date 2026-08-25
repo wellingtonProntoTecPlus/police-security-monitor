@@ -499,6 +499,30 @@ CREATE TABLE IF NOT EXISTS system_keep_alive_samples (
   INDEX system_keep_alive_samples_system_received (alarmSystemId, receivedAt)
 );
 
+-- Histórico imutável de comandos remotos; o primeiro uso é somente simulação.
+CREATE TABLE IF NOT EXISTS alarm_remote_commands (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  incidentId INT NULL,
+  operatorId INT NOT NULL,
+  brand VARCHAR(30) NOT NULL,
+  commandType VARCHAR(40) NOT NULL,
+  transportMode VARCHAR(20) NOT NULL DEFAULT 'simulation',
+  status VARCHAR(30) NOT NULL DEFAULT 'simulated',
+  partition INT NULL,
+  zoneNumber INT NULL,
+  pgmNumber INT NULL,
+  reason TEXT NOT NULL,
+  commandPayload TEXT NOT NULL,
+  responsePayload TEXT NULL,
+  confirmedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  executedAt TIMESTAMP NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX alarm_remote_commands_system_created (alarmSystemId, createdAt),
+  INDEX alarm_remote_commands_incident (incidentId)
+);
+
 -- Configuração individual de Keep Alive para cada sistema de alarme.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

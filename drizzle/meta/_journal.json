@@ -204,6 +204,13 @@
       "when": 1787414378855,
       "tag": "0028_past_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1787627515370,
+      "tag": "0029_far_jack_murdock",
+      "breakpoints": true
     }
   ]
 }

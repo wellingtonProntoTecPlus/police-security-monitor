@@ -16,6 +16,7 @@ import {
   contactIdCodes,
   systemTechnicalAccounts,
   systemKeepAliveSamples,
+  alarmRemoteCommands, InsertAlarmRemoteCommand,
 } from "../drizzle/schema";
 import {
   alarmPgms, InsertAlarmPgm,
@@ -538,6 +539,42 @@ export async function getAlarmSystem(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(alarmSystems).where(eq(alarmSystems.id, id)).limit(1);
   return result[0];
+}
+
+// ============================================================
+// COMANDOS REMOTOS AUDITÁVEIS
+// ============================================================
+export async function createAlarmRemoteCommand(data: InsertAlarmRemoteCommand) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const result = await db.insert(alarmRemoteCommands).values(data);
+  return { id: Number(result[0].insertId) };
+}
+
+export async function listAlarmRemoteCommands(alarmSystemId: number, limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: alarmRemoteCommands.id,
+    incidentId: alarmRemoteCommands.incidentId,
+    operatorId: alarmRemoteCommands.operatorId,
+    operatorName: users.name,
+    commandType: alarmRemoteCommands.commandType,
+    transportMode: alarmRemoteCommands.transportMode,
+    status: alarmRemoteCommands.status,
+    partition: alarmRemoteCommands.partition,
+    zoneNumber: alarmRemoteCommands.zoneNumber,
+    pgmNumber: alarmRemoteCommands.pgmNumber,
+    reason: alarmRemoteCommands.reason,
+    commandPayload: alarmRemoteCommands.commandPayload,
+    responsePayload: alarmRemoteCommands.responsePayload,
+    confirmedAt: alarmRemoteCommands.confirmedAt,
+    executedAt: alarmRemoteCommands.executedAt,
+  }).from(alarmRemoteCommands)
+    .leftJoin(users, eq(alarmRemoteCommands.operatorId, users.id))
+    .where(eq(alarmRemoteCommands.alarmSystemId, alarmSystemId))
+    .orderBy(desc(alarmRemoteCommands.id))
+    .limit(limit);
 }
 
 export async function createAlarmSystem(data: InsertAlarmSystem) {

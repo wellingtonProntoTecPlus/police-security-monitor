@@ -572,3 +572,15 @@
 
 ## Horário de Manutenção na VPS
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
+
+## Comandos Operacionais Remotos
+- [ ] Definir protocolo, autenticação, confirmação e permissões para Arme, Desarme, Isolamento de Zona e PGM por fabricante
+- [x] Criar solicitações auditáveis de Arme, Desarme, Isolamento de Zona e PGM no atendimento da ocorrência para Compatec em modo de simulação
+- [ ] Validar comandos em simulação antes de habilitar qualquer envio real ao painel
+- [x] Auditar o receptor Compatec contra a documentação: identificação `*ID`, confirmação de conta, Keep Alive `@` e confirmação de evento
+- [x] Corrigir a deduplicação Compatec pelo contador do pacote Contact ID, preservando eventos diferentes
+- [x] Validar em testes o ciclo Compatec de identificação, conta, Keep Alive e evento com ACKs documentados
+- [x] Modelar registros auditáveis de comandos Compatec com operador, motivo, parâmetros, quadro MicroBus, resposta e resultado de simulação
+- [x] Criar no popup de atendimento as ações Compatec de Arme, Desarme, Isolar/Restaurar Zona e Acionar PGM com confirmação dupla
+- [ ] Implementar o gerador MicroBus Compatec para CMD_GRUPO, CMD_SETOR, CMD_MASK_SETOR e CMD_PGM em modo de simulação
+- [ ] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional

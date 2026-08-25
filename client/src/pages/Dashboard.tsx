@@ -18,6 +18,15 @@ import HLSPlayer from "@/components/HLSPlayer";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
+type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
+
+const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
+  arm: "Armar central",
+  disarm: "Desarmar central",
+  isolate_zone: "Isolar zona",
+  restore_zone: "Restaurar zona",
+  activate_pgm: "Acionar PGM",
+};
 
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
@@ -155,6 +164,12 @@ export default function Dashboard() {
   const [maintenanceNotes, setMaintenanceNotes] = useState("");
   const [expandedQueue, setExpandedQueue] = useState<Exclude<QueueStatus, "waiting"> | null>(null);
   const [collapsedWaitingAccounts, setCollapsedWaitingAccounts] = useState<Set<string>>(() => new Set());
+  const [remoteCommandOpen, setRemoteCommandOpen] = useState(false);
+  const [remoteCommandType, setRemoteCommandType] = useState<RemoteCommandType>("arm");
+  const [remoteCommandReason, setRemoteCommandReason] = useState("");
+  const [remoteCommandPassword, setRemoteCommandPassword] = useState("");
+  const [remoteCommandZone, setRemoteCommandZone] = useState("");
+  const [remoteCommandPgm, setRemoteCommandPgm] = useState("");
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
@@ -163,6 +178,7 @@ export default function Dashboard() {
   const observeIncidentMut = trpc.incident.observe.useMutation();
   const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
+  const simulateRemoteCommandMut = trpc.remoteCommand.simulate.useMutation();
   const passwordConfirmationMut = trpc.auth.login.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
@@ -183,6 +199,9 @@ export default function Dashboard() {
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
   const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 15000 });
   const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
+  const selectedCompatecSystemId = selectedEvent?.brand === "COMPATEC" ? selectedEvent.alarmSystemId : undefined;
+  const { data: compatecPgms = [] } = trpc.alarmPgm.list.useQuery({ alarmSystemId: selectedCompatecSystemId || 0 }, { enabled: Boolean(selectedCompatecSystemId) });
+  const { data: remoteCommandHistory = [] } = trpc.remoteCommand.list.useQuery({ alarmSystemId: selectedCompatecSystemId || 0, limit: 8 }, { enabled: Boolean(selectedCompatecSystemId) });
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
   const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
 
@@ -806,6 +825,52 @@ export default function Dashboard() {
     }
   }
 
+  function openRemoteCommand(commandType: RemoteCommandType) {
+    if (!selectedEvent?.alarmSystemId || selectedEvent.brand !== "COMPATEC") {
+      toast.error("Comandos remotos ainda estão disponíveis somente para uma central Compatec identificada.");
+      return;
+    }
+    setRemoteCommandType(commandType);
+    setRemoteCommandReason("");
+    setRemoteCommandPassword("");
+    setRemoteCommandZone(commandType === "isolate_zone" || commandType === "restore_zone" ? String(Number(selectedEvent.zoneUser || 0) || "") : "");
+    setRemoteCommandPgm("");
+    setRemoteCommandOpen(true);
+  }
+
+  function submitRemoteCommandSimulation() {
+    if (!selectedEvent?.alarmSystemId) return;
+    const zoneNumber = Number(remoteCommandZone);
+    const pgmNumber = Number(remoteCommandPgm);
+    if ((remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && (!Number.isInteger(zoneNumber) || zoneNumber < 1)) {
+      toast.error("Informe a zona a ser isolada ou restaurada.");
+      return;
+    }
+    if (remoteCommandType === "activate_pgm" && (!Number.isInteger(pgmNumber) || pgmNumber < 1)) {
+      toast.error("Informe a PGM a ser acionada.");
+      return;
+    }
+
+    simulateRemoteCommandMut.mutate({
+      alarmSystemId: selectedEvent.alarmSystemId,
+      incidentId: selectedEvent.incidentId,
+      commandType: remoteCommandType,
+      reason: remoteCommandReason,
+      password: remoteCommandPassword,
+      zoneNumber: (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") ? zoneNumber : undefined,
+      pgmNumber: remoteCommandType === "activate_pgm" ? pgmNumber : undefined,
+    }, {
+      onSuccess: () => {
+        const summary = `${REMOTE_COMMAND_LABELS[remoteCommandType]} registrado em simulação`;
+        addLog(summary);
+        toast.success(`${summary}. Nenhum comando foi enviado à central.`);
+        setRemoteCommandOpen(false);
+        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+      },
+      onError: (error) => toast.error(error.message),
+    });
+  }
+
   // Card do evento
   function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
@@ -951,10 +1016,10 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-emerald-400" onClick={() => setTreatmentPanel("contacts")}><Phone className="h-3.5 w-3.5" /> Contatos ({treatmentContacts.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-blue-400" onClick={() => setTreatmentPanel("users")}><Users className="h-3.5 w-3.5" /> Usuários ({treatmentAlarmUsers.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
-                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-400" onClick={() => { addLog(`Zona ${selectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>
-                </div>
+	                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
+	                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
+	                  {selectedEvent.brand === "COMPATEC" && selectedEvent.alarmSystemId ? <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos Compatec</Button> : <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground" onClick={() => toast.info("Comandos remotos dependem do protocolo homologado para cada fabricante.")}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>}
+	                </div>
                 <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[0.82fr_1.18fr]">
                   <div className="space-y-4">
                     <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-red-100"><MapPin className="h-4 w-4 text-red-400" /> Zonas e setores</h3><div className="max-h-48 space-y-1.5 overflow-y-auto">{treatmentZones.filter((zone: any) => zone.isActive !== false).map((zone: any) => <div key={zone.id} className={`flex items-center justify-between rounded px-2.5 py-1.5 text-xs ${String(zone.zoneNumber) === String(selectedEvent.zoneUser).replace(/^0+/, "") ? "bg-red-500/15 text-red-100" : "bg-black/20 text-muted-foreground"}`}><span><strong className="font-mono">Zona {String(zone.zoneNumber).padStart(3, "0")}</strong> · {zone.name}</span><span className="uppercase text-[10px]">{zone.type}</span></div>)}{treatmentZones.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma zona cadastrada neste sistema.</p>}</div></div>
@@ -964,6 +1029,41 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {remoteCommandOpen && selectedEvent && selectedCompatecSystemId && (
+        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 p-5" onClick={() => !simulateRemoteCommandMut.isPending && setRemoteCommandOpen(false)}>
+          <div className="w-[min(760px,96vw)] overflow-hidden rounded-xl border border-cyan-400/35 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-cyan-400/25 bg-cyan-400/5 px-5 py-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">Comando remoto Compatec · modo de simulação</p>
+                <h3 className="mt-1 text-lg font-bold text-foreground">Conta {selectedEvent.account} · {selectedEvent.systemModel}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">O comando será auditado, mas nenhum pacote MicroBus será transmitido nesta etapa.</p>
+              </div>
+              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setRemoteCommandOpen(false)} aria-label="Fechar comando remoto"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="grid gap-5 p-5 lg:grid-cols-[0.92fr_1.08fr]">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {(Object.keys(REMOTE_COMMAND_LABELS) as RemoteCommandType[]).map((command) => <Button key={command} type="button" variant={remoteCommandType === command ? "default" : "outline"} className="h-auto min-h-11 justify-start whitespace-normal text-left text-xs" onClick={() => setRemoteCommandType(command)}>{REMOTE_COMMAND_LABELS[command]}</Button>)}
+                </div>
+                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">Zona <input type="number" min="1" max="999" value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Ex.: 1" /></label>}
+                {remoteCommandType === "activate_pgm" && <label className="block text-sm font-medium text-foreground">PGM <select value={remoteCommandPgm} onChange={(event) => setRemoteCommandPgm(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a PGM</option>{compatecPgms.map((pgm: any) => <option key={pgm.id} value={pgm.pgmNumber}>PGM {pgm.pgmNumber} · {pgm.name}</option>)}{compatecPgms.length === 0 && Array.from({ length: 16 }, (_, index) => <option key={index + 1} value={index + 1}>PGM {index + 1}</option>)}</select></label>}
+                <label className="block text-sm font-medium text-foreground">Motivo operacional <Textarea className="mt-1 min-h-24" value={remoteCommandReason} onChange={(event) => setRemoteCommandReason(event.target.value)} placeholder="Ex.: cliente confirmado por telefone; operador solicitou o comando durante o atendimento." /></label>
+                <label className="block text-sm font-medium text-foreground">Senha do operador <input type="password" value={remoteCommandPassword} onChange={(event) => setRemoteCommandPassword(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Confirmação obrigatória" autoComplete="current-password" /></label>
+                <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5 || !remoteCommandPassword} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
+              </div>
+              <div className="rounded-lg border border-border bg-black/15 p-4">
+                <h4 className="font-bold text-foreground">Histórico desta central</h4>
+                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. O modo atual impede envio físico à central.</p>
+                <div className="mt-3 max-h-[390px] space-y-2 overflow-y-auto pr-1">
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_LABELS[command.commandType as RemoteCommandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p></div>)}
+                  {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

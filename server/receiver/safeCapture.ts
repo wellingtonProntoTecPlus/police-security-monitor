@@ -122,7 +122,6 @@ export function findCapturedPanelCandidates(
   for (const system of systems) {
     const macAddress = normalizeIdentifier(system.macAddress);
     const imeiGprs = normalizeIdentifier(system.imeiGprs);
-    const identifier = macAddress || imeiGprs;
     const serialNumber = normalizeIdentifier(system.serialNumber);
 
     if (normalizedBrand === "JFL") {
@@ -140,20 +139,25 @@ export function findCapturedPanelCandidates(
       continue;
     }
 
-    if (identifier.length !== 6) continue;
-
-    if (normalizedBrand === "VETTI" && packetHex.includes(identifier)) {
-      candidates.push({ systemId: system.id, identifierType: "mac_hex", identifier });
+    if (normalizedBrand === "VETTI" && macAddress.length === 6 && packetHex.includes(macAddress)) {
+      candidates.push({ systemId: system.id, identifierType: "mac_hex", identifier: macAddress });
       continue;
     }
 
-    if (normalizedBrand === "COMPATEC" && packetText.includes(`*${identifier}`)) {
-      candidates.push({ systemId: system.id, identifierType: "mac_ascii", identifier });
+    // Na Compatec, *123456 é MAC no MW1/Wi-Fi e IMEI no MG1/GPRS.
+    // Nunca priorizar o MAC do cadastro e ignorar o IMEI quando ambos existirem.
+    if (normalizedBrand === "COMPATEC") {
+      if (macAddress.length === 6 && packetText.includes(`*${macAddress}`)) {
+        candidates.push({ systemId: system.id, identifierType: "mac_ascii", identifier: macAddress });
+      }
+      if (imeiGprs.length === 6 && packetText.includes(`*${imeiGprs}`)) {
+        candidates.push({ systemId: system.id, identifierType: "imei_ascii", identifier: imeiGprs });
+      }
       continue;
     }
 
-    if (normalizedBrand === "RADIOENGE") {
-      const decimalIdentifier = Number.parseInt(identifier, 16).toString(10);
+    if (normalizedBrand === "RADIOENGE" && macAddress.length === 6) {
+      const decimalIdentifier = Number.parseInt(macAddress, 16).toString(10);
       if (packetText.includes(decimalIdentifier)) {
         candidates.push({ systemId: system.id, identifierType: "mac_decimal", identifier: decimalIdentifier });
       }

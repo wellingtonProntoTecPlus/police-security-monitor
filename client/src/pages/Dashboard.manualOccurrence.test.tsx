@@ -54,6 +54,11 @@ vi.mock("@/lib/trpc", () => ({
       startMaintenance: { useMutation: () => standardMutation },
       endMaintenance: { useMutation: () => standardMutation },
     },
+    alarmPgm: { list: { useQuery: () => ({ data: [] }) } },
+    remoteCommand: {
+      list: { useQuery: () => ({ data: [] }) },
+      simulate: { useMutation: () => standardMutation },
+    },
     clientContact: { list: { useQuery: () => ({ data: [] }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) } },
     alarmZone: { list: { useQuery: () => ({ data: [] }) } },
@@ -67,6 +72,7 @@ vi.mock("@/lib/trpc", () => ({
     useUtils: () => ({
       incident: { openQueue: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
     }),
   },
 }));
