@@ -523,7 +523,7 @@ CREATE TABLE IF NOT EXISTS alarm_remote_commands (
   commandType VARCHAR(40) NOT NULL,
   transportMode VARCHAR(20) NOT NULL DEFAULT 'simulation',
   status VARCHAR(30) NOT NULL DEFAULT 'simulated',
-  partition INT NULL,
+  `partition` INT NULL,
   zoneNumber INT NULL,
   pgmNumber INT NULL,
   reason TEXT NOT NULL,
