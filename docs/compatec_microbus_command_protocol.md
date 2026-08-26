@@ -86,6 +86,10 @@ MB=KA0[00C7,1E,3C]
 
 O manual define o primeiro argumento como um campo de bits de estado da central; o bit de armado está presente em `00C7`, coerente com a tela do aplicativo que indicava central parcialmente armada. Esse resumo não informa quais setores estão armados. Antes de transmitir arme, desarme, PGM ou anulação, a próxima consulta segura será `MB=AK1\r\n` para obter o estado individual dos setores e distinguir central totalmente armada de parcialmente armada [1].
 
+## Evidência de comando físico — 26/08/2026
+
+O quadro Wi-Fi `MB=AK4[0,03FF]\r\n`, inicialmente rotulado segundo o exemplo externo como Arme, foi transmitido na central Compatec de bancada `F024F9C1BDCB`. O aplicativo oficial registrou **“Desarme do alarme efetuado por App”** tanto quando a central estava previamente desarmada quanto quando estava armada. Para esta integração MW1, o Police Central passa a tratar este quadro como **Desarme observado em bancada** e bloqueia qualquer quadro de Arme até que sua semântica seja demonstrada pela central física.
+
 ### Regra operacional de ARMADO STAY
 
 Para a operação Police Central, **ARMADO STAY** significa central armada com ao menos um setor isolado ou inibido. A central armada sem setores isolados/inibidos será apresentada como **ARMADO**; sem arme ativo, como **DESARMADO**. Essa classificação será aplicada somente quando a leitura `MB=KA1[...]` confirmar os indicadores de arme e de isolamento/inibição dos setores.

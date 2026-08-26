@@ -2,7 +2,11 @@ import type net from "net";
 
 export const COMPATEC_MW1_STATUS_QUERY = "MB=AK0\r\n";
 export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
-export const COMPATEC_MW1_ARM_ALL = "MB=AK4[0,03FF]\r\n";
+/**
+ * Quadro observado na central de bancada MW1 em 26/08/2026.
+ * Apesar de exemplos externos divergentes, a central executou DESARME para este quadro.
+ */
+export const COMPATEC_MW1_DISARM_ALL = "MB=AK4[0,03FF]\r\n";
 
 type ActiveCompatecSession = {
   socket: net.Socket;
@@ -39,7 +43,7 @@ export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; comma
  * que a própria central Compatec abriu.
  */
 export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
-  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_ARM_ALL];
+  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_DISARM_ALL];
   if (!allowedPayloads.includes(input.payload)) {
     return { sent: false as const, message: "Comando MicroBus de bancada não autorizado." };
   }

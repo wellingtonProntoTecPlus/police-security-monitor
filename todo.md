@@ -584,10 +584,16 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
-- [x] Implementar o Arme MicroBus total `MB=AK4[0,03FF]` restrito à central Compatec de bancada
+- [x] Converter o quadro testado `MB=AK4[0,03FF]` em Desarme físico de bancada
+- [ ] Identificar o quadro MicroBus correto de Arme antes de habilitá-lo fisicamente
+- [x] Bloquear o botão físico de Arme MicroBus após o teste de bancada ter executado Desarme
+- [ ] Corrigir e validar o parâmetro MicroBus de Arme com base no retorno observado da central
+- [x] Enviar ao GitHub a revisão fe00b02 do Arme MicroBus que a VPS ainda não recebeu
+- [ ] Diagnosticar e corrigir a VPS que não exibe o botão publicado de Arme MicroBus da bancada
+- [x] Implementação original, posteriormente revogada: o quadro `MB=AK4[0,03FF]` foi rotulado como Arme, mas a bancada comprovou que executa Desarme
 - [ ] Exibir ARMADO STAY somente quando a central estiver armada com setor isolado ou inibido
 - [ ] Identificar ARMADO STAY quando a leitura MicroBus mostrar setores armados e desarmados simultaneamente
-- [ ] Homologar primeiro Arme e depois Desarme pelo MicroBus na central de bancada
+- [ ] Homologar formalmente o Desarme observado e, depois, o Arme correto pelo MicroBus na central de bancada
 - [ ] Comparar o retorno MicroBus de setores após Arme, Arme Stay e Desarme pelo aplicativo da central de bancada
 - [ ] Mapear os valores retornados para estados ARMADO, ARMADO STAY e DESARMADO antes de habilitar comandos físicos
 - [ ] Atualizar a VPS e executar a consulta MicroBus de setores na central Compatec de bancada
