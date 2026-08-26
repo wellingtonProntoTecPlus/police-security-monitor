@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
+import { COMPATEC_MW1_ARM_CANDIDATE_0000, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
 
 function fakeSocket() {
   const writes: string[] = [];
@@ -51,5 +51,14 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(socket.writes).toEqual(["MB=AK4[0,03FF]\r\n"]);
     expect(getCompatecMw1StatusResponseLine(Buffer.from("MB=KA4[0,03FF]\r\n"))).toBe("MB=KA4[0,03FF]\r\n");
     expect(consumeCompatecMw1StatusResponse(socket, "MB=KA4[0,03FF]\r\n")).toEqual({ commandId: 84, payload: COMPATEC_MW1_DISARM_ALL, response: "MB=KA4[0,03FF]\r\n" });
+  });
+
+  it("aceita somente o candidato experimental 0000 autorizado para a bancada", () => {
+    const socket = fakeSocket();
+    rememberActiveCompatecSession(socket, { id: 9338, account: "0334" });
+
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9338, commandId: 85, payload: COMPATEC_MW1_ARM_CANDIDATE_0000 }).sent).toBe(true);
+    expect(socket.writes).toEqual(["MB=AK4[0,0000]\r\n"]);
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9338, commandId: 86, payload: "MB=AK4[0,0002]\r\n" })).toEqual({ sent: false, message: "Comando MicroBus de bancada não autorizado." });
   });
 });

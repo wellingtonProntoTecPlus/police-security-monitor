@@ -7,6 +7,11 @@ export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
  * Apesar de exemplos externos divergentes, a central executou DESARME para este quadro.
  */
 export const COMPATEC_MW1_DISARM_ALL = "MB=AK4[0,03FF]\r\n";
+/**
+ * Hipótese experimental autorizada pelo operador para uma única validação MW1.
+ * Não é um quadro homologado de Arme e permanece limitado à central de bancada.
+ */
+export const COMPATEC_MW1_ARM_CANDIDATE_0000 = "MB=AK4[0,0000]\r\n";
 
 type ActiveCompatecSession = {
   socket: net.Socket;
@@ -38,12 +43,13 @@ export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; comma
 }
 
 /**
- * Entrega somente quadros MicroBus explicitamente homologados para a central de bancada.
+ * Entrega somente quadros MicroBus homologados ou explicitamente autorizados para ensaio
+ * na central de bancada. A VPS nunca abre uma conexão de saída: reutiliza exclusivamente a sessão autenticada
  * A VPS nunca abre uma conexão de saída: reutiliza exclusivamente a sessão autenticada
  * que a própria central Compatec abriu.
  */
 export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
-  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_DISARM_ALL];
+  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_ARM_CANDIDATE_0000];
   if (!allowedPayloads.includes(input.payload)) {
     return { sent: false as const, message: "Comando MicroBus de bancada não autorizado." };
   }

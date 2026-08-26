@@ -587,7 +587,11 @@
 - [x] Corrigir a autorização `10002` que bloqueou o Desarme MicroBus da central Compatec de bancada para o operador autenticado
 - [ ] Validar que o Desarme de bancada mantém motivo, operador, MAC C1BDCB, auditoria e entrega no próximo Keep Alive após a correção de autorização
 - [x] Converter o quadro testado `MB=AK4[0,03FF]` em Desarme físico de bancada
+- [x] Homologar fisicamente o Desarme `MB=AK4[0,03FF]`: operador autenticado, motivo, auditoria `sent` e confirmação independente no aplicativo da central
+- [x] Registrar a central Compatec de bancada em estado DESARMADO como referência após o teste físico de Desarme
 - [ ] Identificar o quadro MicroBus correto de Arme antes de habilitá-lo fisicamente
+- [x] Implementar um único candidato experimental `MB=AK4[0,0000]` de Arme, isolado por MAC C1BDCB, modo de bancada, motivo e confirmação explícita
+- [ ] Registrar o resultado físico do candidato experimental 0000 com consulta de setores antes/depois e confirmação independente no aplicativo
 - [x] Bloquear o botão físico de Arme MicroBus após o teste de bancada ter executado Desarme
 - [ ] Corrigir e validar o parâmetro MicroBus de Arme com base no retorno observado da central
 - [x] Enviar ao GitHub a revisão fe00b02 do Arme MicroBus que a VPS ainda não recebeu
