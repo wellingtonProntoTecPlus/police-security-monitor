@@ -59,6 +59,7 @@ vi.mock("@/lib/trpc", () => ({
       list: { useQuery: () => ({ data: [] }) },
       simulate: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
+      queryBenchSectors: { useMutation: () => standardMutation },
     },
     clientContact: { list: { useQuery: () => ({ data: [] }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) } },

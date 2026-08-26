@@ -1,6 +1,7 @@
 import type net from "net";
 
 export const COMPATEC_MW1_STATUS_QUERY = "MB=AK0\r\n";
+export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
 
 type ActiveCompatecSession = {
   socket: net.Socket;
@@ -28,13 +29,21 @@ export function rememberActiveCompatecSession(socket: net.Socket, system: { id: 
  * pela própria central. Nenhuma nova conexão de saída é aberta pela VPS.
  */
 export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; commandId: number }) {
+  return sendCompatecMw1BenchQuery({ ...input, payload: COMPATEC_MW1_STATUS_QUERY });
+}
+
+/** Limita as consultas reais de bancada aos dois comandos de leitura homologados. */
+export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
+  if (input.payload !== COMPATEC_MW1_STATUS_QUERY && input.payload !== COMPATEC_MW1_SECTORS_QUERY) {
+    return { sent: false as const, message: "Consulta MicroBus de bancada não autorizada." };
+  }
   const session = activeSessionBySystemId.get(input.alarmSystemId);
   if (!session || session.socket.destroyed || !session.socket.writable) {
     return { sent: false as const, message: "A central de bancada não possui conexão ativa com a VPS neste momento." };
   }
-  pendingStatusCommandBySocket.set(session.socket, { commandId: input.commandId, payload: COMPATEC_MW1_STATUS_QUERY });
-  session.socket.write(COMPATEC_MW1_STATUS_QUERY);
-  return { sent: true as const, payload: COMPATEC_MW1_STATUS_QUERY, account: session.account };
+  pendingStatusCommandBySocket.set(session.socket, { commandId: input.commandId, payload: input.payload });
+  session.socket.write(input.payload);
+  return { sent: true as const, payload: input.payload, account: session.account };
 }
 
 export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: string) {
@@ -46,6 +55,6 @@ export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: s
 
 export function getCompatecMw1StatusResponseLine(input: Buffer) {
   const text = input.toString("latin1");
-  const match = text.match(/MB=KA0(?:\[[^\r\n]*\])?\r?\n?/);
+  const match = text.match(/MB=KA[01](?:\[[^\r\n]*\])?\r?\n?/);
   return match?.[0];
 }

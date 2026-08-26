@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPATEC_MW1_STATUS_QUERY, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
+import { COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
 
 function fakeSocket() {
   const writes: string[] = [];
@@ -32,5 +32,14 @@ describe("transporte MicroBus Compatec de bancada", () => {
 
     expect(getCompatecMw1StatusResponseLine(Buffer.from("MB=KA0[03FF]\r\n"))).toBe("MB=KA0[03FF]\r\n");
     expect(consumeCompatecMw1StatusResponse(socket, "MB=KA0[03FF]\r\n")).toEqual({ commandId: 82, payload: "MB=AK0\r\n", response: "MB=KA0[03FF]\r\n" });
+  });
+
+  it("permite a consulta segura de setores e reconhece somente a resposta KA1", () => {
+    const socket = fakeSocket();
+    rememberActiveCompatecSession(socket, { id: 9336, account: "0334" });
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9336, commandId: 83, payload: COMPATEC_MW1_SECTORS_QUERY }).sent).toBe(true);
+    expect(socket.writes).toEqual(["MB=AK1\r\n"]);
+    expect(getCompatecMw1StatusResponseLine(Buffer.from("MB=KA1[0001]\r\n"))).toBe("MB=KA1[0001]\r\n");
+    expect(consumeCompatecMw1StatusResponse(socket, "MB=KA1[0001]\r\n")).toEqual({ commandId: 83, payload: "MB=AK1\r\n", response: "MB=KA1[0001]\r\n" });
   });
 });

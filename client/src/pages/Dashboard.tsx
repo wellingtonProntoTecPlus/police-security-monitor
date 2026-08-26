@@ -188,6 +188,7 @@ export default function Dashboard() {
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
   const simulateRemoteCommandMut = trpc.remoteCommand.simulate.useMutation();
   const queryBenchStatusMut = trpc.remoteCommand.queryBenchStatus.useMutation();
+  const queryBenchSectorsMut = trpc.remoteCommand.queryBenchSectors.useMutation();
   const passwordConfirmationMut = trpc.auth.login.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
@@ -898,6 +899,26 @@ export default function Dashboard() {
     });
   }
 
+  function submitCompatecBenchSectorsQuery() {
+    if (!selectedEvent?.alarmSystemId) return;
+    if (remoteCommandReason.trim().length < 5) {
+      toast.error("Informe o motivo operacional da consulta.");
+      return;
+    }
+    queryBenchSectorsMut.mutate({
+      alarmSystemId: selectedEvent.alarmSystemId,
+      incidentId: selectedEvent.incidentId,
+      reason: remoteCommandReason,
+    }, {
+      onSuccess: (result) => {
+        addLog("Consulta MicroBus de setores registrada para a central de bancada.");
+        toast.success(result.status === "sent" ? "Consulta MB=AK1 enviada. Aguarde a resposta dos setores." : result.message || "Consulta aguardando a conexão da central.");
+        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+      },
+      onError: (error) => toast.error(error.message),
+    });
+  }
+
   // Card do evento
   function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
@@ -1082,6 +1103,7 @@ export default function Dashboard() {
                 <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Operador autenticado:</strong> sua sessão ativa identificará automaticamente quem confirmou esta ação. A senha técnica do painel será cadastrada separadamente antes de habilitar envio físico.</div>
                 <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
                 <Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button>
+                <Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button>
                 <p className="text-center text-[11px] text-muted-foreground">Disponível somente após ativar o modo de bancada no cadastro desta central. Esta ação consulta o estado; não arma, desarma, isola zona ou aciona PGM.</p>
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">

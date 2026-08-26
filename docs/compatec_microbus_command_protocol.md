@@ -76,6 +76,16 @@ A central usa somente o módulo **Wi-Fi MW1**, sem GPRS. A origem MicroBus aplic
 
 O relatório do aplicativo confirma arme/desarme por App e as telas iniciais mostram PGM 1 e PGM 2 disponíveis. Esses comandos físicos continuam pendentes de homologação individual após a consulta de estado.
 
+## Primeira resposta MicroBus real — 26/08/2026
+
+A consulta de bancada `MB=AK0\r\n` foi enfileirada pelo Police Central, entregue no próximo contato Wi-Fi autenticado da conta `0334` e confirmada com a resposta real:
+
+```text
+MB=KA0[00C7,1E,3C]
+```
+
+O manual define o primeiro argumento como um campo de bits de estado da central; o bit de armado está presente em `00C7`, coerente com a tela do aplicativo que indicava central parcialmente armada. Esse resumo não informa quais setores estão armados. Antes de transmitir arme, desarme, PGM ou anulação, a próxima consulta segura será `MB=AK1\r\n` para obter o estado individual dos setores e distinguir central totalmente armada de parcialmente armada [1].
+
 Fontes visuais fornecidas pelo usuário: `Screenshot_20260825_072007_ContinentePro.jpg`, `Screenshot_20260825_072056_ContinentePro.jpg`, `Screenshot_20260825_072156_ContinentePro.jpg` e `Screenshot_20260825_072219_ContinentePro.jpg`.
 
 ## References

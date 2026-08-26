@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -15,7 +15,7 @@ import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociat
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
-import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -33,7 +33,7 @@ const RECEIVERS_CONFIG = [
 
 type EventCallback = (event: any) => void;
 
-export { sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+export { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 
 let eventCallback: EventCallback | null = null;
 const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
@@ -314,13 +314,13 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
         rememberSystem(socket, system, port);
         if (system.remoteCommandLabEnabled) {
           rememberActiveCompatecSession(socket, system);
-          const pendingQuery = await getPendingCompatecBenchStatusQuery(system.id);
+          const pendingQuery = await getPendingCompatecBenchQuery(system.id);
           if (pendingQuery) {
-            const dispatched = sendCompatecMw1StatusQuery({ alarmSystemId: system.id, commandId: pendingQuery.id });
+            const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload });
             if (dispatched.sent) {
               await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
                 status: "sent",
-                responsePayload: "Consulta MB=AK0 enviada na próxima conexão autenticada da central; aguardando resposta.",
+                responsePayload: `Consulta ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviada na próxima conexão autenticada da central; aguardando resposta.`,
                 executedAt: new Date(),
               });
               console.log(`[MICROBUS] COMPATEC consulta pendente enviada no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);

@@ -579,8 +579,10 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Implementar a consulta MicroBus de setores `MB=AK1` exclusivamente para a central Compatec de bancada
+- [ ] Validar o retorno dos setores antes de exibir ARMADO, ARMADO STAY ou DESARMADO no atendimento
 - [x] Entregar a consulta MicroBus pendente no próximo Keep Alive autenticado da central Compatec de bancada
-- [ ] Registrar no histórico a resposta ou a expiração da consulta aguardando conexão
+- [x] Registrar no histórico a resposta ou a expiração da consulta aguardando conexão
 - [x] Preservar a tela completa de Ocorrência Manual para testes e comandos técnicos
 - [ ] Aplicar os botões compactos somente no atendimento de eventos recebidos
 - [ ] Substituir o painel técnico por botões operacionais ARMADO, ARMADO STAY, DESARMADO, PGM e ISOLAR ZONA na ocorrência
@@ -588,18 +590,18 @@
 - [ ] Manter motivo, operador, quadro e resposta no histórico técnico sem ocupar a tela operacional
 - [x] Confirmar que o modo de bancada da central 0334 está ativo; a consulta só fica desabilitada enquanto o motivo operacional estiver vazio
 - [ ] Restaurar a visibilidade do botão Ocorrência Manual no Dashboard da VPS
-- [ ] Criar a ocorrência manual da conta 0334 para vincular o teste MicroBus ao atendimento
+- [x] Criar a ocorrência manual da conta 0334 para vincular o teste MicroBus ao atendimento
 - [ ] Exibir no cadastro da central Compatec de bancada o botão direto Consultar estado da central
 - [ ] Permitir a consulta MicroBus de bancada sem depender de Ocorrência Manual ou evento aberto
-- [ ] Criar uma autorização explícita de modo bancada por sistema antes de permitir transmissão MicroBus real
-- [ ] Registrar e encerrar a consulta MicroBus de bancada com a resposta real da central
+- [x] Criar uma autorização explícita de modo bancada por sistema antes de permitir transmissão MicroBus real
+- [x] Registrar e encerrar a consulta MicroBus de bancada com a resposta real da central
 - [x] Implementar a consulta MicroBus Wi-Fi MW1 `MB=AK0` exclusivamente para a central Compatec de bancada
 - [x] Restringir o transporte MicroBus real à central de bancada identificada pelo MAC C1BDCB até homologação completa
 - [x] Capturar a conexão da Compatec F024F9C1BDCB na porta 9112 para confirmar a janela de resposta MicroBus
-- [ ] Testar resposta MicroBus somente na conexão confirmada da central de bancada, sem mudar sua configuração de monitoramento
+- [x] Testar resposta MicroBus somente na conexão confirmada da central de bancada, sem mudar sua configuração de monitoramento
 - [ ] Confirmar endereço, porta, módulo e rota MicroBus da central Compatec de bancada
 - [ ] Implementar transporte MicroBus real bloqueado para sistemas fora da bancada
-- [ ] Testar consulta de estado e resposta MicroBus na central de bancada antes de qualquer comando de ação
+- [x] Testar consulta de estado e resposta MicroBus na central de bancada antes de qualquer comando de ação
 - [ ] Homologar em bancada Arme, Desarme, Isolar/Restaurar Zona e PGM com resposta registrada
 - [x] Diagnosticar e restaurar a resposta do ambiente de desenvolvimento após a indisponibilidade reportada
 - [x] Substituir o campo genérico por credenciais técnicas específicas no cadastro de cada sistema
