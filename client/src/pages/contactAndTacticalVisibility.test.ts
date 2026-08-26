@@ -54,6 +54,16 @@ describe("visibilidade dos cadastros operacionais", () => {
     expect(source).toContain("tabular-nums");
   });
 
+  it("permite filtrar clientes pela empresa parceira e mostra a contagem encontrada", () => {
+    const source = projectFile("client/src/pages/Clients.tsx");
+
+    expect(source).toContain('const [partnerFilter, setPartnerFilter] = useState("all")');
+    expect(source).toContain('Empresa parceira');
+    expect(source).toContain('Todas as parceiras');
+    expect(source).toContain('clientes encontrados');
+    expect(source).toContain('c.partnerCompanyId');
+  });
+
   it("vincula contatos e usuários ao sistema de alarme selecionado", () => {
     const source = projectFile("client/src/pages/ClientDetail.tsx");
 

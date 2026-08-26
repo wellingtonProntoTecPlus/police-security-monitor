@@ -125,6 +125,8 @@
 - [x] Data da Bateria
 
 ## Melhorias no Cadastro de Cliente
+- [x] Adicionar filtro por empresa parceira na página Clientes Monitorados
+- [x] Exibir o total de clientes para a parceira selecionada e para a busca combinada
 - [x] Exibir a conta como primeira coluna da lista de clientes, ordenar por conta e permitir busca pela conta
 - [x] Aumentar o tamanho, o espaçamento e o destaque visual da conta na lista de clientes
 - [x] Organizar contatos e credenciais por sistema em duas colunas, com até 20 contatos por página

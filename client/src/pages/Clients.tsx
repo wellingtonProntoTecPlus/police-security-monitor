@@ -101,6 +101,7 @@ const INITIAL_FORM = {
 export default function Clients() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
+  const [partnerFilter, setPartnerFilter] = useState("all");
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [editingClient, setEditingClient] = useState<any>(null);
@@ -162,6 +163,7 @@ export default function Clients() {
   const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
   const numericSearch = search.replace(/\D/g, "");
   const filteredClients = clients.filter((c: any) => {
+    if (partnerFilter !== "all" && String(c.partnerCompanyId) !== partnerFilter) return false;
     if (!normalizedSearch) return true;
     const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood, ...(c.accounts || [])]
       .filter(Boolean)
@@ -171,6 +173,7 @@ export default function Clients() {
       || (c.accounts || []).some((account: string) => account.includes(search.trim()))
       || (numericSearch.length > 0 && String(c.document || "").replace(/\D/g, "").includes(numericSearch));
   });
+  const selectedPartner = partners.find((partner: any) => String(partner.id) === partnerFilter);
 
   function handleSubmit() {
     if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
@@ -440,10 +443,27 @@ export default function Clients() {
           </Button>
         </div>
 
-        {/* BUSCA */}
-        <div className="relative max-w-lg mb-6">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por conta, nome, fantasia ou documento..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {/* BUSCA E EMPRESA PARCEIRA */}
+        <div className="mb-6 flex flex-wrap items-end gap-3">
+          <div className="relative w-full max-w-lg">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Buscar por conta, nome, fantasia ou documento..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <div className="w-full sm:w-72">
+            <Label className="mb-1 block text-xs font-medium text-muted-foreground">Empresa parceira</Label>
+            <Select value={partnerFilter} onValueChange={setPartnerFilter}>
+              <SelectTrigger><SelectValue placeholder="Todas as parceiras" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as parceiras</SelectItem>
+                {partners.map((partner: any) => (
+                  <SelectItem key={partner.id} value={String(partner.id)}>{partner.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
+            {filteredClients.length} {filteredClients.length === 1 ? "cliente encontrado" : "clientes encontrados"}{selectedPartner ? ` · ${selectedPartner.name}` : ""}
+          </div>
         </div>
 
         {/* TABELA DE CLIENTES - Layout Desktop */}
