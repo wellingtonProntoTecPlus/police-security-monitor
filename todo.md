@@ -584,6 +584,8 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Corrigir a autorização `10002` que bloqueou o Desarme MicroBus da central Compatec de bancada para o operador autenticado
+- [ ] Validar que o Desarme de bancada mantém motivo, operador, MAC C1BDCB, auditoria e entrega no próximo Keep Alive após a correção de autorização
 - [x] Converter o quadro testado `MB=AK4[0,03FF]` em Desarme físico de bancada
 - [ ] Identificar o quadro MicroBus correto de Arme antes de habilitá-lo fisicamente
 - [x] Bloquear o botão físico de Arme MicroBus após o teste de bancada ter executado Desarme

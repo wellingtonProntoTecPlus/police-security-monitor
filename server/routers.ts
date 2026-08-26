@@ -742,7 +742,9 @@ export const appRouter = router({
       });
       return { ...created, status: "simulated" as const };
     }),
-    queryBenchStatus: adminProcedure.input(z.object({
+    // Operadores de monitoramento podem consultar e comandar exclusivamente a bancada
+    // identificada; o bloqueio físico por MAC e modo de laboratório permanece abaixo.
+    queryBenchStatus: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
       reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
@@ -776,7 +778,7 @@ export const appRouter = router({
       await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK0 enviada; aguardando a resposta da central.", executedAt: new Date() });
       return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
-    queryBenchSectors: adminProcedure.input(z.object({
+    queryBenchSectors: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
       reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
@@ -802,7 +804,7 @@ export const appRouter = router({
       await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK1 enviada; aguardando a resposta dos setores.", executedAt: new Date() });
       return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
-    disarmBenchAll: adminProcedure.input(z.object({
+    disarmBenchAll: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
       reason: z.string().trim().min(5, "Informe o motivo operacional do Desarme").max(2000),
