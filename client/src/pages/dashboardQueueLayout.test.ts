@@ -23,11 +23,16 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("visibleGroupEvents.map");
   });
 
-  it("usa toda a largura disponível para cabeçalho e cards da fila Aguardando", () => {
-    expect(source).toContain("flex-1 min-w-[620px]");
+  it("usa toda a largura disponível para cabeçalho e cards da fila Aguardando sem impor largura mínima", () => {
+    expect(source).toContain("flex h-full min-w-0 flex-1 flex-col border-r border-border bg-card");
     expect(source).toContain("w-full min-w-0 rounded-lg border border-border/60");
     expect(source).toContain("grid-cols-[minmax(0,1fr)_auto]");
     expect(source).toContain("xl:grid-cols-2");
+  });
+
+  it("mantém o popup de comandos dentro da altura útil em telas menores", () => {
+    expect(source).toContain("max-h-[calc(100dvh-1rem)]");
+    expect(source).toContain("grid min-h-0 flex-1 gap-4 overflow-y-auto");
   });
 
   it("mostra no popup as zonas, contatos e usuários vinculados ao sistema da ocorrência", () => {

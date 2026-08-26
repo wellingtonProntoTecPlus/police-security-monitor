@@ -1040,8 +1040,8 @@ export default function Dashboard() {
       />}
 
       {selectedEvent && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/65 p-5" onClick={() => setSelectedEvent(null)}>
-          <div className="flex h-[min(780px,92vh)] w-[min(1080px,94vw)] flex-col overflow-hidden rounded-xl border border-primary/35 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/65 p-2 sm:items-center sm:p-5" onClick={() => setSelectedEvent(null)}>
+          <div className="flex h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border border-primary/35 bg-card shadow-2xl sm:h-[min(780px,90dvh)] sm:w-[min(1080px,94vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-border bg-card px-5 py-4">
               <div className="flex items-start gap-3">
                 <AlertTriangle className={`mt-0.5 h-6 w-6 shrink-0 ${selectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
@@ -1104,8 +1104,8 @@ export default function Dashboard() {
       )}
 
       {remoteCommandOpen && selectedEvent && selectedCompatecSystemId && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 p-5" onClick={() => !simulateRemoteCommandMut.isPending && setRemoteCommandOpen(false)}>
-          <div className="w-[min(760px,96vw)] overflow-hidden rounded-xl border border-cyan-400/35 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-[96] flex items-end justify-center bg-black/75 p-2 sm:items-center sm:p-5" onClick={() => !simulateRemoteCommandMut.isPending && setRemoteCommandOpen(false)}>
+          <div className="flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border border-cyan-400/35 bg-card shadow-2xl sm:max-h-[90dvh] sm:w-[min(760px,96vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-cyan-400/25 bg-cyan-400/5 px-5 py-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">Comando remoto Compatec · modo de simulação</p>
@@ -1114,7 +1114,7 @@ export default function Dashboard() {
               </div>
               <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setRemoteCommandOpen(false)} aria-label="Fechar comando remoto"><X className="h-5 w-5" /></button>
             </div>
-            <div className="grid gap-5 p-5 lg:grid-cols-[0.92fr_1.08fr]">
+            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[0.92fr_1.08fr] lg:gap-5">
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
                   {(Object.keys(REMOTE_COMMAND_LABELS) as RemoteCommandType[]).map((command) => <Button key={command} type="button" variant={remoteCommandType === command ? "default" : "outline"} className="h-auto min-h-11 justify-start whitespace-normal text-left text-xs" onClick={() => setRemoteCommandType(command)}>{REMOTE_COMMAND_LABELS[command]}</Button>)}
@@ -1132,7 +1132,7 @@ export default function Dashboard() {
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
                 <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. O Desarme validado da central de bancada exige confirmação explícita; os demais comandos ainda são simulados.</p>
-                <div className="mt-3 max-h-[390px] space-y-2 overflow-y-auto pr-1">
+                <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
                   {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_LABELS[command.commandType as RemoteCommandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedMicroBusFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro MicroBus simulado</p>{getSimulatedMicroBusFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
@@ -1184,45 +1184,45 @@ export default function Dashboard() {
       )}
 
       {showProceduresModal && selectedEvent && (
-        <div className="fixed inset-0 z-[98] flex items-center justify-center bg-black/75 p-5" onClick={() => setShowProceduresModal(false)}>
-          <div className="max-h-[78vh] w-[min(760px,94vw)] overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-[98] flex items-end justify-center bg-black/75 p-2 sm:items-center sm:p-5" onClick={() => setShowProceduresModal(false)}>
+          <div className="max-h-[calc(100dvh-1rem)] w-full overflow-hidden rounded-t-xl border border-border bg-card shadow-2xl sm:max-h-[78dvh] sm:w-[min(760px,94vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Conta {selectedEvent.account}</p><h3 className="mt-1 text-lg font-bold text-foreground">Providências e histórico do atendimento</h3></div><button type="button" onClick={() => setShowProceduresModal(false)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fechar providências"><X className="h-5 w-5" /></button></div>
-            <div className="max-h-[62vh] space-y-3 overflow-y-auto p-5">{attendingNotes.trim() && <div className="rounded-lg border border-primary/30 bg-primary/5 p-4"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">Registro em andamento</p><p className="whitespace-pre-wrap text-sm text-foreground">{attendingNotes}</p></div>}{logs.length === 0 ? <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhuma providência registrada ainda.</p> : logs.map((log, index) => <div key={index} className="rounded-lg border border-border bg-black/15 p-3 font-mono text-xs text-muted-foreground">{log}</div>)}</div>
+            <div className="max-h-[calc(100dvh-8rem)] space-y-3 overflow-y-auto p-4 sm:max-h-[62dvh] sm:p-5">{attendingNotes.trim() && <div className="rounded-lg border border-primary/30 bg-primary/5 p-4"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">Registro em andamento</p><p className="whitespace-pre-wrap text-sm text-foreground">{attendingNotes}</p></div>}{logs.length === 0 ? <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhuma providência registrada ainda.</p> : logs.map((log, index) => <div key={index} className="rounded-lg border border-border bg-black/15 p-3 font-mono text-xs text-muted-foreground">{log}</div>)}</div>
           </div>
         </div>
       )}
 
-      <div className="flex flex-col h-[calc(100vh-1px)] overflow-hidden">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
         {/* TOP BAR - Botões de Status */}
-        <div className="h-12 min-h-12 border-b border-border bg-card flex items-center justify-between px-4">
-          <Button type="button" variant="outline" size="sm" className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={openManualOccurrence}>
+        <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-border bg-card px-2 py-2 sm:px-4 md:flex-nowrap md:justify-between">
+          <Button type="button" variant="outline" size="sm" className="shrink-0 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={openManualOccurrence}>
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
           </Button>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5 md:flex-none md:overflow-visible">
             <Button
               size="sm"
               variant="outline"
               onClick={() => audioEnabled ? requestAudioDeactivation() : enableAlertAudio()}
-              className={audioEnabled
+              className={`shrink-0 ${audioEnabled
                 ? "border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10"
                 : audioActivationNeeded
                   ? "border-amber-400 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 animate-pulse"
-                  : "border-amber-400 text-amber-200 hover:bg-amber-500/15"}
+                  : "border-amber-400 text-amber-200 hover:bg-amber-500/15"}`}
               title={audioEnabled ? "Para desativar, informe a senha do usuário logado" : "Ative uma vez após entrar no sistema para permitir alertas sonoros"}
             >
               {audioEnabled ? <Volume2 className="h-3.5 w-3.5 mr-1" /> : <VolumeX className="h-3.5 w-3.5 mr-1" />}
               {audioEnabled ? "Áudio ativo" : "Ativar áudio"}
             </Button>
-            <Button variant="outline" size="sm" className="border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold" onClick={() => setArmDisarmModal('disarmed')}>
+            <Button variant="outline" size="sm" className="shrink-0 border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold" onClick={() => setArmDisarmModal('disarmed')}>
               <WifiOff className="h-3.5 w-3.5 mr-1" /> Desarmados ({armDisarmData?.disarmed?.length || 0})
             </Button>
-            <Button variant="outline" size="sm" className="border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => setArmDisarmModal('armed')}>
+            <Button variant="outline" size="sm" className="shrink-0 border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => setArmDisarmModal('armed')}>
               <Shield className="h-3.5 w-3.5 mr-1" /> Armados ({armDisarmData?.armed?.length || 0})
             </Button>
-            <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white font-bold" onClick={() => setConnectionStatusModal("online")}>
+            <Button size="sm" className="shrink-0 bg-green-600 text-white font-bold hover:bg-green-700" onClick={() => setConnectionStatusModal("online")}>
               <Wifi className="h-3.5 w-3.5 mr-1" /> Online ({onlineSystems.length})
             </Button>
-            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white font-bold" onClick={() => setConnectionStatusModal("offline")}>
+            <Button size="sm" className="shrink-0 bg-red-600 text-white font-bold hover:bg-red-700" onClick={() => setConnectionStatusModal("offline")}>
               <WifiOff className="h-3.5 w-3.5 mr-1" /> Offline ({offlineSystems.length})
             </Button>
           </div>
@@ -1249,9 +1249,9 @@ export default function Dashboard() {
         </div>
 
         {/* MAIN CONTENT */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* SELETOR COMPACTO DAS FILAS RECOLHIDAS */}
-          <div className="w-[76px] min-w-[76px] h-full border-r border-border bg-card flex flex-col items-center gap-2 px-2 py-3">
+          <div className="flex h-full w-[60px] min-w-[60px] flex-col items-center gap-2 border-r border-border bg-card px-1 py-3 sm:w-[76px] sm:min-w-[76px] sm:px-2">
             <span className="text-[9px] font-bold tracking-[0.15em] text-muted-foreground">FILAS</span>
             {([
               { key: "attending" as const, label: "Atendimento", color: "text-blue-400 border-blue-500/40 bg-blue-500/10", icon: Headphones },
@@ -1266,7 +1266,7 @@ export default function Dashboard() {
           </div>
 
           {/* FILA PRINCIPAL: SEMPRE ABERTA */}
-          <div className="flex-1 min-w-[620px] h-full border-r border-border bg-card flex flex-col">
+          <div className="flex h-full min-w-0 flex-1 flex-col border-r border-border bg-card">
             <div className="px-3 py-2 border-b border-border flex items-center">
               <div className="flex items-center gap-2">
                 {connected ? (

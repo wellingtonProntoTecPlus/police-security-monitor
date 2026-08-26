@@ -342,7 +342,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 overflow-hidden h-screen">{children}</main>
+        <main className="h-[calc(100dvh-3.5rem)] min-h-0 flex-1 overflow-hidden md:h-[100dvh]">{children}</main>
       </SidebarInset>
     </>
   );

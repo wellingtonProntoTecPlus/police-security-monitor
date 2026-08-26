@@ -654,3 +654,11 @@
 - [ ] Validar em bancada a simulação auditável sem transmitir MicroBus à central
 - [ ] Confirmar com a Compatec ou por captura controlada a porta, rota e resposta MicroBus da central de bancada
 - [ ] Homologar em bancada, um por vez, consulta de estado, arme, desarme, isolamento/restauração e PGM
+
+## Responsividade da Interface
+- [ ] Mapear os pontos de quebra do Dashboard, cadastros, relatórios e navegação em telas de 1440 px, 1024 px, 768 px e 375 px
+- [ ] Adaptar a navegação lateral para manter acesso aos módulos sem reduzir a área operacional em notebook, tablet e celular
+- [ ] Reorganizar Dashboard, filas, cards, filtros e tabelas para leitura e toque em telas estreitas sem esconder dados críticos
+- [ ] Ajustar popups operacionais, Ocorrência Manual e Comandos Compatec para largura, altura e rolagem seguras em cada formato de tela
+- [x] Corrigir o popup de Comandos Compatec para caber integralmente em notebooks de 15 polegadas sem exigir zoom do navegador
+- [ ] Cobrir os ajustes responsivos com testes de interface e verificação visual em desktop, tablet e celular
