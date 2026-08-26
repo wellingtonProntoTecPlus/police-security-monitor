@@ -320,10 +320,10 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
             if (dispatched.sent) {
               await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
                 status: "sent",
-                responsePayload: `Consulta ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviada na próxima conexão autenticada da central; aguardando resposta.`,
+                responsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima conexão autenticada da central; aguardando resposta.`,
                 executedAt: new Date(),
               });
-              console.log(`[MICROBUS] COMPATEC consulta pendente enviada no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
+              console.log(`[MICROBUS] COMPATEC comando pendente enviado no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
             }
           }
         }

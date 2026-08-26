@@ -752,8 +752,8 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: { statu
 
 /**
  * A Compatec abre conexões curtas para reportar identidade e Keep Alive. A
- * primeira consulta de bancada pode ficar aguardando até a próxima conexão
- * identificada; nunca retorna comandos de ação nem comandos de outro painel.
+ * primeiro comando de bancada pode ficar aguardando até a próxima conexão
+ * identificada; a seleção é restrita à central física que abriu a conexão.
  */
 export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   const db = await getDb();
@@ -764,7 +764,7 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   }).from(alarmRemoteCommands).where(and(
     eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
     eq(alarmRemoteCommands.brand, "COMPATEC"),
-    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors"]),
+    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm"]),
     eq(alarmRemoteCommands.transportMode, "microbus_bench"),
     eq(alarmRemoteCommands.status, "waiting_connection"),
   )).orderBy(alarmRemoteCommands.id).limit(1);

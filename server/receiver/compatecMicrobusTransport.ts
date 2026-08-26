@@ -2,6 +2,7 @@ import type net from "net";
 
 export const COMPATEC_MW1_STATUS_QUERY = "MB=AK0\r\n";
 export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
+export const COMPATEC_MW1_ARM_ALL = "MB=AK4[0,03FF]\r\n";
 
 type ActiveCompatecSession = {
   socket: net.Socket;
@@ -32,10 +33,15 @@ export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; comma
   return sendCompatecMw1BenchQuery({ ...input, payload: COMPATEC_MW1_STATUS_QUERY });
 }
 
-/** Limita as consultas reais de bancada aos dois comandos de leitura homologados. */
+/**
+ * Entrega somente quadros MicroBus explicitamente homologados para a central de bancada.
+ * A VPS nunca abre uma conexão de saída: reutiliza exclusivamente a sessão autenticada
+ * que a própria central Compatec abriu.
+ */
 export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
-  if (input.payload !== COMPATEC_MW1_STATUS_QUERY && input.payload !== COMPATEC_MW1_SECTORS_QUERY) {
-    return { sent: false as const, message: "Consulta MicroBus de bancada não autorizada." };
+  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_ARM_ALL];
+  if (!allowedPayloads.includes(input.payload)) {
+    return { sent: false as const, message: "Comando MicroBus de bancada não autorizado." };
   }
   const session = activeSessionBySystemId.get(input.alarmSystemId);
   if (!session || session.socket.destroyed || !session.socket.writable) {
@@ -55,6 +61,6 @@ export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: s
 
 export function getCompatecMw1StatusResponseLine(input: Buffer) {
   const text = input.toString("latin1");
-  const match = text.match(/MB=KA[01](?:\[[^\r\n]*\])?\r?\n?/);
+  const match = text.match(/MB=KA[014](?:\[[^\r\n]*\])?\r?\n?/);
   return match?.[0];
 }

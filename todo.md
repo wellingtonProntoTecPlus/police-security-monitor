@@ -584,6 +584,17 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Implementar o Arme MicroBus total `MB=AK4[0,03FF]` restrito à central Compatec de bancada
+- [ ] Exibir ARMADO STAY somente quando a central estiver armada com setor isolado ou inibido
+- [ ] Identificar ARMADO STAY quando a leitura MicroBus mostrar setores armados e desarmados simultaneamente
+- [ ] Homologar primeiro Arme e depois Desarme pelo MicroBus na central de bancada
+- [ ] Comparar o retorno MicroBus de setores após Arme, Arme Stay e Desarme pelo aplicativo da central de bancada
+- [ ] Mapear os valores retornados para estados ARMADO, ARMADO STAY e DESARMADO antes de habilitar comandos físicos
+- [ ] Atualizar a VPS e executar a consulta MicroBus de setores na central Compatec de bancada
+- [ ] Decodificar o retorno de setores para identificar estado total, stay e desarmado
+- [ ] Homologar Arme, Arme Stay e Desarme com retorno da central de bancada
+- [ ] Homologar Isolar/Restaurar Zona e PGM com retorno da central de bancada
+- [ ] Liberar os botões compactos no atendimento somente após a homologação física
 - [x] Implementar a consulta MicroBus de setores `MB=AK1` exclusivamente para a central Compatec de bancada
 - [ ] Validar o retorno dos setores antes de exibir ARMADO, ARMADO STAY ou DESARMADO no atendimento
 - [x] Entregar a consulta MicroBus pendente no próximo Keep Alive autenticado da central Compatec de bancada
