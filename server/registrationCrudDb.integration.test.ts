@@ -34,6 +34,9 @@ const fakeDb = {
       },
     }),
   }),
+  delete: () => ({
+    where: async () => undefined,
+  }),
   select: () => ({
     from: () => ({
       where: () => ({
@@ -60,7 +63,7 @@ describe("CRUDs reais com textos padronizados", () => {
   });
 
   it("persiste a classificação do cliente e apartamentos sem restringir vários usuários por unidade", async () => {
-    await createClient({ partnerCompanyId: 1, type: "pj", propertyType: "condominium", name: "condomínio das flores", document: "12345678000199" } as any);
+    await createClient({ partnerCompanyId: 1, type: "pj", propertyType: "condominium", name: "condomínio das flores" } as any);
     await updateClient(1, { propertyType: "company" } as any);
     currentSystem = { id: 1, alarmSystemId: 1, userNumber: 11, name: "Porteiro Manhã", apartmentNumber: "1204" };
     await createAlarmUser({ alarmSystemId: 1, userNumber: 11, name: "porteiro manhã", apartmentNumber: "1204" } as any);

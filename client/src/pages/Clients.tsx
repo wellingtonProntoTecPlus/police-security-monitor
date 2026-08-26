@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Trash2, Pencil } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 
 // Máscaras
 function maskPhone(v: string) {
@@ -174,13 +175,11 @@ export default function Clients() {
   function handleSubmit() {
     if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
     if (!form.name.trim()) { toast.error("Informe a Razão Social / Nome"); return; }
-    if (!form.document.trim()) { toast.error("Informe o CPF/CNPJ"); return; }
-    const cleanDoc = form.document.replace(/\D/g, "");
-    if (form.type === "pf" && !validateCpf(cleanDoc)) { toast.error("CPF inválido! Verifique os dígitos."); return; }
-    if (form.type === "pj" && !validateCnpj(cleanDoc)) { toast.error("CNPJ inválido! Verifique os dígitos."); return; }
+    const documentCheck = validateOptionalBrazilianDocument(form.document, form.type === "pf" ? "cpf" : "cnpj");
+    if (documentCheck.error) { toast.error(documentCheck.error); return; }
     const values = {
       ...form,
-      document: form.document.replace(/\D/g, ""),
+      document: documentCheck.document ?? undefined,
       phone: form.phone.replace(/\D/g, ""),
       whatsapp: form.whatsapp.replace(/\D/g, ""),
       zipCode: form.zipCode.replace(/\D/g, ""),
@@ -284,7 +283,7 @@ export default function Clients() {
                         </Select>
                       </div>
                       <div className="col-span-2">
-                        <Label className="text-sm font-medium">{form.type === "pf" ? "CPF *" : "CNPJ *"}</Label>
+                        <Label className="text-sm font-medium">{form.type === "pf" ? "CPF (opcional)" : "CNPJ (opcional)"}</Label>
                         <Input
                           className="mt-1 font-mono"
                           placeholder={form.type === "pf" ? "000.000.000-00" : "00.000.000/0000-00"}
@@ -478,7 +477,7 @@ export default function Clients() {
                   <span className="font-medium text-foreground truncate">{client.name}</span>
                 </div>
                 <span className="text-muted-foreground truncate">{client.fantasyName || "—"}</span>
-                <span className="font-mono text-xs text-muted-foreground">{client.document}</span>
+                <span className="font-mono text-xs text-muted-foreground">{client.document || "—"}</span>
                 <div className="text-xs text-muted-foreground">
                   {client.phone && <span className="block">{client.phone}</span>}
                   {client.whatsapp && <span className="block text-green-400">{client.whatsapp}</span>}

@@ -51,7 +51,7 @@ export const partnerCompanies = mysqlTable("partner_companies", {
   id: int("id").autoincrement().primaryKey(),
   managingCompanyId: int("managingCompanyId").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
-  cnpj: varchar("cnpj", { length: 18 }).notNull().unique(),
+  cnpj: varchar("cnpj", { length: 18 }).unique(),
   phone: varchar("phone", { length: 20 }),
   whatsapp: varchar("whatsapp", { length: 20 }),
   email: varchar("email", { length: 320 }),
@@ -68,6 +68,16 @@ export const partnerCompanies = mysqlTable("partner_companies", {
 
 export type PartnerCompany = typeof partnerCompanies.$inferSelect;
 export type InsertPartnerCompany = typeof partnerCompanies.$inferInsert;
+
+/** Documento normalizado, único em clientes e empresas parceiras. */
+export const registrationDocuments = mysqlTable("registration_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  document: varchar("document", { length: 18 }).notNull().unique(),
+  ownerType: varchar("ownerType", { length: 20 }).notNull(),
+  ownerId: int("ownerId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
 
 // ============================================================
 // TÁTICO MÓVEL DAS EMPRESAS PARCEIRAS
@@ -99,7 +109,7 @@ export const clients = mysqlTable("clients", {
   propertyType: mysqlEnum("propertyType", ["residence", "company", "condominium"]).default("residence").notNull(),
   name: varchar("name", { length: 255 }).notNull(), // Razão Social ou Nome Completo
   fantasyName: varchar("fantasyName", { length: 255 }), // Nome Fantasia
-  document: varchar("document", { length: 18 }).notNull(), // CPF ou CNPJ
+  document: varchar("document", { length: 18 }), // CPF ou CNPJ opcional
   phone: varchar("phone", { length: 20 }),
   whatsapp: varchar("whatsapp", { length: 20 }),
   email: varchar("email", { length: 320 }),

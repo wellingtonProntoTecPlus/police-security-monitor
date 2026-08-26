@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2, Pencil, Shield } from "lucide-react";
 import { toast } from "sonner";
+import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 
 function maskCnpj(v: string) {
   const n = v.replace(/\D/g, "").slice(0, 14);
@@ -94,7 +95,7 @@ export default function Partners() {
 
   const deletePartnerMut = trpc.partnerCompany.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Parceira excluída!"); }, onError: (err: any) => toast.error("Erro: " + err.message) });
   const filteredPartners = partners.filter((p: any) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) || p.cnpj.includes(search.replace(/\D/g, ""))
+    p.name.toLowerCase().includes(search.toLowerCase()) || String(p.cnpj || "").includes(search.replace(/\D/g, ""))
   );
   const selectedPartner = partners.find((partner: any) => partner.id === selectedPartnerId);
 
@@ -115,10 +116,11 @@ export default function Partners() {
 
   function handleSubmit() {
     if (!form.name.trim()) { toast.error("Informe a Razão Social"); return; }
-    if (!form.cnpj.trim()) { toast.error("Informe o CNPJ"); return; }
+    const documentCheck = validateOptionalBrazilianDocument(form.cnpj, "cnpj");
+    if (documentCheck.error) { toast.error(documentCheck.error); return; }
     const values = {
       ...form,
-      cnpj: form.cnpj.replace(/\D/g, ""),
+      cnpj: documentCheck.document ?? undefined,
       phone: form.phone.replace(/\D/g, ""),
       whatsapp: form.whatsapp.replace(/\D/g, ""),
       zipCode: form.zipCode.replace(/\D/g, ""),
@@ -198,7 +200,7 @@ export default function Partners() {
                         <Input className="mt-1" placeholder="Razão Social" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                       </div>
                       <div className="col-span-2">
-                        <Label className="text-sm font-medium">CNPJ *</Label>
+                        <Label className="text-sm font-medium">CNPJ (opcional)</Label>
                         <Input className="mt-1 font-mono" placeholder="00.000.000/0000-00" value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: maskCnpj(e.target.value) })} />
                       </div>
                     </div>
@@ -307,7 +309,7 @@ export default function Partners() {
                       {partner.logoUrl ? <img src={partner.logoUrl} alt="" className="h-7 w-7 rounded object-contain border border-border shrink-0" /> : <Building2 className="h-4 w-4 text-primary shrink-0" />}
                       <span className="font-medium text-foreground truncate">{partner.name}</span>
                     </div>
-                    <span className="font-mono text-xs text-muted-foreground">{partner.cnpj}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{partner.cnpj || "—"}</span>
                     <span className="text-sm text-muted-foreground">{partner.phone || "—"}</span>
                     <span className="text-sm text-muted-foreground">{partner.city ? `${partner.city}/${partner.state}` : "—"}</span>
                     <Badge variant={partner.isActive ? "default" : "destructive"} className="text-xs justify-center">

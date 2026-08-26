@@ -23,6 +23,9 @@
 - [x] Footer com status do sistema (CPU, memória, banco, socket, drivers, uptime)
 
 ## Frontend - Cadastros
+- [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras
+- [x] Bloquear CPF ou CNPJ inválido quando o documento for informado
+- [x] Impedir CPF ou CNPJ repetido entre clientes e parceiras
 - [x] Tela de cadastro de Empresa Gestora
 - [x] Tela de cadastro de Empresa Parceira (vinculada à gestora)
 - [x] Tela de cadastro de Clientes (PF/PJ, vinculado à parceira)

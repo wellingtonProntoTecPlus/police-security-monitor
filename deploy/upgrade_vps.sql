@@ -4,6 +4,27 @@
 
 SET @schema_name = DATABASE();
 
+-- CPF/CNPJ de clientes e parceiras é opcional; quando informado, fica registrado
+-- em uma tabela única para impedir repetição entre os dois cadastros.
+ALTER TABLE `clients` MODIFY COLUMN `document` VARCHAR(18) NULL;
+ALTER TABLE `partner_companies` MODIFY COLUMN `cnpj` VARCHAR(18) NULL;
+
+CREATE TABLE IF NOT EXISTS `registration_documents` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `document` VARCHAR(18) NOT NULL,
+  `ownerType` VARCHAR(20) NOT NULL,
+  `ownerId` INT NOT NULL,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `registration_documents_document_unique` (`document`)
+);
+
+INSERT IGNORE INTO `registration_documents` (`document`, `ownerType`, `ownerId`)
+SELECT `document`, 'client', `id` FROM `clients` WHERE `document` IS NOT NULL AND TRIM(`document`) <> '';
+INSERT IGNORE INTO `registration_documents` (`document`, `ownerType`, `ownerId`)
+SELECT `cnpj`, 'partner', `id` FROM `partner_companies` WHERE `cnpj` IS NOT NULL AND TRIM(`cnpj`) <> '';
+
 -- Bloqueia qualquer transmissão MicroBus real fora de sistemas marcados explicitamente como bancada.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,

@@ -166,7 +166,7 @@ export const appRouter = router({
     create: adminProcedure.input(z.object({
       managingCompanyId: z.number(),
       name: z.string().min(1),
-      cnpj: z.string().min(14),
+      cnpj: z.string().optional(),
       phone: z.string().optional(),
       whatsapp: z.string().optional(),
       email: z.string().optional(),
@@ -245,7 +245,7 @@ export const appRouter = router({
       propertyType: z.enum(["residence", "company", "condominium"]).optional(),
       name: z.string().min(1),
       fantasyName: z.string().optional(),
-      document: z.string().min(11),
+      document: z.string().optional(),
       phone: z.string().optional(),
       whatsapp: z.string().optional(),
       email: z.string().optional(),
