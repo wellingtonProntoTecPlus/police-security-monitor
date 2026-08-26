@@ -687,6 +687,27 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: { statu
   await db.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
 }
 
+/**
+ * A Compatec abre conexões curtas para reportar identidade e Keep Alive. A
+ * primeira consulta de bancada pode ficar aguardando até a próxima conexão
+ * identificada; nunca retorna comandos de ação nem comandos de outro painel.
+ */
+export async function getPendingCompatecBenchStatusQuery(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select({
+    id: alarmRemoteCommands.id,
+    commandPayload: alarmRemoteCommands.commandPayload,
+  }).from(alarmRemoteCommands).where(and(
+    eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
+    eq(alarmRemoteCommands.brand, "COMPATEC"),
+    eq(alarmRemoteCommands.commandType, "query_status"),
+    eq(alarmRemoteCommands.transportMode, "microbus_bench"),
+    eq(alarmRemoteCommands.status, "waiting_connection"),
+  )).orderBy(alarmRemoteCommands.id).limit(1);
+  return result[0];
+}
+
 export async function setAlarmSystemRemoteCommandLabEnabled(alarmSystemId: number, enabled: boolean) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");

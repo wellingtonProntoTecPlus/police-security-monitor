@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -312,7 +312,21 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
       const system = await getAlarmSystemByCapturedPanelIdentifier({ brand: "COMPATEC", frames: getSafeCaptureFrames(socket) });
       if (system) {
         rememberSystem(socket, system, port);
-        if (system.remoteCommandLabEnabled) rememberActiveCompatecSession(socket, system);
+        if (system.remoteCommandLabEnabled) {
+          rememberActiveCompatecSession(socket, system);
+          const pendingQuery = await getPendingCompatecBenchStatusQuery(system.id);
+          if (pendingQuery) {
+            const dispatched = sendCompatecMw1StatusQuery({ alarmSystemId: system.id, commandId: pendingQuery.id });
+            if (dispatched.sent) {
+              await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
+                status: "sent",
+                responsePayload: "Consulta MB=AK0 enviada na próxima conexão autenticada da central; aguardando resposta.",
+                executedAt: new Date(),
+              });
+              console.log(`[MICROBUS] COMPATEC consulta pendente enviada no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
+            }
+          }
+        }
         console.log(`[RECIP] COMPATEC identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);
       } else {
         console.log(`[RECIP] COMPATEC identificação sem painel cadastrado | ID ${parsed.identifier}`);
