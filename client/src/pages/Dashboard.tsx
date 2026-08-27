@@ -28,11 +28,6 @@ const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   activate_pgm: "Acionar PGM",
 };
 
-const REMOTE_COMMAND_HISTORY_LABELS: Record<string, string> = {
-  ...REMOTE_COMMAND_LABELS,
-  arm_candidate_0000: "Candidato experimental de Arme (0000)",
-};
-
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
   incidentId?: number;
@@ -195,7 +190,6 @@ export default function Dashboard() {
   const queryBenchStatusMut = trpc.remoteCommand.queryBenchStatus.useMutation();
   const queryBenchSectorsMut = trpc.remoteCommand.queryBenchSectors.useMutation();
   const disarmBenchAllMut = trpc.remoteCommand.disarmBenchAll.useMutation();
-  const armBenchCandidate0000Mut = trpc.remoteCommand.armBenchCandidate0000.useMutation();
   const passwordConfirmationMut = trpc.auth.login.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
@@ -947,27 +941,6 @@ export default function Dashboard() {
     });
   }
 
-  function submitCompatecBenchArmCandidate0000() {
-    if (!selectedEvent?.alarmSystemId) return;
-    if (remoteCommandReason.trim().length < 5) {
-      toast.error("Informe o motivo operacional do teste de Arme.");
-      return;
-    }
-    if (!window.confirm("Confirmar o TESTE EXPERIMENTAL de ARME na central Compatec de bancada? O quadro MB=AK4[0,0000] ainda não é homologado e será entregue uma única vez no próximo contato autenticado.")) return;
-    armBenchCandidate0000Mut.mutate({
-      alarmSystemId: selectedEvent.alarmSystemId,
-      incidentId: selectedEvent.incidentId,
-      reason: remoteCommandReason,
-    }, {
-      onSuccess: (result) => {
-        addLog("Candidato experimental de Arme MicroBus registrado para a central de bancada.");
-        toast.success(result.status === "sent" ? "Candidato experimental MB=AK4[0,0000] enviado. Confirme o resultado no aplicativo." : result.message || "Candidato experimental aguardando a conexão da central.");
-        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
-      },
-      onError: (error) => toast.error(error.message),
-    });
-  }
-
   // Card do evento
   function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
@@ -1154,14 +1127,13 @@ export default function Dashboard() {
                 <Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button>
                 <Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button>
                 <Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmBenchAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchDisarmAll}>{disarmBenchAllMut.isPending ? "Enviando Desarme..." : "Desarmar central de bancada (MB=AK4[0,03FF])"}</Button>
-                <Button className="w-full border border-amber-400/70 bg-amber-500/15 text-amber-50 hover:bg-amber-500/25" disabled={armBenchCandidate0000Mut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchArmCandidate0000}>{armBenchCandidate0000Mut.isPending ? "Enviando teste experimental..." : "Testar candidato de Arme (EXPERIMENTAL: MB=AK4[0,0000])"}</Button>
-                <p className="text-center text-[11px] text-muted-foreground">Disponível somente após ativar o modo de bancada no cadastro desta central. As consultas e o Desarme já são conhecidos; o botão amarelo é um único candidato experimental de Arme autorizado somente para a bancada. Os demais controles continuam em simulação.</p>
+                <p className="text-center text-[11px] text-muted-foreground">Disponível somente após ativar o modo de bancada no cadastro desta central. Nesta etapa, somente as consultas e o Desarme validado da central de bancada transmitem MicroBus; os demais controles continuam em simulação.</p>
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
-                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. O Desarme validado exige confirmação explícita; o candidato amarelo de Arme é experimental e exclusivo da bancada; os demais comandos são simulados.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. O Desarme validado da central de bancada exige confirmação explícita; os demais comandos ainda são simulados.</p>
                 <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedMicroBusFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro MicroBus simulado</p>{getSimulatedMicroBusFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_LABELS[command.commandType as RemoteCommandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedMicroBusFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro MicroBus simulado</p>{getSimulatedMicroBusFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>

@@ -28,7 +28,7 @@ O destino da central é `A`. A origem é `J` para o módulo GPRS MG1 e `K` para 
 | Configurar/monitorar setor | `1` | Requer máscara de alteração antes do pacote do setor |
 | Máscara de setor | `2` | Enviada antes de `CMD_SETOR` para definir os bits alteráveis |
 | Configurar/monitorar PGM | `P` | A documentação recomenda comando de grupo para acionamento normal |
-| Arme/desarme e PGM simplificados | `4` | `MB=AJ4[0,03FF]` arma todos; `MB=AJ4[0,0001]` arma setor 1; `MB=AJ4[0,0000]` desarma todos; `MB=AJ4[5]` aciona PGM 1 |
+| Arme/desarme e PGM simplificados | `4` | `MB=AJ4[0,03FF]` desarma todos; `MB=AJ4[0,0000]` arma todos; `MB=AJ4[0,0001]` arma a Partição 1; `MB=AJ4[5]` aciona PGM 1 |
 
 Para `CMD_GRUPO`, grupo `0` é arme/desarme; grupos `5`, `6`, `7`, `16` a `20` acionam PGM 1 a 8. O argumento de setores é uma máscara `U16HEX`; em AM8 e AM10, os dez setores físicos correspondem aos bits da máscara.
 
@@ -48,9 +48,9 @@ As páginas 7 a 10 do manual de comandos mostram exemplos suficientes para monta
 
 | Ação | Quadro documentado | Observação |
 |---|---|---|
-| Armar todos os setores | `MB=AJ4[0,03FF]\r\n` | `CMD_GRUPO '4'`, grupo `0`, máscara de 10 setores habilitados |
-| Armar apenas o setor 1 | `MB=AJ4[0,0001]\r\n` | Exemplo explícito do manual |
-| Desarmar todos os setores | `MB=AJ4[0,0000]\r\n` | Exemplo explícito do manual |
+| Desarmar todos os setores | `MB=AJ4[0,03FF]\r\n` | Semântica manual confirmada pelo usuário para a AW3 Pro |
+| Armar todos os setores | `MB=AJ4[0,0000]\r\n` | Semântica manual confirmada pelo usuário para a AW3 Pro |
+| Armar a Partição 1 | `MB=AJ4[0,0001]\r\n` | Semântica operacional confirmada pelo usuário para a AW3 Pro |
 | Acionar PGM 1 | `MB=AJ4[5]\r\n` | Grupo `5` corresponde à PGM 1 |
 | Solicitar estado do setor | `MB=AJ1\r\n` | Sem argumentos |
 | Máscara do setor | `MB=AJ2[...]\r\n` | Deve anteceder `CMD_SETOR '1'` |
@@ -92,7 +92,7 @@ O manual define o primeiro argumento como um campo de bits de estado da central;
 
 ## Evidência de comando físico — 26/08/2026
 
-O quadro Wi-Fi `MB=AK4[0,03FF]\r\n`, inicialmente rotulado segundo o exemplo externo como Arme, foi transmitido na central Compatec de bancada `F024F9C1BDCB`. O aplicativo oficial registrou **“Desarme do alarme efetuado por App”** tanto quando a central estava previamente desarmada quanto quando estava armada. Para esta integração MW1, o Police Central passa a tratar este quadro como **Desarme observado em bancada** e bloqueia qualquer quadro de Arme até que sua semântica seja demonstrada pela central física.
+O quadro Wi-Fi `MB=AK4[0,03FF]\r\n`, inicialmente rotulado de modo incorreto como Arme no código, foi transmitido na central Compatec de bancada `F024F9C1BDCB`. O aplicativo oficial registrou **“Desarme do alarme efetuado por App”** tanto quando a central estava previamente desarmada quanto quando estava armada. Isso coincide com a semântica manual posteriormente confirmada pelo usuário: `03FF` é **Desarme total**. Para esta integração MW1, o Police Central trata este quadro como **Desarme observado em bancada** e bloqueia qualquer quadro de Arme até que sua semântica seja demonstrada pela central física.
 
 ### Homologação controlada do Desarme — 26/08/2026
 
@@ -102,7 +102,7 @@ O quadro de Arme permanece **desconhecido e bloqueado**. Os exemplos MG1 do manu
 
 ## Releitura dirigida do manual de comandos — páginas 9 e 10
 
-Na revisão visual das páginas 9 e 10 do manual Parte 2, o comando `CMD_GRUPO '4'` continua descrito para o canal **MG1**, não para MW1, com os exemplos documentados `MB=AJ4[0,03FF]\r\n` para **arme de todos os setores** e `MB=AJ4[0,0000]\r\n` para **desarme de todos os setores** [1]. As mesmas páginas também listam grupos adicionais `9`, `10` e `11` para ações sobre setores das partições 1, 2 e 3, mas sem qualquer evidência prática na bancada Wi‑Fi [1].
+Na revisão visual das páginas 9 e 10 do manual Parte 2, o comando `CMD_GRUPO '4'` continua descrito para o canal **MG1**, não para MW1. A semântica manual corrigida e confirmada pelo usuário para a AW3 Pro é: `MB=AJ4[0,03FF]\r\n` para **Desarme total**, `MB=AJ4[0,0000]\r\n` para **Arme total** e `MB=AJ4[0,0001]\r\n` para **Arme da Partição 1**. As mesmas páginas também listam grupos adicionais `9`, `10` e `11` para ações sobre setores das partições 1, 2 e 3, mas sem qualquer evidência prática na bancada Wi‑Fi [1].
 
 Essas páginas reforçam duas conclusões operacionais. Primeiro, a documentação disponível permanece **insuficiente para afirmar o quadro de Arme no módulo MW1**, porque o comportamento real observado na bancada contradisse a semântica MG1 para o mesmo padrão de argumentos. Segundo, qualquer candidato de Arme em MW1 deve ser tratado apenas como **hipótese de bancada**, nunca como verdade de protocolo, até existir confirmação física com auditoria e verificação independente no aplicativo.
 
@@ -114,9 +114,17 @@ Com isso, o `CMD_ALARME '0'` deve ser descartado como candidato para o Arme que 
 
 ## Releitura final do CMD_GRUPO e comandos MW1 restantes
 
-Nas páginas finais do manual, o `CMD_GRUPO '4'` é descrito como a via simplificada para **arme/desarme**, PGM e sirene. O grupo `0` permanece associado a arme/desarme por máscara de setores; os grupos `9`, `10` e `11` referem-se a ações sobre setores das partições 1, 2 e 3; e os exemplos explícitos continuam sendo apenas os do canal MG1: `MB=AJ4[0,03FF]\r\n` para arme total, `MB=AJ4[0,0001]\r\n` para arme apenas do setor 1, `MB=AJ4[0,0000]\r\n` para desarme total e `MB=AJ4[5]\r\n` para PGM 1 [1].
+Nas páginas finais do manual, o `CMD_GRUPO '4'` é descrito como a via simplificada para **arme/desarme**, PGM e sirene. O grupo `0` permanece associado a arme/desarme; os grupos `9`, `10` e `11` referem-se a ações sobre setores das partições 1, 2 e 3; e os exemplos explícitos continuam sendo apenas os do canal MG1: `MB=AJ4[0,03FF]\r\n` para Desarme total, `MB=AJ4[0,0000]\r\n` para Arme total, `MB=AJ4[0,0001]\r\n` para Arme da Partição 1 e `MB=AJ4[5]\r\n` para PGM 1 [1].
 
-As páginas 11 e 12 mostram exemplos **MW1** somente para `CMD_CONTROLE '8'` e `CMD_SENHA '9'`, confirmando que o manual sabe diferenciar o canal Wi‑Fi quando deseja fazê-lo [1]. Como não há exemplo equivalente de `CMD_GRUPO '4'` para MW1, a documentação atual continua sem fornecer um quadro explícito e confiável de **Arme via Wi‑Fi**. Em consequência, o próximo teste de Arme deve ser tratado como **ensaio experimental de bancada, um candidato por vez, com consulta `AK1` antes e depois e observação simultânea no aplicativo**.
+As páginas 11 e 12 mostram exemplos **MW1** somente para `CMD_CONTROLE '8'` e `CMD_SENHA '9'`, confirmando que o manual sabe diferenciar o canal Wi‑Fi quando deseja fazê-lo [1]. Como não há exemplo equivalente de `CMD_GRUPO '4'` para MW1, a documentação atual continua sem fornecer um quadro explícito e confiável de **Arme via Wi‑Fi**. Em consequência, **nenhum novo candidato será transmitido** antes de confirmação técnica verificável da Compatec para o MW1.
+
+## Refutação do candidato 0000 — 27/08/2026
+
+Com autorização explícita para um único ensaio e a central de bancada inicialmente **DESARMADA**, foi transmitido `MB=AK4[0,0000]\r\n`. O aplicativo oficial também apresentou **Desarme**, e não Arme. Assim, no MW1 de bancada, tanto `AK4[0,03FF]` quanto `AK4[0,0000]` produziram Desarme; nenhum dos dois pode ser exposto ou enfileirado como Arme.
+
+Antes desse ensaio, a consulta `MB=AK1\r\n` foi transmitida uma vez. Embora a interface tenha mostrado ausência de confirmação imediatamente após o envio, o log da VPS registrou posteriormente a confirmação real da central: `MB=KA1[0400,0401,0401,0401,0001,0001,0001,0001,0001,0001,0001,0001]`. Isso confirma a entrega e a resposta pelo canal autenticado do MW1, mas ainda não revela um quadro válido de Arme.
+
+O candidato `AK4[0,0000]` foi retirado da interface, da rota e da lista de entrega pendente. A próxima etapa depende de uma especificação oficial da Compatec ou de evidência técnica equivalente que identifique um quadro de Arme para MW1 sem tentativa de valores arbitrários.
 
 ### Regra operacional de ARMADO STAY
 

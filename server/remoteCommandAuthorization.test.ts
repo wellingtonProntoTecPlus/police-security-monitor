@@ -8,7 +8,6 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(source).toContain("queryBenchStatus: operatorProcedure");
     expect(source).toContain("queryBenchSectors: operatorProcedure");
     expect(source).toContain("disarmBenchAll: operatorProcedure");
-    expect(source).toContain("armBenchCandidate0000: operatorProcedure");
     expect(source).toContain("isConfirmedCompatecBenchSystem(system)");
     expect(source).toContain("MAC C1BDCB");
   });

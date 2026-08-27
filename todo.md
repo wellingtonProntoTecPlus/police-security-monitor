@@ -584,6 +584,12 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Corrigir a tabela manual: 0000 corresponde ao Arme total e 0001 ao Arme da Partição 1, mantendo ambos bloqueados no MW1
+- [x] Corrigir a documentação: no contexto operacional informado, o valor 0001 referencia Partição 1, não Setor 1
+- [x] Remover o candidato experimental `MB=AK4[0,0000]` que a bancada comprovou executar Desarme, impedindo nova entrega física desse quadro
+- [ ] Obter da Compatec a especificação oficial do comando de Arme para MW1 antes de propor qualquer novo candidato físico
+- [x] Diagnosticar a aparente ausência de resposta AK1: o log da VPS confirmou posteriormente a resposta KA1 real da central
+- [x] Confirmar na VPS a entrega e a resposta KA1 de uma única consulta de setores antes de retomar o teste 0000
 - [x] Corrigir a autorização `10002` que bloqueou o Desarme MicroBus da central Compatec de bancada para o operador autenticado
 - [ ] Validar que o Desarme de bancada mantém motivo, operador, MAC C1BDCB, auditoria e entrega no próximo Keep Alive após a correção de autorização
 - [x] Converter o quadro testado `MB=AK4[0,03FF]` em Desarme físico de bancada

@@ -764,7 +764,7 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   }).from(alarmRemoteCommands).where(and(
     eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
     eq(alarmRemoteCommands.brand, "COMPATEC"),
-    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "disarm", "arm_candidate_0000"]),
+    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "disarm"]),
     eq(alarmRemoteCommands.transportMode, "microbus_bench"),
     eq(alarmRemoteCommands.status, "waiting_connection"),
   )).orderBy(alarmRemoteCommands.id).limit(1);
