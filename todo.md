@@ -584,6 +584,8 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Classificar zonas Vetti como comuns ou 24 horas para decidir se o comando de restauro é necessário
+- [x] Exibir Restaurar Zona Vetti apenas como exceção para zona 24 horas, com aviso de que zonas comuns voltam ao normal no Desarme
 - [x] Identificar a central Vetti exclusiva de testes por conta 0336, MAC FC-0F-E7-2D-E4-A8 e firmware 6.68 antes de permitir qualquer comando físico
 - [x] Bloquear qualquer comando físico Vetti para sistemas fora da central de testes identificada
 - [x] Catalogar no protocolo Vetti VSec Rev. 13 os comandos oficiais de Arme, Desarme, Isolamento de Zona, PGM, autenticação e resposta

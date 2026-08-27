@@ -12,6 +12,7 @@ import { createLocalSessionToken } from "./_core/localSession";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
 import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
+import { canRestoreVettiZone } from "@shared/vettiZoneRules";
 import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
 
 // ============================================================
@@ -723,6 +724,13 @@ export const appRouter = router({
       if (system.brand !== "COMPATEC" && system.brand !== "VETTI") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos em simulação estão disponíveis somente para centrais Compatec e Vetti" });
       const targetError = system.brand === "VETTI" ? validateVettiSimulationTarget(input) : validateRemoteCommandTarget(input);
       if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
+
+      if (system.brand === "VETTI" && input.commandType === "restore_zone") {
+        const zone = (await db.listAlarmZones(system.id)).find((item) => item.zoneNumber === input.zoneNumber);
+        if (!canRestoreVettiZone(zone)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Na Vetti, Restaurar Zona é reservado a zonas classificadas como 24 horas; zonas comuns são restauradas no Desarme." });
+        }
+      }
 
       const commandPayload = system.brand === "VETTI" ? buildVettiSimulationPayload(input) : buildCompatecSimulationPayload(input);
       const created = await db.createAlarmRemoteCommand({

@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import HLSPlayer from "@/components/HLSPlayer";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { isVetti24HourZone } from "@shared/vettiZoneRules";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -567,6 +568,7 @@ export default function Dashboard() {
     { alarmSystemId: selectedSystem?.id || 0 },
     { enabled: !!selectedSystem?.id }
   );
+  const vettiTwentyFourHourZones = useMemo(() => treatmentZones.filter((zone: any) => isVetti24HourZone(zone) && zone.isActive !== false), [treatmentZones]);
   const { data: treatmentAlarmUsers = [] } = trpc.alarmUser.list.useQuery(
     { alarmSystemId: selectedSystem?.id || 0 },
     { enabled: !!selectedSystem?.id }
@@ -857,6 +859,10 @@ export default function Dashboard() {
       toast.error("Informe a zona a ser isolada ou restaurada.");
       return;
     }
+    if (selectedEvent.brand === "VETTI" && remoteCommandType === "restore_zone" && !isVetti24HourZone(treatmentZones.find((zone: any) => zone.zoneNumber === zoneNumber))) {
+      toast.error("Na Vetti, Restaurar Zona é usado somente em zonas classificadas como 24 horas.");
+      return;
+    }
     if (remoteCommandType === "activate_pgm" && (!Number.isInteger(pgmNumber) || pgmNumber < 1)) {
       toast.error("Informe a PGM a ser acionada.");
       return;
@@ -1118,9 +1124,10 @@ export default function Dashboard() {
             <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[0.92fr_1.08fr] lg:gap-5">
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
-                  {(Object.keys(REMOTE_COMMAND_LABELS) as RemoteCommandType[]).map((command) => <Button key={command} type="button" variant={remoteCommandType === command ? "default" : "outline"} className="h-auto min-h-11 justify-start whitespace-normal text-left text-xs" onClick={() => setRemoteCommandType(command)}>{REMOTE_COMMAND_LABELS[command]}</Button>)}
+                  {(Object.keys(REMOTE_COMMAND_LABELS) as RemoteCommandType[]).filter((command) => selectedRemoteBrand !== "VETTI" || command !== "restore_zone" || vettiTwentyFourHourZones.length > 0).map((command) => <Button key={command} type="button" variant={remoteCommandType === command ? "default" : "outline"} className="h-auto min-h-11 justify-start whitespace-normal text-left text-xs" onClick={() => setRemoteCommandType(command)}>{REMOTE_COMMAND_LABELS[command]}</Button>)}
                 </div>
-                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">Zona <input type="number" min="1" max={selectedRemoteBrand === "VETTI" ? "511" : "10"} value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder={selectedRemoteBrand === "VETTI" ? "De 1 a 511" : "De 1 a 10"} /></label>}
+                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">{selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" ? "Zona 24 horas" : "Zona"}{selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" ? <select value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a zona 24 horas</option>{vettiTwentyFourHourZones.map((zone: any) => <option key={zone.id} value={zone.zoneNumber}>Zona {zone.zoneNumber} · {zone.name}</option>)}</select> : <input type="number" min="1" max={selectedRemoteBrand === "VETTI" ? "511" : "10"} value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder={selectedRemoteBrand === "VETTI" ? "De 1 a 511" : "De 1 a 10"} />}</label>}
+                {selectedRemoteBrand === "VETTI" && <p className="-mt-2 text-xs leading-relaxed text-muted-foreground">Para zona comum: desarme, isole e arme novamente; o próximo Desarme a restaura. <strong className="text-amber-200">Restaurar Zona</strong> só é exibido para zonas 24 horas.</p>}
                 {remoteCommandType === "activate_pgm" && <label className="block text-sm font-medium text-foreground">PGM <select value={remoteCommandPgm} onChange={(event) => setRemoteCommandPgm(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a PGM</option>{remoteCommandPgms.map((pgm: any) => <option key={pgm.id} value={pgm.pgmNumber}>PGM {pgm.pgmNumber} · {pgm.name}</option>)}{remoteCommandPgms.length === 0 && Array.from({ length: selectedRemoteBrand === "VETTI" ? 32 : 16 }, (_, index) => <option key={index + 1} value={index + 1}>PGM {index + 1}</option>)}</select></label>}
                 <label className="block text-sm font-medium text-foreground">Motivo operacional <Textarea className="mt-1 min-h-24" value={remoteCommandReason} onChange={(event) => setRemoteCommandReason(event.target.value)} placeholder="Ex.: cliente confirmado por telefone; operador solicitou o comando durante o atendimento." /></label>
                 <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Operador autenticado:</strong> sua sessão ativa identificará automaticamente quem confirmou esta ação. A senha técnica do painel será cadastrada separadamente antes de habilitar envio físico.</div>

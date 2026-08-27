@@ -50,7 +50,7 @@ Também fica confirmado que **PGM e sirene possuem quadros próprios**, independ
 | `0x19` | Obsoleto | `0x00` desinibir; `0x01` inibir | `02 07 AF 19 <ação> <zona> FF <CRC>` |
 | `0x29` | Vigente, firmware 5.06 ou superior | `0x00` restaurar zona isolada; `0x01` isolar zona | `02 07 AF 29 <ação> <zona-high> <zona-low> <CRC>` |
 
-O comando vigente para a implementação futura é **`0x29`**, não o `0x19`. Para isolar a zona 2, o exemplo oficial é `02 07 AF 29 01 00 02 11`; a resposta de sucesso é `02 08 AF A9 01 00 02 80 90`. A central restaura a zona isolada no próximo Desarme, portanto o Police Central deverá informar explicitamente essa consequência ao operador antes de qualquer comando físico.
+O comando vigente para a implementação futura é **`0x29`**, não o `0x19`. Para isolar a zona 2, o exemplo oficial é `02 07 AF 29 01 00 02 11`; a resposta de sucesso é `02 08 AF A9 01 00 02 80 90`. Em zonas comuns, o fluxo operacional informado é desarmar a central, isolar a zona e armar novamente; o próximo Desarme restaura a zona isolada automaticamente. O restauro manual `0x29` com ação `0x00` deve ser reservado a zonas configuradas como **24 horas**, porque elas não retornam ao estado normal apenas com o Desarme.
 
 Os comandos de pareamento (`0x40`), IR-Cloner (`0x41`), reset e sirene foram identificados no manual, mas ficam fora do escopo dos controles operacionais solicitados. Em especial, não serão incluídos na interface de atendimento.
 
