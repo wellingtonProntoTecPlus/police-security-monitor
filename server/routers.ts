@@ -10,10 +10,10 @@ import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
-import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
-import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
+import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery, sendVettiBenchStatusQuery } from "./receiver";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -752,6 +752,32 @@ export const appRouter = router({
         executedAt: new Date(),
       });
       return { ...created, status: "simulated" as const };
+    }),
+    queryVettiBenchStatus: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      incidentId: z.number().optional(),
+      reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+      if (!isConfirmedVettiBenchSystem(system) || system.account !== "0336") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "A consulta VSec real está habilitada somente para a central Vetti de testes conta 0336, MAC 2DE4A8 e modo de bancada ativo" });
+      }
+      const payload = "02 05 AF 14 FF B1";
+      const created = await db.createAlarmRemoteCommand({
+        alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
+        brand: "VETTI", commandType: "query_status", transportMode: "vsec_bench", status: "queued",
+        partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
+        commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Vetti de testes.", executedAt: null,
+      });
+      const dispatched = sendVettiBenchStatusQuery({ alarmSystemId: system.id, commandId: created.id });
+      if (!dispatched.sent) {
+        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
+        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
+      }
+      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta VSec 0x14 enviada; aguardando resposta 0x94 da central.", executedAt: new Date() });
+      return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
     // Operadores de monitoramento podem consultar e comandar exclusivamente a bancada
     // identificada; o bloqueio físico por MAC e modo de laboratório permanece abaixo.

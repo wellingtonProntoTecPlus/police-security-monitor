@@ -584,6 +584,9 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Implementar uma única consulta física Vetti de status para a bancada 0336, sem habilitar Arme, Desarme, Zona ou PGM
+- [x] Restringir a consulta física Vetti ao MAC FC-0F-E7-2D-E4-A8, conta 0336 e modo de bancada explicitamente ativado
+- [ ] Registrar quadro enviado, resposta, operador, motivo e horário da consulta Vetti de bancada
 - [x] Classificar zonas Vetti como comuns ou 24 horas para decidir se o comando de restauro é necessário
 - [x] Exibir Restaurar Zona Vetti apenas como exceção para zona 24 horas, com aviso de que zonas comuns voltam ao normal no Desarme
 - [x] Identificar a central Vetti exclusiva de testes por conta 0336, MAC FC-0F-E7-2D-E4-A8 e firmware 6.68 antes de permitir qualquer comando físico

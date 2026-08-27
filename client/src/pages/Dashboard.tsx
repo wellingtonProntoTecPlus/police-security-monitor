@@ -20,6 +20,7 @@ import { isVetti24HourZone } from "@shared/vettiZoneRules";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
+type RemoteCommandHistoryType = RemoteCommandType | "query_status";
 
 const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   arm: "Armar central",
@@ -28,6 +29,7 @@ const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   restore_zone: "Restaurar zona",
   activate_pgm: "Acionar PGM",
 };
+const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = { ...REMOTE_COMMAND_LABELS, query_status: "Consultar status da central" };
 
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
@@ -189,6 +191,7 @@ export default function Dashboard() {
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
   const simulateRemoteCommandMut = trpc.remoteCommand.simulate.useMutation();
   const queryBenchStatusMut = trpc.remoteCommand.queryBenchStatus.useMutation();
+  const queryVettiBenchStatusMut = trpc.remoteCommand.queryVettiBenchStatus.useMutation();
   const queryBenchSectorsMut = trpc.remoteCommand.queryBenchSectors.useMutation();
   const disarmBenchAllMut = trpc.remoteCommand.disarmBenchAll.useMutation();
   const passwordConfirmationMut = trpc.auth.login.useMutation();
@@ -907,6 +910,27 @@ export default function Dashboard() {
     });
   }
 
+  function submitVettiBenchStatusQuery() {
+    if (!selectedEvent?.alarmSystemId) return;
+    if (remoteCommandReason.trim().length < 5) {
+      toast.error("Informe o motivo operacional da consulta.");
+      return;
+    }
+    if (!window.confirm("Confirmar a CONSULTA FÍSICA de status da central Vetti de testes? Nenhum Arme, Desarme, Zona ou PGM será enviado.")) return;
+    queryVettiBenchStatusMut.mutate({
+      alarmSystemId: selectedEvent.alarmSystemId,
+      incidentId: selectedEvent.incidentId,
+      reason: remoteCommandReason,
+    }, {
+      onSuccess: (result) => {
+        addLog("Consulta física VSec de status registrada para a central Vetti de testes.");
+        toast.success(result.status === "sent" ? "Consulta VSec 0x14 enviada. Aguarde a resposta 0x94 da central." : result.message || "Consulta aguardando a conexão da central.");
+        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+      },
+      onError: (error) => toast.error(error.message),
+    });
+  }
+
   function submitCompatecBenchSectorsQuery() {
     if (!selectedEvent?.alarmSystemId) return;
     if (remoteCommandReason.trim().length < 5) {
@@ -1133,13 +1157,13 @@ export default function Dashboard() {
                 <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Operador autenticado:</strong> sua sessão ativa identificará automaticamente quem confirmou esta ação. A senha técnica do painel será cadastrada separadamente antes de habilitar envio físico.</div>
                 <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
                 {selectedRemoteBrand === "COMPATEC" && <><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button><Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmBenchAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchDisarmAll}>{disarmBenchAllMut.isPending ? "Enviando Desarme..." : "Desarmar central de bancada (MB=AK4[0,03FF])"}</Button><p className="text-center text-[11px] text-muted-foreground">Disponível somente após ativar o modo de bancada no cadastro desta central. Nesta etapa, somente as consultas e o Desarme validado da central de bancada transmitem MicroBus; os demais controles continuam em simulação.</p></>}
-                {selectedRemoteBrand === "VETTI" && <p className="text-center text-[11px] text-muted-foreground">Os quadros VSec são apenas simulados e auditados nesta etapa. Nenhum comando, consulta, login ou senha é transmitido à central Vetti.</p>}
+                {selectedRemoteBrand === "VETTI" && <><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryVettiBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchStatusQuery}>{queryVettiBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar status da central de testes (VSec 0x14)"}</Button><p className="text-center text-[11px] text-muted-foreground">Somente a consulta física de status `0x14` está autorizada para a bancada Vetti 0336. Arme, Desarme, Zona e PGM continuam somente em simulação.</p></>}
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
-                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "O Desarme validado da central de bancada exige confirmação explícita; os demais comandos ainda são simulados." : "Nesta etapa, todos os comandos Vetti são apenas simulados."}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "O Desarme validado da central de bancada exige confirmação explícita; os demais comandos ainda são simulados." : "A consulta VSec 0x14 da central de testes pode ser física; todos os demais comandos Vetti permanecem simulados."}</p>
                 <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_LABELS[command.commandType as RemoteCommandType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro simulado</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro simulado</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>

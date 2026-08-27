@@ -59,6 +59,7 @@ vi.mock("@/lib/trpc", () => ({
       list: { useQuery: () => ({ data: [] }) },
       simulate: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
+      queryVettiBenchStatus: { useMutation: () => standardMutation },
       queryBenchSectors: { useMutation: () => standardMutation },
       disarmBenchAll: { useMutation: () => standardMutation },
     },

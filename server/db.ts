@@ -771,6 +771,22 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   return result[0];
 }
 
+/** A Vetti abre a conexão com a VPS; somente a consulta VSec 0x14 pode aguardar essa sessão. */
+export async function getPendingVettiBenchStatusQuery(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select({
+    id: alarmRemoteCommands.id,
+  }).from(alarmRemoteCommands).where(and(
+    eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
+    eq(alarmRemoteCommands.brand, "VETTI"),
+    eq(alarmRemoteCommands.commandType, "query_status"),
+    eq(alarmRemoteCommands.transportMode, "vsec_bench"),
+    eq(alarmRemoteCommands.status, "waiting_connection"),
+  )).orderBy(alarmRemoteCommands.id).limit(1);
+  return result[0];
+}
+
 export async function setAlarmSystemRemoteCommandLabEnabled(alarmSystemId: number, enabled: boolean) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");

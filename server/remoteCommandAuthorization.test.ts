@@ -15,4 +15,13 @@ describe("autorização dos comandos MicroBus de bancada", () => {
   it("não mantém a rota de Desarme físico restrita exclusivamente ao administrador", () => {
     expect(source).not.toContain("disarmBenchAll: adminProcedure");
   });
+
+  it("expõe somente a consulta Vetti de status para o operador e preserva a trava de bancada", () => {
+    expect(source).toContain("queryVettiBenchStatus: operatorProcedure");
+    expect(source).toContain("isConfirmedVettiBenchSystem(system)");
+    expect(source).toContain('system.account !== "0336"');
+    expect(source).toContain("MAC 2DE4A8");
+    expect(source).not.toContain("armVettiBench");
+    expect(source).not.toContain("disarmVettiBench");
+  });
 });
