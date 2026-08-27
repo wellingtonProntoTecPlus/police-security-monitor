@@ -924,7 +924,7 @@ export default function Dashboard() {
     }, {
       onSuccess: (result) => {
         addLog("Consulta física VSec de status registrada para a central Vetti de testes.");
-        toast.success(result.status === "sent" ? "Consulta VSec 0x14 enviada. Aguarde a resposta 0x94 da central." : result.message || "Consulta aguardando a conexão da central.");
+        toast.success(result.message || "Consulta VSec aguardando o próximo login autenticado da central.");
         void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
       },
       onError: (error) => toast.error(error.message),

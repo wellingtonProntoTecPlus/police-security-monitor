@@ -233,6 +233,19 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
 // Driver Vetti
 const vettiLoginIdentityBySocket = new WeakMap<object, VettiLoginIdentity>();
 
+async function deliverPendingVettiBenchStatusQuery(system: { id: number; account: string }) {
+  const pendingQuery = await getPendingVettiBenchStatusQuery(system.id);
+  if (!pendingQuery) return;
+  const dispatched = sendVettiBenchStatusQuery({ alarmSystemId: system.id, commandId: pendingQuery.id });
+  if (!dispatched.sent) return;
+  await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
+    status: "sent",
+    responsePayload: "Consulta VSec 0x14 enviada após o ACK de login da central; aguardando resposta 0x94.",
+    executedAt: new Date(),
+  });
+  console.log(`[VSEC] VETTI consulta pendente enviada após ACK de login | comando ${pendingQuery.id} | Conta ${system.account}`);
+}
+
 async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
   if (!Buffer.isBuffer(data) || data.length === 0) return;
   const completedStatusQuery = consumeVettiBenchStatusResponse(socket, data);
@@ -252,27 +265,20 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
   switch (fr) {
     case 0xC0: // LOGIN
       {
+        let confirmedBenchSystem: { id: number; account: string } | undefined;
         const loginIdentity = parseVettiLoginIdentity(data);
         if (loginIdentity) {
           vettiLoginIdentityBySocket.set(socket, loginIdentity);
           const system = await getAlarmSystemByPanelIdentifier(loginIdentity.macSuffix, "mac", "VETTI", port);
           if (system) {
             rememberSystem(socket, system);
-            if (isConfirmedVettiBenchSystem(system)) {
-              const pendingQuery = await getPendingVettiBenchStatusQuery(system.id);
-              if (pendingQuery) {
-                const dispatched = sendVettiBenchStatusQuery({ alarmSystemId: system.id, commandId: pendingQuery.id });
-                if (dispatched.sent) {
-                  await updateAlarmRemoteCommandDelivery(pendingQuery.id, { status: "sent", responsePayload: "Consulta VSec 0x14 enviada no contato autenticado da central; aguardando resposta 0x94.", executedAt: new Date() });
-                  console.log(`[VSEC] VETTI consulta pendente enviada no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
-                }
-              }
-            }
+            if (isConfirmedVettiBenchSystem(system)) confirmedBenchSystem = system;
           }
           console.log(`[RECIP] VETTI login | Conta ${loginIdentity.account} | MAC ${loginIdentity.macSuffix}`);
         }
+        socket.write(Buffer.from([0x02, 0x04, 0xC0, 0x80, 0xCF]));
+        if (confirmedBenchSystem) await deliverPendingVettiBenchStatusQuery(confirmedBenchSystem);
       }
-      socket.write(Buffer.from([0x02, 0x04, 0xC0, 0x80, 0xCF]));
       break;
     case 0xC2: // LOGIN 2
       socket.write(Buffer.from([0x02, 0x04, 0xC2, 0x80, 0xE5, 0x04]));

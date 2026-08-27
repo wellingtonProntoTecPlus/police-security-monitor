@@ -13,7 +13,7 @@ import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialPro
 import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
-import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery, sendVettiBenchStatusQuery } from "./receiver";
+import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -771,13 +771,8 @@ export const appRouter = router({
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Vetti de testes.", executedAt: null,
       });
-      const dispatched = sendVettiBenchStatusQuery({ alarmSystemId: system.id, commandId: created.id });
-      if (!dispatched.sent) {
-        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
-        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
-      }
-      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta VSec 0x14 enviada; aguardando resposta 0x94 da central.", executedAt: new Date() });
-      return { ...created, status: "sent" as const, payload: dispatched.payload };
+      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: "Consulta VSec 0x14 aguardando o próximo login autenticado da central." });
+      return { ...created, status: "waiting_connection" as const, message: "Consulta VSec aguardando o próximo login autenticado da central." };
     }),
     // Operadores de monitoramento podem consultar e comandar exclusivamente a bancada
     // identificada; o bloqueio físico por MAC e modo de laboratório permanece abaixo.
