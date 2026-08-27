@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
   it("libera a consulta física inicial somente para o MAC da bancada habilitada", () => {
     expect(isConfirmedCompatecBenchSystem({ brand: "COMPATEC", macAddress: "C1BDCB", remoteCommandLabEnabled: true })).toBe(true);
     expect(isConfirmedCompatecBenchSystem({ brand: "COMPATEC", macAddress: "C1BDCB", remoteCommandLabEnabled: false })).toBe(false);
     expect(isConfirmedCompatecBenchSystem({ brand: "COMPATEC", macAddress: "F0F0F0", remoteCommandLabEnabled: true })).toBe(false);
+  });
+
+  it("reserva uma futura ação física Vetti somente ao MAC da bancada habilitada", () => {
+    expect(isConfirmedVettiBenchSystem({ brand: "VETTI", macAddress: "FC-0F-E7-2D-E4-A8", remoteCommandLabEnabled: true })).toBe(true);
+    expect(isConfirmedVettiBenchSystem({ brand: "VETTI", macAddress: "FC0FE72DE4A8", remoteCommandLabEnabled: false })).toBe(false);
+    expect(isConfirmedVettiBenchSystem({ brand: "VETTI", macAddress: "FC0FE7123456", remoteCommandLabEnabled: true })).toBe(false);
+    expect(isConfirmedVettiBenchSystem({ brand: "COMPATEC", macAddress: "FC0FE72DE4A8", remoteCommandLabEnabled: true })).toBe(false);
   });
 
   it("exige o alvo operacional para isolamento, restauração e PGM", () => {

@@ -11,6 +11,7 @@ import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
 import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
 
 // ============================================================
@@ -719,16 +720,16 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
-      if (system.brand !== "COMPATEC") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos são exclusivos para centrais Compatec" });
-      const targetError = validateRemoteCommandTarget(input);
+      if (system.brand !== "COMPATEC" && system.brand !== "VETTI") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos em simulação estão disponíveis somente para centrais Compatec e Vetti" });
+      const targetError = system.brand === "VETTI" ? validateVettiSimulationTarget(input) : validateRemoteCommandTarget(input);
       if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
 
-      const commandPayload = buildCompatecSimulationPayload(input);
+      const commandPayload = system.brand === "VETTI" ? buildVettiSimulationPayload(input) : buildCompatecSimulationPayload(input);
       const created = await db.createAlarmRemoteCommand({
         alarmSystemId: system.id,
         incidentId: input.incidentId ?? null,
         operatorId: ctx.user.id,
-        brand: "COMPATEC",
+        brand: system.brand,
         commandType: input.commandType,
         transportMode: "simulation",
         status: "simulated",
@@ -737,7 +738,9 @@ export const appRouter = router({
         pgmNumber: input.pgmNumber ?? null,
         reason: input.reason,
         commandPayload,
-        responsePayload: "SIMULAÇÃO CONCLUÍDA — nenhum pacote MicroBus foi transmitido à central.",
+        responsePayload: system.brand === "VETTI"
+          ? "SIMULAÇÃO CONCLUÍDA — nenhum frame VSec foi transmitido à central."
+          : "SIMULAÇÃO CONCLUÍDA — nenhum pacote MicroBus foi transmitido à central.",
         executedAt: new Date(),
       });
       return { ...created, status: "simulated" as const };

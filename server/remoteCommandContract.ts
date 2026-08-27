@@ -3,6 +3,7 @@ import { z } from "zod";
 export const remoteCommandTypes = ["arm", "disarm", "isolate_zone", "restore_zone", "activate_pgm"] as const;
 export type RemoteCommandType = typeof remoteCommandTypes[number];
 export const COMPATEC_BENCH_MAC_SUFFIX = "C1BDCB";
+export const VETTI_BENCH_MAC_SUFFIX = "2DE4A8";
 
 export const remoteCommandSimulationInputSchema = z.object({
   alarmSystemId: z.number(),
@@ -10,8 +11,8 @@ export const remoteCommandSimulationInputSchema = z.object({
   commandType: z.enum(remoteCommandTypes),
   reason: z.string().trim().min(5, "Informe o motivo operacional do comando").max(2000),
   partition: z.number().int().min(0).max(16).optional(),
-  zoneNumber: z.number().int().min(1).max(10).optional(),
-  pgmNumber: z.number().int().min(1).max(16).optional(),
+  zoneNumber: z.number().int().min(1).max(511).optional(),
+  pgmNumber: z.number().int().min(1).max(255).optional(),
 });
 
 const COMPATEC_LINE_END = "\r\n";
@@ -58,6 +59,17 @@ export function isConfirmedCompatecBenchSystem(system: { brand?: string | null; 
   return system.brand === "COMPATEC"
     && Boolean(system.remoteCommandLabEnabled)
     && (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().endsWith(COMPATEC_BENCH_MAC_SUFFIX);
+}
+
+/**
+ * Reserva a futura homologação física Vetti somente ao painel de testes
+ * identificado pelo MAC confirmado FC-0F-E7-2D-E4-A8. A conta não é usada
+ * como identidade de segurança, evitando qualquer associação por conta.
+ */
+export function isConfirmedVettiBenchSystem(system: { brand?: string | null; macAddress?: string | null; remoteCommandLabEnabled?: boolean | null }) {
+  return system.brand === "VETTI"
+    && Boolean(system.remoteCommandLabEnabled)
+    && (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().endsWith(VETTI_BENCH_MAC_SUFFIX);
 }
 
 export function buildCompatecSimulationPayload(input: {

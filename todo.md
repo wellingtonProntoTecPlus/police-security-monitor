@@ -584,6 +584,10 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Identificar a central Vetti exclusiva de testes por conta 0336, MAC FC-0F-E7-2D-E4-A8 e firmware 6.68 antes de permitir qualquer comando físico
+- [x] Bloquear qualquer comando físico Vetti para sistemas fora da central de testes identificada
+- [x] Catalogar no protocolo Vetti VSec Rev. 13 os comandos oficiais de Arme, Desarme, Isolamento de Zona, PGM, autenticação e resposta
+- [x] Implementar os comandos Vetti somente em simulação auditável até uma homologação física controlada
 - [x] Corrigir a tabela manual: 0000 corresponde ao Arme total e 0001 ao Arme da Partição 1, mantendo ambos bloqueados no MW1
 - [x] Corrigir a documentação: no contexto operacional informado, o valor 0001 referencia Partição 1, não Setor 1
 - [x] Remover o candidato experimental `MB=AK4[0,0000]` que a bancada comprovou executar Desarme, impedindo nova entrega física desse quadro

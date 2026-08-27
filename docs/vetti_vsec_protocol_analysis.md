@@ -1,0 +1,69 @@
+# Análise técnica — protocolo Vetti VSec Rev. 13
+
+## Escopo e limites de segurança
+
+Este registro consolida somente informações verificadas no protocolo fornecido pelo usuário: **VETTI — Protocolo de comunicação VSec Rev. 13**, datado de 13/08/2021. A análise não autoriza transmissão física a nenhuma central. Qualquer implementação inicial deve permanecer em simulação auditável e, posteriormente, ser limitada por conta, MAC e modo explícito da central Vetti exclusiva de testes.
+
+## Fundamentos confirmados
+
+| Item | Informação verificada |
+|---|---|
+| Transporte | TCP/IP, com a SmartAlarm atuando como cliente do servidor de monitoramento |
+| Porta indicada | `9018` |
+| Tempo máximo de resposta | 12 segundos |
+| Firmware mínimo | 2.15 |
+| Estrutura de frame | `STX (02) + NB + FR + parâmetros + CRC` |
+| CRC | CRC de 8 bits calculado do campo `NB` até o byte anterior ao CRC |
+
+## Páginas 10 a 14 — comandos e confirmações
+
+| Comando | Finalidade indicada | Observação confirmada |
+|---|---|---|
+| `0x11` | Solicitação de acesso remoto | Requer senha de acesso externo de quatro dígitos; o login é válido por 60 segundos a partir da confirmação da central |
+| `0x12` | Arme/desarme por inversão de estado | Exige a leitura prévia do status de partições via `0x14`; altera uma partição por vez e inclui número de usuário |
+| `0x21` | Arme parcial (STAY) de partição | Inclui número de partição e usuário |
+| `0x22` | Arme de partição | Inclui número de partição e usuário |
+| `0x23` | Desarme de partição | Inclui número de partição e usuário |
+
+O manual exibe, para os comandos analisados, uma resposta da central com o código de comando acrescido de `0x80` (por exemplo, `0x11` → `0x91`, `0x12` → `0x92`, `0x21` → `0xA1`), um campo de erro e campos de correlação. Para o `0x12`, o estado deve ser lido antes por `0x14`: para armar, aplica-se OR no mapa de partições; para desarmar, AND com o bit da partição removido. Os valores exatos de máscara, usuário e CRC devem ser gerados pelo transporte, nunca digitados pelo operador.
+
+## Páginas 15 a 19 — múltiplas partições, sirene e PGM
+
+| Comando | Finalidade indicada | Parâmetros principais | Observação confirmada |
+|---|---|---|---|
+| `0x32` | Arme de múltiplas partições | mapa de bits das partições + usuário | Exemplo do manual usa `0x14` para partições 3 e 5 |
+| `0x33` | Desarme de múltiplas partições | mapa de bits das partições + usuário | Mesmo modelo de máscara binária do `0x32` |
+| `0x42` | Arme de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | A senha aceita 4 a 8 dígitos, codificados em bytes decimais `0..9` |
+| `0x43` | Desarme de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | Estrutura paralela ao `0x42` |
+| `0x44` | Arme STAY de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | Permite modo parcial explícito |
+| `0x16` | Controle da sirene | ação `0x00` off / `0x01` on | O manual informa tempo máximo de 240 segundos ligada e restrição em disparo/pânico |
+| `0x17` | Controle de PGM | ação + número da PGM | Ações previstas: `0x00` off, `0x01` on, `0x02` toggle, `0x03` pulso, `0x04` pré-definido VettiConfig |
+
+Os comandos de múltiplas partições confirmam que a Vetti oferece duas famílias operacionais: uma baseada em **número do usuário** (`0x32` e `0x33`) e outra baseada em **senha do usuário** (`0x42`, `0x43` e `0x44`). Isso é relevante para o Police Central porque a credencial técnica já cadastrada para Vetti deriva o usuário a partir da senha de comando; portanto, na etapa de simulação auditável, precisaremos distinguir claramente qual via será usada em cada central de testes antes de qualquer homologação física.
+
+Também fica confirmado que **PGM e sirene possuem quadros próprios**, independentes dos comandos de arme e desarme. No `0x17`, as ações previstas são `0x00` desligar, `0x01` ligar, `0x02` alternar, `0x03` pulso e `0x04` ação pré-definida do VettiConfig; o número da PGM vai de `0x01` a `0xFF`. Assim, o fluxo futuro de homologação Vetti deve ser unitário: primeiro login remoto, depois leitura de estado, depois um único teste por categoria — arme/desarme, stay, PGM e isolamento — sempre com retorno documentado.
+
+## Páginas 20 e 21 — isolamento de zonas
+
+| Comando | Situação | Ação | Formato confirmado |
+|---|---|---|---|
+| `0x19` | Obsoleto | `0x00` desinibir; `0x01` inibir | `02 07 AF 19 <ação> <zona> FF <CRC>` |
+| `0x29` | Vigente, firmware 5.06 ou superior | `0x00` restaurar zona isolada; `0x01` isolar zona | `02 07 AF 29 <ação> <zona-high> <zona-low> <CRC>` |
+
+O comando vigente para a implementação futura é **`0x29`**, não o `0x19`. Para isolar a zona 2, o exemplo oficial é `02 07 AF 29 01 00 02 11`; a resposta de sucesso é `02 08 AF A9 01 00 02 80 90`. A central restaura a zona isolada no próximo Desarme, portanto o Police Central deverá informar explicitamente essa consequência ao operador antes de qualquer comando físico.
+
+Os comandos de pareamento (`0x40`), IR-Cloner (`0x41`), reset e sirene foram identificados no manual, mas ficam fora do escopo dos controles operacionais solicitados. Em especial, não serão incluídos na interface de atendimento.
+
+## Páginas 26 a 28 — consultas seguras antes de qualquer ação
+
+| Consulta | Quadro de solicitação | Resposta esperada | Informação operacional |
+|---|---|---|---|
+| Status geral da central | `02 05 AF 14 FF B1` | `0x94` | Estado geral, partições, PGMs, STAY e partições em uso |
+| Zonas isoladas | `02 05 AF 18 FF 4D` | `0x98` | Mapa de bits: `1` indica zona isolada |
+| Zonas inibidas | `02 05 AF 20 FF 1C` | `0xA0` | Mapa de bits: `1` indica zona inibida |
+
+O `0x14` é a consulta obrigatória de pré-checagem. No campo de estado geral (`CTN`), o bit `0` indica se a central está armada; no campo `PAR`, cada bit de `0` a `5` representa a Partição 1 a 6; no campo `PGM`, os bits `0` a `7` representam PGM 1 a 8; e no campo `STY`, os bits `0` a `5` indicam se a respectiva partição armada está em STAY. Essa resposta fornece o estado que o Police Central deve registrar antes e depois de qualquer teste físico Vetti.
+
+## Referência
+
+[1]: file:///home/ubuntu/upload/VETTI-ProtocolodecomunicacaoVSecRev13.pdf "VETTI — Protocolo de comunicação VSec Rev. 13"
