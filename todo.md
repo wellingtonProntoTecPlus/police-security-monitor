@@ -584,6 +584,8 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Exibir no cadastro da Vetti 0336 o controle de ativação do modo de bancada VSec, sem mostrá-lo para sistemas Vetti comuns
+- [ ] Ativar exclusivamente o modo de bancada da central Vetti 0336/MAC FC-0F-E7-2D-E4-A8 antes de repetir a consulta física 0x14
 - [x] Corrigir a ordem entre o ACK de login Vetti e o despacho da consulta física 0x14, que foi enviada sem resposta 0x94
 - [ ] Repetir uma única consulta Vetti 0x14 após a correção e registrar a resposta da central de testes
 - [x] Implementar uma única consulta física Vetti de status para a bancada 0336, sem habilitar Arme, Desarme, Zona ou PGM
