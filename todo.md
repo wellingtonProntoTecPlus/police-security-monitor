@@ -589,6 +589,7 @@
 - [x] Mascarar os bytes de senha refletidos no retorno Vetti 0xC3 antes de qualquer auditoria, log ou interface
 - [x] Definir a sequência Vetti de consulta de estado, login, comando e confirmação antes de preparar o primeiro Desarme físico da bancada
 - [x] Manter Arme, Arme STAY, Isolar Zona e PGM Vetti bloqueados; o Desarme 0x43 continua exclusivo da bancada e pendente de homologação unitária
+- [x] Renomear o cabeçalho do modal Vetti para diferenciar simulações dos únicos controles físicos e controlados da bancada
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
 - [ ] Confirmar a revisão Vetti instalada na VPS e descartar a solicitação antiga que ficou em sent antes de criar nova consulta pós-login

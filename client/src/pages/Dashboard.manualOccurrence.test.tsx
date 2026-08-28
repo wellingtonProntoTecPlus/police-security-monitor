@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { ReactNode } from "react";
@@ -178,5 +180,13 @@ describe("Dashboard — Ocorrência Manual", () => {
 
     expect(screen.getByText("Última confirmação automática")).toBeTruthy();
     expect(screen.getByText(/ARMADO · Conta 0336 · VETTI · Arme/)).toBeTruthy();
+  });
+
+  it("distingue os controles Vetti simulados dos controles físicos controlados da bancada", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
+
+    expect(source).toContain("Comando remoto Vetti VSec · simulações e controle físico de bancada");
+    expect(source).toContain("Simulados: Arme, Zona e PGM. Físicos controlados: consulta 0x14 e Desarme 0x43");
+    expect(source).not.toContain('"Vetti VSec" : "Compatec"} · modo de simulação');
   });
 });

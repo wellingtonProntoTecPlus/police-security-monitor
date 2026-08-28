@@ -1161,9 +1161,9 @@ export default function Dashboard() {
           <div className="flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border border-cyan-400/35 bg-card shadow-2xl sm:max-h-[90dvh] sm:w-[min(760px,96vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-cyan-400/25 bg-cyan-400/5 px-5 py-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">Comando remoto {selectedRemoteBrand === "VETTI" ? "Vetti VSec" : "Compatec"} · modo de simulação</p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{selectedRemoteBrand === "VETTI" ? "Comando remoto Vetti VSec · simulações e controle físico de bancada" : "Comando remoto Compatec · modo de simulação"}</p>
                 <h3 className="mt-1 text-lg font-bold text-foreground">Conta {selectedEvent.account} · {selectedEvent.systemModel}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedRemoteBrand === "VETTI" ? "Arme, Zona e PGM permanecem simulados. A consulta e o Desarme físico são restritos à bancada Vetti autorizada." : "O comando será auditado, mas nenhum pacote MicroBus será transmitido nesta etapa."}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{selectedRemoteBrand === "VETTI" ? "Simulados: Arme, Zona e PGM. Físicos controlados: consulta 0x14 e Desarme 0x43, exclusivamente na bancada Vetti autorizada." : "O comando será auditado, mas nenhum pacote MicroBus será transmitido nesta etapa."}</p>
               </div>
               <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setRemoteCommandOpen(false)} aria-label="Fechar comando remoto"><X className="h-5 w-5" /></button>
             </div>
