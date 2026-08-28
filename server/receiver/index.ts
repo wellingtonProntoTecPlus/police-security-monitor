@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmRemoteCredentialForTransport, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmRemoteCredentialForTransport, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -280,15 +280,20 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
       return;
     }
     const knownSystem = identifiedSystemBySocket.get(socket);
-    if (!knownSystem || !isConfirmedVettiBenchSystem(knownSystem)) return;
-    const dispatchedStatus = sendVettiBenchStatusQuery({ alarmSystemId: knownSystem.id, commandId: completedRemoteLogin.commandId });
+    if (!knownSystem) return;
+    // A sessão guarda somente identidade mínima para o receptor. Releia o
+    // sistema antes do 0x14 para preservar MAC e modo de bancada na decisão
+    // crítica, inclusive se a bancada tiver sido desativada durante o login.
+    const currentSystem = await getAlarmSystem(knownSystem.id);
+    if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem)) return;
+    const dispatchedStatus = sendVettiBenchStatusQuery({ alarmSystemId: currentSystem.id, commandId: completedRemoteLogin.commandId });
     if (!dispatchedStatus.sent) return;
     await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
       status: "sent",
       responsePayload: "Login remoto VSec 0x11 confirmado (0x91); consulta 0x14 enviada e aguardando resposta 0x94.",
       executedAt: new Date(),
     });
-    console.log(`[VSEC] VETTI login remoto confirmado; consulta 0x14 enviada | comando ${completedRemoteLogin.commandId} | Conta ${knownSystem.account}`);
+    console.log(`[VSEC] VETTI login remoto confirmado; consulta 0x14 enviada | comando ${completedRemoteLogin.commandId} | Conta ${currentSystem.account}`);
     return;
   }
   const completedStatusQuery = consumeVettiBenchStatusResponse(socket, data);

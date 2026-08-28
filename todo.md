@@ -584,6 +584,13 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
+- [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
+- [ ] Confirmar a revisão Vetti instalada na VPS e descartar a solicitação antiga que ficou em sent antes de criar nova consulta pós-login
+- [ ] Corrigir a fila Vetti que deixou a consulta em sent sem despachar o login remoto 0x11 no próximo login autenticado
+- [ ] Diferenciar na auditoria Vetti a solicitação aguardando login, o login enviado, a confirmação 0x91 e a consulta 0x14 respondida
+- [ ] Diagnosticar a ausência de resposta Vetti 0x91 após o login remoto 0x11 da consulta de status da bancada
+- [ ] Impedir a permanência indefinida de consultas Vetti em status sent quando o login remoto não for confirmado
 - [x] Enviar o login remoto Vetti 0x11 com a credencial técnica cifrada antes da consulta física 0x14 da bancada
 - [x] Exigir a confirmação VSec 0x91 antes de enviar a consulta 0x14 e registrar a resposta 0x94 sem tratar 0x85 como estado
 - [x] Investigar por que a consulta Vetti 0x14 retornou 0206AF9485FF60 tanto em ARMADO STAY quanto em DESARMADO: o código 0x85 indica login expirado
