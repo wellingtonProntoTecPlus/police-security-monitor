@@ -744,6 +744,35 @@ export async function createAlarmRemoteCommand(data: InsertAlarmRemoteCommand) {
   return { id: Number(result[0].insertId) };
 }
 
+/**
+ * Reserva atomicamente a única sequência VSec permitida para a bancada Vetti.
+ * O bloqueio da linha do sistema impede que dois operadores enfileirem ou
+ * executem fluxos sobrepostos entre a verificação e a inserção.
+ */
+export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCommand) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    await tx.select({ id: alarmSystems.id })
+      .from(alarmSystems)
+      .where(eq(alarmSystems.id, data.alarmSystemId))
+      .for("update");
+    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
+      .from(alarmRemoteCommands)
+      .where(and(
+        eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
+        eq(alarmRemoteCommands.brand, "VETTI"),
+        eq(alarmRemoteCommands.transportMode, "vsec_bench"),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "sent"]),
+      ))
+      .orderBy(alarmRemoteCommands.id)
+      .limit(1);
+    if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
+    const result = await tx.insert(alarmRemoteCommands).values(data);
+    return { created: true as const, id: Number(result[0].insertId) };
+  });
+}
+
 export async function updateAlarmRemoteCommandDelivery(id: number, data: { status: string; responsePayload?: string | null; executedAt?: Date | null }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -771,16 +800,17 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   return result[0];
 }
 
-/** A Vetti abre a conexão com a VPS; somente a consulta VSec 0x14 pode aguardar essa sessão. */
+/** A Vetti abre a conexão com a VPS; somente fluxos VSec explicitamente homologados na bancada podem aguardar essa sessão. */
 export async function getPendingVettiBenchStatusQuery(alarmSystemId: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select({
     id: alarmRemoteCommands.id,
+    commandType: alarmRemoteCommands.commandType,
   }).from(alarmRemoteCommands).where(and(
     eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
     eq(alarmRemoteCommands.brand, "VETTI"),
-    eq(alarmRemoteCommands.commandType, "query_status"),
+    inArray(alarmRemoteCommands.commandType, ["query_status", "disarm"]),
     eq(alarmRemoteCommands.transportMode, "vsec_bench"),
     eq(alarmRemoteCommands.status, "waiting_connection"),
   )).orderBy(alarmRemoteCommands.id).limit(1);
@@ -834,7 +864,7 @@ export async function getAlarmRemoteCredentialStatus(alarmSystemId: number) {
 }
 
 /** Uso exclusivo do transporte físico homologado; o segredo decifrado jamais atravessa a API. */
-export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer") {
+export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer" | "vetti_command_user") {
   const db = await getDb();
   if (!db) return undefined;
   const [credential] = await db.select({ encryptedSecret: alarmRemoteCredentials.encryptedSecret })

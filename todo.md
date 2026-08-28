@@ -584,6 +584,10 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Preparar o Desarme Vetti 0x43 somente para a central de testes 0336/MAC 2DE4A8 após login e consulta de status bem-sucedidos; homologação física ainda pendente
+- [x] Exigir confirmação Vetti 0xC3/0x80 e consulta posterior antes de registrar o Desarme como confirmado; homologação física ainda exige teste controlado
+- [x] Definir a sequência Vetti de consulta de estado, login, comando e confirmação antes de preparar o primeiro Desarme físico da bancada
+- [x] Manter Arme, Arme STAY, Isolar Zona e PGM Vetti bloqueados; o Desarme 0x43 continua exclusivo da bancada e pendente de homologação unitária
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
 - [ ] Confirmar a revisão Vetti instalada na VPS e descartar a solicitação antiga que ficou em sent antes de criar nova consulta pós-login
@@ -696,6 +700,10 @@
 - [ ] Validar em bancada a simulação auditável sem transmitir MicroBus à central
 - [ ] Confirmar com a Compatec ou por captura controlada a porta, rota e resposta MicroBus da central de bancada
 - [ ] Homologar em bancada, um por vez, consulta de estado, arme, desarme, isolamento/restauração e PGM
+- [x] Impedir mais de uma sequência VSec física ativa ou aguardando para a bancada Vetti 0336
+- [x] Tratar fragmentação e agregação TCP de quadros VSec antes de consumir respostas 0x91, 0x94 ou 0xC3
+- [x] Converter em falha auditável as perdas de sessão, de identidade, de modo bancada ou de transmissão durante um fluxo VSec em andamento
+- [ ] Cobrir com testes o ciclo Vetti completo 0x91 → 0x94 prévio armado → 0xC3/0x80 → 0x94 posterior, inclusive bloqueios e recusas
 
 ## Responsividade da Interface
 - [ ] Mapear os pontos de quebra do Dashboard, cadastros, relatórios e navegação em telas de 1440 px, 1024 px, 768 px e 375 px

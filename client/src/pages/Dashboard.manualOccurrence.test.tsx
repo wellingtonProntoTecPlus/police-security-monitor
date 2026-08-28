@@ -60,6 +60,7 @@ vi.mock("@/lib/trpc", () => ({
       simulate: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
       queryVettiBenchStatus: { useMutation: () => standardMutation },
+      disarmVettiBench: { useMutation: () => standardMutation },
       queryBenchSectors: { useMutation: () => standardMutation },
       disarmBenchAll: { useMutation: () => standardMutation },
     },

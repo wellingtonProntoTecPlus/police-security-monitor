@@ -33,8 +33,8 @@ O manual exibe, para os comandos analisados, uma resposta da central com o códi
 |---|---|---|---|
 | `0x32` | Arme de múltiplas partições | mapa de bits das partições + usuário | Exemplo do manual usa `0x14` para partições 3 e 5 |
 | `0x33` | Desarme de múltiplas partições | mapa de bits das partições + usuário | Mesmo modelo de máscara binária do `0x32` |
-| `0x42` | Arme de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | A senha aceita 4 a 8 dígitos, codificados em bytes decimais `0..9` |
-| `0x43` | Desarme de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | Estrutura paralela ao `0x42` |
+| `0x42` | Arme de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | A senha aceita 4 a 8 dígitos; o campo reserva quatro bytes BCD, com `0xFF` como preenchimento quando necessário |
+| `0x43` | Desarme de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | Estrutura paralela ao `0x42`: `NB=0x09`, máscara `0x01..0x3F`, quatro bytes da senha BCD e CRC |
 | `0x44` | Arme STAY de múltiplas partições com senha do usuário | mapa de partições + senha decimal do usuário | Permite modo parcial explícito |
 | `0x16` | Controle da sirene | ação `0x00` off / `0x01` on | O manual informa tempo máximo de 240 segundos ligada e restrição em disparo/pânico |
 | `0x17` | Controle de PGM | ação + número da PGM | Ações previstas: `0x00` off, `0x01` on, `0x02` toggle, `0x03` pulso, `0x04` pré-definido VettiConfig |
@@ -79,6 +79,24 @@ O fluxo físico obrigatório para a bancada passa a ser:
 5. a resposta `0x94` só é aceita como status quando o campo de erro for `0x80`; qualquer outro código é registrado como falha auditável.
 
 Até a nova leitura com essa sequência, Arme, Desarme, Zona e PGM físicos Vetti permanecem bloqueados. A credencial de comando do usuário e a senha de acesso externo nunca devem aparecer em quadros de histórico, logs ou na interface.
+
+### Status completo confirmado após login remoto
+
+Na sequência corrigida — login remoto `0x11` confirmado e consulta `0x14` enviada dentro da sessão válida — a central de bancada respondeu:
+
+```text
+02 0C AF 94 80 12 01 01 00 00 01 FF 57
+```
+
+O usuário confirmou que a central estava **ARMADA TOTAL** nesse instante. A decodificação verificada é: erro `0x80` (sucesso), modelo `0x12` (SmartAlarm Monitorada), `CTN=0x01` (central armada), `PAR=0x01` (Partição 1 armada), `PGM=0x00` (PGMs 1 a 8 desligadas), `STY=0x00` (Partição 1 sem STAY) e `USO=0x01` (Partição 1 em uso). Esse quadro passa a ser a pré-condição auditável para qualquer futuro teste físico de Desarme Vetti na bancada.
+
+### Preparação do Desarme físico VSec 0x43 — pendente de homologação
+
+O Police Central está preparado para uma única sequência de **Desarme VSec `0x43`**, exclusivamente para a central de bancada `0336`, MAC final `2DE4A8`, firmware `6.68` e com o modo de bancada VSec explicitamente ativo. A implementação não habilita Arme, Arme STAY, Zona ou PGM físicos.
+
+A sequência preparada exige: conexão autenticada da própria central; login remoto `0x11` com retorno `0x91/0x80`; pré-consulta completa `0x14/0x94/0x80` que comprove `CTN` armado e máscara `PAR` não nula; envio do `0x43` com a máscara lida e a senha do usuário de comando mantida somente em memória; retorno `0xC3/0x80` com a mesma máscara e os quatro bytes de credencial refletidos; e consulta posterior `0x14`. O resultado só fica como `responded` se o pós-estado comprovar central desarmada e ausência das partições que estavam armadas antes. Os três retornos são gravados como auditoria sem expor qualquer senha.
+
+O transporte VSec agora também valida comprimento e CRC de cada resposta, separa frames TCP fracionados ou agregados, impõe no máximo uma sequência VSec ativa para a bancada e encerra como `failed` as perdas de sessão, divergências de confirmação ou ausência de resposta em até 12 segundos. Esses controles foram validados automaticamente; **não houve teste físico do `0x43` e ele não pode ser considerado homologado**.
 
 ## Referência
 

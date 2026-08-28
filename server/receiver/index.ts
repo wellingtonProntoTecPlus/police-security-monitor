@@ -16,7 +16,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
-import { consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
+import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, extractVettiFrames, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 
 // Configuração dos receptores por marca/porta
@@ -232,15 +232,68 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
 
 // Driver Vetti
 const vettiLoginIdentityBySocket = new WeakMap<object, VettiLoginIdentity>();
+const vettiPendingBytesBySocket = new WeakMap<object, Buffer>();
+const vettiCommandTimeoutsBySocket = new WeakMap<object, Map<number, ReturnType<typeof setTimeout>>>();
+const vettiTimeoutBoundSockets = new WeakSet<object>();
+const VETTI_RESPONSE_TIMEOUT_MS = 12_000;
 
-async function deliverPendingVettiBenchStatusQuery(system: { id: number; account: string }) {
+function clearVettiCommandTimeout(socket: net.Socket, commandId: number) {
+  const timers = vettiCommandTimeoutsBySocket.get(socket);
+  const timer = timers?.get(commandId);
+  if (timer) clearTimeout(timer);
+  timers?.delete(commandId);
+}
+
+function scheduleVettiCommandTimeout(socket: net.Socket, commandId: number, stage: string) {
+  clearVettiCommandTimeout(socket, commandId);
+  const timers = vettiCommandTimeoutsBySocket.get(socket) || new Map<number, ReturnType<typeof setTimeout>>();
+  vettiCommandTimeoutsBySocket.set(socket, timers);
+  timers.set(commandId, setTimeout(() => {
+    clearVettiCommandTimeout(socket, commandId);
+    clearPendingVettiBenchCommand(socket, commandId);
+    void updateAlarmRemoteCommandDelivery(commandId, {
+      status: "failed",
+      responsePayload: `Fluxo VSec expirado: não houve resposta da central em até 12 segundos durante ${stage}.`,
+      executedAt: new Date(),
+    });
+    console.warn(`[VSEC] VETTI tempo esgotado | comando ${commandId} | etapa ${stage}`);
+  }, VETTI_RESPONSE_TIMEOUT_MS));
+}
+
+function bindVettiTimeoutCleanup(socket: net.Socket) {
+  if (vettiTimeoutBoundSockets.has(socket)) return;
+  vettiTimeoutBoundSockets.add(socket);
+  socket.once("close", () => {
+    const timers = vettiCommandTimeoutsBySocket.get(socket);
+    if (timers) {
+      for (const commandId of Array.from(timers.keys())) {
+        clearVettiCommandTimeout(socket, commandId);
+        clearPendingVettiBenchCommand(socket, commandId);
+        void updateAlarmRemoteCommandDelivery(commandId, {
+          status: "failed",
+          responsePayload: "Fluxo VSec interrompido: a conexão autenticada da central foi encerrada antes da resposta esperada.",
+          executedAt: new Date(),
+        });
+      }
+    }
+    vettiPendingBytesBySocket.delete(socket);
+  });
+}
+
+function parseVettiStatusResponse(data: string) {
+  const bytes = Buffer.from(data, "hex");
+  if (bytes.length < 13 || bytes[0] !== 0x02 || bytes[2] !== 0xAF || bytes[3] !== 0x94 || bytes[4] !== 0x80) return undefined;
+  return { centralStatus: bytes[6], partitionMask: bytes[7] };
+}
+
+async function deliverPendingVettiBenchStatusQuery(system: { id: number; account: string }, socket: net.Socket) {
   const pendingQuery = await getPendingVettiBenchStatusQuery(system.id);
   if (!pendingQuery) return;
   const externalAccessPassword = await getAlarmRemoteCredentialForTransport(system.id, "vetti_installer");
   if (!externalAccessPassword) {
     await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
       status: "failed",
-      responsePayload: "Consulta VSec bloqueada: cadastre a Senha de Instalador Vetti (acesso externo) antes de transmitir o login remoto 0x11.",
+      responsePayload: "Fluxo VSec bloqueado: cadastre a Senha de Instalador Vetti (acesso externo) antes de transmitir o login remoto 0x11.",
       executedAt: new Date(),
     });
     console.warn(`[VSEC] VETTI consulta bloqueada sem credencial de acesso externo | comando ${pendingQuery.id} | Conta ${system.account}`);
@@ -248,7 +301,12 @@ async function deliverPendingVettiBenchStatusQuery(system: { id: number; account
   }
   let dispatched;
   try {
-    dispatched = sendVettiBenchRemoteLogin({ alarmSystemId: system.id, commandId: pendingQuery.id, externalAccessPassword });
+    dispatched = sendVettiBenchRemoteLogin({
+      alarmSystemId: system.id,
+      commandId: pendingQuery.id,
+      externalAccessPassword,
+      flow: pendingQuery.commandType === "disarm" ? "disarm" : "status",
+    });
   } catch (error) {
     await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
       status: "failed",
@@ -257,19 +315,31 @@ async function deliverPendingVettiBenchStatusQuery(system: { id: number; account
     });
     return;
   }
-  if (!dispatched.sent) return;
+  if (!dispatched.sent) {
+    await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
+      status: "failed",
+      responsePayload: dispatched.message,
+      executedAt: new Date(),
+    });
+    return;
+  }
   await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
     status: "sent",
-    responsePayload: "Login remoto VSec 0x11 enviado após o ACK da central; aguardando confirmação 0x91 antes da consulta 0x14.",
+    responsePayload: pendingQuery.commandType === "disarm"
+      ? "Login remoto VSec 0x11 enviado; aguardando confirmação 0x91 antes da consulta prévia 0x14 e do Desarme 0x43."
+      : "Login remoto VSec 0x11 enviado após o ACK da central; aguardando confirmação 0x91 antes da consulta 0x14.",
     executedAt: new Date(),
   });
+  scheduleVettiCommandTimeout(socket, pendingQuery.id, "a confirmação do login remoto 0x91");
   console.log(`[VSEC] VETTI login remoto enviado após ACK da central | comando ${pendingQuery.id} | Conta ${system.account}`);
 }
 
-async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
+async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) {
   if (!Buffer.isBuffer(data) || data.length === 0) return;
+  bindVettiTimeoutCleanup(socket);
   const completedRemoteLogin = consumeVettiBenchRemoteLoginResponse(socket, data);
   if (completedRemoteLogin) {
+    clearVettiCommandTimeout(socket, completedRemoteLogin.commandId);
     if (!completedRemoteLogin.accepted) {
       await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
         status: "failed",
@@ -280,31 +350,174 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
       return;
     }
     const knownSystem = identifiedSystemBySocket.get(socket);
-    if (!knownSystem) return;
+    if (!knownSystem) {
+      await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
+        status: "failed",
+        responsePayload: "Fluxo VSec bloqueado: a sessão autenticada não possui identidade de central confirmada.",
+        executedAt: new Date(),
+      });
+      return;
+    }
     // A sessão guarda somente identidade mínima para o receptor. Releia o
     // sistema antes do 0x14 para preservar MAC e modo de bancada na decisão
     // crítica, inclusive se a bancada tiver sido desativada durante o login.
     const currentSystem = await getAlarmSystem(knownSystem.id);
-    if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem)) return;
-    const dispatchedStatus = sendVettiBenchStatusQuery({ alarmSystemId: currentSystem.id, commandId: completedRemoteLogin.commandId });
-    if (!dispatchedStatus.sent) return;
+    if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem)) {
+      await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
+        status: "failed",
+        responsePayload: "Fluxo VSec bloqueado: a central deixou de atender à identificação física e ao modo de bancada durante o login remoto.",
+        executedAt: new Date(),
+      });
+      return;
+    }
+    const dispatchedStatus = sendVettiBenchStatusQuery({
+      alarmSystemId: currentSystem.id,
+      commandId: completedRemoteLogin.commandId,
+      flow: completedRemoteLogin.flow,
+      stage: completedRemoteLogin.flow === "disarm" ? "pre_disarm" : "standalone",
+    });
+    if (!dispatchedStatus.sent) {
+      await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
+        status: "failed",
+        responsePayload: dispatchedStatus.message,
+        executedAt: new Date(),
+      });
+      return;
+    }
     await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
       status: "sent",
-      responsePayload: "Login remoto VSec 0x11 confirmado (0x91); consulta 0x14 enviada e aguardando resposta 0x94.",
+      responsePayload: completedRemoteLogin.flow === "disarm"
+        ? "Login remoto VSec 0x11 confirmado (0x91); consulta prévia 0x14 enviada para validar o Desarme 0x43."
+        : "Login remoto VSec 0x11 confirmado (0x91); consulta 0x14 enviada e aguardando resposta 0x94.",
       executedAt: new Date(),
     });
+    scheduleVettiCommandTimeout(socket, completedRemoteLogin.commandId, "a resposta de status 0x94");
     console.log(`[VSEC] VETTI login remoto confirmado; consulta 0x14 enviada | comando ${completedRemoteLogin.commandId} | Conta ${currentSystem.account}`);
     return;
   }
   const completedStatusQuery = consumeVettiBenchStatusResponse(socket, data);
   if (completedStatusQuery) {
+    clearVettiCommandTimeout(socket, completedStatusQuery.commandId);
     const accepted = completedStatusQuery.errorCode === 0x80;
+    if (accepted && completedStatusQuery.flow === "disarm" && completedStatusQuery.stage === "pre_disarm") {
+      const knownSystem = identifiedSystemBySocket.get(socket);
+      const currentSystem = knownSystem ? await getAlarmSystem(knownSystem.id) : undefined;
+      const state = parseVettiStatusResponse(completedStatusQuery.response);
+      if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem) || !state || (state.centralStatus & 0x01) === 0 || state.partitionMask === 0) {
+        await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
+          status: "failed",
+          responsePayload: `Desarme VSec bloqueado: a consulta prévia 0x14 não confirmou partições armadas (${completedStatusQuery.response}).`,
+          executedAt: new Date(),
+        });
+        console.warn(`[VSEC] VETTI Desarme bloqueado por estado prévio inválido | comando ${completedStatusQuery.commandId}`);
+        return;
+      }
+      const commandPassword = await getAlarmRemoteCredentialForTransport(currentSystem.id, "vetti_command_user");
+      if (!commandPassword) {
+        await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
+          status: "failed",
+          responsePayload: "Desarme VSec bloqueado: cadastre a Senha do Usuário de Comando Vetti antes de transmitir o quadro 0x43.",
+          executedAt: new Date(),
+        });
+        return;
+      }
+      try {
+        const dispatchedDisarm = sendVettiBenchDisarm({
+          alarmSystemId: currentSystem.id,
+          commandId: completedStatusQuery.commandId,
+          partitionMask: state.partitionMask,
+          commandPassword,
+          preStatusResponse: completedStatusQuery.response,
+        });
+        if (!dispatchedDisarm.sent) {
+          await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
+            status: "failed",
+            responsePayload: dispatchedDisarm.message,
+            executedAt: new Date(),
+          });
+          return;
+        }
+        await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
+          status: "sent",
+          responsePayload: `Consulta prévia 0x14 confirmou central armada (partições 0x${state.partitionMask.toString(16).toUpperCase().padStart(2, "0")}); Desarme VSec 0x43 enviado e aguardando confirmação 0xC3.`,
+          executedAt: new Date(),
+        });
+        scheduleVettiCommandTimeout(socket, completedStatusQuery.commandId, "a confirmação do Desarme 0xC3");
+        console.log(`[VSEC] VETTI Desarme 0x43 enviado após status prévio | comando ${completedStatusQuery.commandId} | Conta ${currentSystem.account}`);
+      } catch (error) {
+        await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
+          status: "failed",
+          responsePayload: `Desarme VSec bloqueado: ${error instanceof Error ? error.message : "senha de comando inválida"}`,
+          executedAt: new Date(),
+        });
+      }
+      return;
+    }
+    const isDisarmPostCheck = completedStatusQuery.flow === "disarm" && completedStatusQuery.stage === "post_disarm";
+    const preState = isDisarmPostCheck && completedStatusQuery.preStatusResponse ? parseVettiStatusResponse(completedStatusQuery.preStatusResponse) : undefined;
+    const postState = isDisarmPostCheck ? parseVettiStatusResponse(completedStatusQuery.response) : undefined;
+    const disarmVerified = !isDisarmPostCheck || Boolean(
+      accepted && preState && postState && (postState.centralStatus & 0x01) === 0 && (postState.partitionMask & preState.partitionMask) === 0,
+    );
     await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
-      status: accepted ? "responded" : "failed",
-      responsePayload: completedStatusQuery.response,
+      status: accepted && disarmVerified ? "responded" : "failed",
+      responsePayload: isDisarmPostCheck
+        ? `Status prévio: ${completedStatusQuery.preStatusResponse}; Desarme 0x43: ${completedStatusQuery.disarmResponse}; status posterior 0x14: ${completedStatusQuery.response}${disarmVerified ? "" : "; Desarme não confirmado pelo estado posterior."}`
+        : completedStatusQuery.response,
       executedAt: new Date(),
     });
-    console.log(`[VSEC] VETTI consulta de status ${accepted ? "confirmada" : "recusada"} pela central | comando ${completedStatusQuery.commandId} | ${completedStatusQuery.response}`);
+    console.log(`[VSEC] VETTI consulta de status ${accepted && disarmVerified ? "confirmada" : "recusada"} pela central | comando ${completedStatusQuery.commandId} | ${completedStatusQuery.response}`);
+    return;
+  }
+  const completedDisarm = consumeVettiBenchDisarmResponse(socket, data);
+  if (completedDisarm) {
+    clearVettiCommandTimeout(socket, completedDisarm.commandId);
+    if (!completedDisarm.accepted || !completedDisarm.partitionMaskMatches || !completedDisarm.commandPasswordMatches) {
+      await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
+        status: "failed",
+        responsePayload: !completedDisarm.accepted
+          ? `Desarme VSec 0x43 recusado pela central: erro 0x${completedDisarm.errorCode.toString(16).toUpperCase().padStart(2, "0")} (${completedDisarm.response}).`
+          : !completedDisarm.partitionMaskMatches
+            ? `Desarme VSec 0x43 bloqueado: a máscara confirmada pela central (0x${completedDisarm.partitionMask.toString(16).toUpperCase().padStart(2, "0")}) diverge da máscara enviada.`
+            : "Desarme VSec 0x43 bloqueado: a confirmação não reflete a credencial de comando enviada.",
+        executedAt: new Date(),
+      });
+      console.warn(`[VSEC] VETTI Desarme 0x43 recusado | comando ${completedDisarm.commandId}`);
+      return;
+    }
+    const knownSystem = identifiedSystemBySocket.get(socket);
+    const currentSystem = knownSystem ? await getAlarmSystem(knownSystem.id) : undefined;
+    if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem)) {
+      await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
+        status: "failed",
+        responsePayload: "Fluxo VSec bloqueado: a central deixou de atender à identificação física e ao modo de bancada antes da validação posterior.",
+        executedAt: new Date(),
+      });
+      return;
+    }
+    const dispatchedStatus = sendVettiBenchStatusQuery({
+      alarmSystemId: currentSystem.id,
+      commandId: completedDisarm.commandId,
+      flow: "disarm",
+      stage: "post_disarm",
+      preStatusResponse: completedDisarm.preStatusResponse,
+      disarmResponse: completedDisarm.response,
+    });
+    if (!dispatchedStatus.sent) {
+      await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
+        status: "failed",
+        responsePayload: dispatchedStatus.message,
+        executedAt: new Date(),
+      });
+      return;
+    }
+    await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
+      status: "sent",
+      responsePayload: "Desarme VSec 0x43 confirmado (0xC3); consulta posterior 0x14 enviada para validar o novo estado.",
+      executedAt: new Date(),
+    });
+    scheduleVettiCommandTimeout(socket, completedDisarm.commandId, "a consulta posterior de status 0x94");
+    console.log(`[VSEC] VETTI Desarme 0x43 confirmado; consulta posterior enviada | comando ${completedDisarm.commandId} | Conta ${currentSystem.account}`);
     return;
   }
   if (isVettiKeepAliveFrame(data)) {
@@ -331,7 +544,7 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
           console.log(`[RECIP] VETTI login | Conta ${loginIdentity.account} | MAC ${loginIdentity.macSuffix}`);
         }
         socket.write(Buffer.from([0x02, 0x04, 0xC0, 0x80, 0xCF]));
-        if (confirmedBenchSystem) await deliverPendingVettiBenchStatusQuery(confirmedBenchSystem);
+        if (confirmedBenchSystem) await deliverPendingVettiBenchStatusQuery(confirmedBenchSystem, socket);
       }
       break;
     case 0xC2: // LOGIN 2
@@ -367,6 +580,15 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
       socket.write(Buffer.from([0x02, 0x04, 0xC1, 0x80, 0xDA]));
       break;
     }
+  }
+}
+
+async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
+  const pending = vettiPendingBytesBySocket.get(socket) || Buffer.alloc(0);
+  const { frames, remainder } = extractVettiFrames(Buffer.concat([pending, data]));
+  vettiPendingBytesBySocket.set(socket, remainder);
+  for (const frame of frames) {
+    await handleVettiFrame(socket, frame, port);
   }
 }
 

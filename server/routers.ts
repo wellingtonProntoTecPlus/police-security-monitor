@@ -767,14 +767,43 @@ export const appRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "A consulta VSec real está habilitada somente para a central Vetti de testes conta 0336, MAC 2DE4A8 e modo de bancada ativo" });
       }
       const payload = "02 05 AF 14 FF B1";
-      const created = await db.createAlarmRemoteCommand({
+      const reservation = await db.createExclusiveVettiBenchCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "VETTI", commandType: "query_status", transportMode: "vsec_bench", status: "queued",
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Vetti de testes.", executedAt: null,
       });
+      if (!reservation.created) {
+        throw new TRPCError({ code: "CONFLICT", message: `Já existe uma sequência VSec de bancada em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outra.` });
+      }
+      const created = { id: reservation.id };
       await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: "Consulta VSec 0x14 aguardando o próximo login autenticado da central." });
       return { ...created, status: "waiting_connection" as const, message: "Consulta VSec aguardando o próximo login autenticado da central." };
+    }),
+    disarmVettiBench: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      incidentId: z.number().optional(),
+      reason: z.string().trim().min(5, "Informe o motivo operacional do Desarme").max(2000),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+      if (!isConfirmedVettiBenchSystem(system) || system.account !== "0336") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme VSec físico está habilitado somente para a central Vetti de testes conta 0336, MAC 2DE4A8 e modo de bancada ativo" });
+      }
+      const reservation = await db.createExclusiveVettiBenchCommand({
+        alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
+        brand: "VETTI", commandType: "disarm", transportMode: "vsec_bench", status: "queued",
+        partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
+        commandPayload: "02 <NB> AF 43 <MÁSCARA_DE_PARTIÇÕES_LIDA_EM_0x14> <SENHA_DE_COMANDO_CIFRADA> FF <CRC>",
+        responsePayload: "Aguardando o próximo login autenticado da central Vetti de testes para validar o estado antes do Desarme.", executedAt: null,
+      });
+      if (!reservation.created) {
+        throw new TRPCError({ code: "CONFLICT", message: `Já existe uma sequência VSec de bancada em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outra.` });
+      }
+      const created = { id: reservation.id };
+      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: "Desarme VSec aguardando login, consulta prévia de estado e confirmação da central." });
+      return { ...created, status: "waiting_connection" as const, message: "Desarme VSec aguardando o próximo login autenticado da central; o estado será validado antes do envio." };
     }),
     // Operadores de monitoramento podem consultar e comandar exclusivamente a bancada
     // identificada; o bloqueio físico por MAC e modo de laboratório permanece abaixo.

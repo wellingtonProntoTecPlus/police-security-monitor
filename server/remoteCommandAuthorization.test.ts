@@ -17,13 +17,15 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(source).not.toContain("disarmBenchAll: adminProcedure");
   });
 
-  it("expõe somente a consulta Vetti de status para o operador e preserva a trava de bancada", () => {
+  it("expõe somente consulta e Desarme Vetti para o operador e preserva a trava de bancada", () => {
     expect(source).toContain("queryVettiBenchStatus: operatorProcedure");
+    expect(source).toContain("disarmVettiBench: operatorProcedure");
     expect(source).toContain("isConfirmedVettiBenchSystem(system)");
     expect(source).toContain('system.account !== "0336"');
     expect(source).toContain("MAC 2DE4A8");
-    expect(source).not.toContain("armVettiBench");
-    expect(source).not.toContain("disarmVettiBench");
+    expect(source).toContain("createExclusiveVettiBenchCommand");
+    expect(source).not.toMatch(/(^|\n)\s*armVettiBench:\s*operatorProcedure/);
+    expect(source).toContain('commandType: "disarm", transportMode: "vsec_bench"');
   });
 
   it("permite ao operador ativar o modo de bancada somente para os MACs físicos homologados", () => {
@@ -36,6 +38,6 @@ describe("autorização dos comandos MicroBus de bancada", () => {
   it("aguarda o próximo login Vetti e só envia a consulta depois do ACK", () => {
     expect(source).toContain('status: "waiting_connection"');
     expect(source).not.toContain("sendVettiBenchStatusQuery");
-    expect(receiverSource.indexOf("socket.write(Buffer.from([0x02, 0x04, 0xC0, 0x80, 0xCF]))")).toBeLessThan(receiverSource.indexOf("deliverPendingVettiBenchStatusQuery(confirmedBenchSystem)"));
+    expect(receiverSource.indexOf("socket.write(Buffer.from([0x02, 0x04, 0xC0, 0x80, 0xCF]))")).toBeLessThan(receiverSource.indexOf("deliverPendingVettiBenchStatusQuery(confirmedBenchSystem, socket)"));
   });
 });
