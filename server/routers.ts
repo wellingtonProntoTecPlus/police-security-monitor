@@ -10,7 +10,7 @@ import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
-import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
 import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
@@ -458,10 +458,12 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.clearAlarmRemoteCredential(input);
     }),
-    setRemoteCommandLaboratory: adminProcedure.input(z.object({ alarmSystemId: z.number(), enabled: z.boolean() })).mutation(async ({ input, ctx }) => {
+    setRemoteCommandLaboratory: operatorProcedure.input(z.object({ alarmSystemId: z.number(), enabled: z.boolean() })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getAlarmSystem(input.alarmSystemId);
-      if (!system || system.brand !== "COMPATEC") throw new TRPCError({ code: "BAD_REQUEST", message: "O modo de bancada é exclusivo para a Compatec nesta etapa" });
+      if (!system || !isKnownRemoteCommandBenchSystem(system)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O modo de bancada é exclusivo para as centrais físicas de testes identificadas por MAC" });
+      }
       return db.setAlarmSystemRemoteCommandLabEnabled(input.alarmSystemId, input.enabled);
     }),
   }),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
   it("libera a consulta física inicial somente para o MAC da bancada habilitada", () => {
@@ -13,6 +13,13 @@ describe("contrato de comandos remotos Compatec", () => {
     expect(isConfirmedVettiBenchSystem({ brand: "VETTI", macAddress: "FC0FE72DE4A8", remoteCommandLabEnabled: false })).toBe(false);
     expect(isConfirmedVettiBenchSystem({ brand: "VETTI", macAddress: "FC0FE7123456", remoteCommandLabEnabled: true })).toBe(false);
     expect(isConfirmedVettiBenchSystem({ brand: "COMPATEC", macAddress: "FC0FE72DE4A8", remoteCommandLabEnabled: true })).toBe(false);
+  });
+
+  it("reconhece somente os dois MACs físicos que podem ter modo de bancada ativado", () => {
+    expect(isKnownRemoteCommandBenchSystem({ brand: "COMPATEC", macAddress: "F024F9C1BDCB" })).toBe(true);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "VETTI", macAddress: "2DE4A8" })).toBe(true);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "VETTI", macAddress: "AABBCC" })).toBe(false);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "JFL", macAddress: "2DE4A8" })).toBe(false);
   });
 
   it("exige o alvo operacional para isolamento, restauração e PGM", () => {

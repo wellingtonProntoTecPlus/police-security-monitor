@@ -26,6 +26,13 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(source).not.toContain("disarmVettiBench");
   });
 
+  it("permite ao operador ativar o modo de bancada somente para os MACs físicos homologados", () => {
+    const laboratoryRoute = source.slice(source.indexOf("setRemoteCommandLaboratory:"), source.indexOf("  }),\n\n  // ============================================================\n  // ALARM ZONES"));
+    expect(source).toContain("setRemoteCommandLaboratory: operatorProcedure");
+    expect(laboratoryRoute).toContain("isKnownRemoteCommandBenchSystem(system)");
+    expect(laboratoryRoute).not.toContain('system.brand !== "COMPATEC"');
+  });
+
   it("aguarda o próximo login Vetti e só envia a consulta depois do ACK", () => {
     expect(source).toContain('status: "waiting_connection"');
     expect(source).not.toContain("sendVettiBenchStatusQuery");

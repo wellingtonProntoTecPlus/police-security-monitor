@@ -55,10 +55,13 @@ export function validateRemoteCommandTarget(input: { commandType: RemoteCommandT
   return undefined;
 }
 
-export function isConfirmedCompatecBenchSystem(system: { brand?: string | null; macAddress?: string | null; remoteCommandLabEnabled?: boolean | null }) {
+export function isKnownCompatecBenchSystem(system: { brand?: string | null; macAddress?: string | null }) {
   return system.brand === "COMPATEC"
-    && Boolean(system.remoteCommandLabEnabled)
     && (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().endsWith(COMPATEC_BENCH_MAC_SUFFIX);
+}
+
+export function isConfirmedCompatecBenchSystem(system: { brand?: string | null; macAddress?: string | null; remoteCommandLabEnabled?: boolean | null }) {
+  return Boolean(system.remoteCommandLabEnabled) && isKnownCompatecBenchSystem(system);
 }
 
 /**
@@ -66,10 +69,18 @@ export function isConfirmedCompatecBenchSystem(system: { brand?: string | null; 
  * identificado pelo MAC confirmado FC-0F-E7-2D-E4-A8. A conta não é usada
  * como identidade de segurança, evitando qualquer associação por conta.
  */
-export function isConfirmedVettiBenchSystem(system: { brand?: string | null; macAddress?: string | null; remoteCommandLabEnabled?: boolean | null }) {
+export function isKnownVettiBenchSystem(system: { brand?: string | null; macAddress?: string | null }) {
   return system.brand === "VETTI"
-    && Boolean(system.remoteCommandLabEnabled)
     && (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().endsWith(VETTI_BENCH_MAC_SUFFIX);
+}
+
+export function isConfirmedVettiBenchSystem(system: { brand?: string | null; macAddress?: string | null; remoteCommandLabEnabled?: boolean | null }) {
+  return Boolean(system.remoteCommandLabEnabled) && isKnownVettiBenchSystem(system);
+}
+
+/** Um modo de bancada só pode ser ativado nos dois painéis físicos homologados. */
+export function isKnownRemoteCommandBenchSystem(system: { brand?: string | null; macAddress?: string | null }) {
+  return isKnownCompatecBenchSystem(system) || isKnownVettiBenchSystem(system);
 }
 
 export function buildCompatecSimulationPayload(input: {
