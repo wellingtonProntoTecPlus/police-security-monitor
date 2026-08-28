@@ -220,9 +220,18 @@ export function consumeVettiBenchDisarmResponse(socket: net.Socket, data: Buffer
     partitionMask: data[4],
     partitionMaskMatches: data[4] === pending.partitionMask,
     commandPasswordMatches: data.subarray(6, 10).every((value, index) => value === pending.commandPasswordBytes[index]),
-    response: data.toString("hex").toUpperCase(),
+    response: formatVettiDisarmResponseForAudit(data),
     preStatusResponse: pending.preStatusResponse,
   };
+}
+
+/** A confirmação 0xC3 reflete a senha; preserve somente seus campos não sensíveis na auditoria. */
+export function formatVettiDisarmResponseForAudit(data: Buffer) {
+  const response = data.toString("hex").toUpperCase();
+  if (data.length >= 11 && data[0] === 0x02 && data[2] === 0xAF && data[3] === 0xC3) {
+    return `${response.slice(0, 12)}<SENHA_DE_COMANDO_OCULTA>${response.slice(20)}`;
+  }
+  return response;
 }
 
 /** Descarta estados de uma sequência expirada, encerrada ou invalidada no receptor. */

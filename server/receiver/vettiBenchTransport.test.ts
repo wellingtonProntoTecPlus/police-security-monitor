@@ -84,9 +84,12 @@ describe("transporte VSec da bancada Vetti", () => {
       sent: true, payload: "02 09 AF 43 01 <SENHA_DE_COMANDO_CIFRADA_PREENCHIDA_COM_FF> <CRC>", account: "0336",
     });
     expect(socket.writes.at(-1)).toEqual(frame);
-    expect(consumeVettiBenchDisarmResponse(socket, vettiResponse([0x0A, 0xAF, 0xC3, 0x01, 0x80, 0x12, 0x34, 0x56, 0xFF]))).toMatchObject({
+    const confirmation = consumeVettiBenchDisarmResponse(socket, vettiResponse([0x0A, 0xAF, 0xC3, 0x01, 0x80, 0x12, 0x34, 0x56, 0xFF]));
+    expect(confirmation).toMatchObject({
       commandId: 95, accepted: true, errorCode: 0x80, partitionMask: 0x01, partitionMaskMatches: true, commandPasswordMatches: true, preStatusResponse: "020CAF9480120101000001FF57",
     });
+    expect(confirmation?.response).toMatch(/^020AAFC30180<SENHA_DE_COMANDO_OCULTA>[0-9A-F]{2}$/);
+    expect(confirmation?.response).not.toContain("123456");
   });
 
   it("recusa confirmação 0xC3 com máscara divergente e quadros com CRC inválido", () => {

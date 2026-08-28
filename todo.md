@@ -586,6 +586,7 @@
 ## Comandos Operacionais Remotos
 - [x] Preparar o Desarme Vetti 0x43 somente para a central de testes 0336/MAC 2DE4A8 após login e consulta de status bem-sucedidos; homologação física ainda pendente
 - [x] Exigir confirmação Vetti 0xC3/0x80 e consulta posterior antes de registrar o Desarme como confirmado; homologação física ainda exige teste controlado
+- [x] Mascarar os bytes de senha refletidos no retorno Vetti 0xC3 antes de qualquer auditoria, log ou interface
 - [x] Definir a sequência Vetti de consulta de estado, login, comando e confirmação antes de preparar o primeiro Desarme físico da bancada
 - [x] Manter Arme, Arme STAY, Isolar Zona e PGM Vetti bloqueados; o Desarme 0x43 continua exclusivo da bancada e pendente de homologação unitária
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la

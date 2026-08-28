@@ -588,6 +588,19 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
   const { frames, remainder } = extractVettiFrames(Buffer.concat([pending, data]));
   vettiPendingBytesBySocket.set(socket, remainder);
   for (const frame of frames) {
+    if (isSafeCaptureEnabled("VETTI")) {
+      if (frame.length >= 4 && frame[0] === 0x02 && frame[2] === 0xAF && frame[3] === 0xC3) {
+        console.log(`[CAPTURA-IP] VETTI | porta ${port} | resposta 0xC3 recebida; campo de senha oculto`);
+      } else {
+        const captured = recordSafeCaptureFrame(socket, {
+          brand: "VETTI",
+          receiverPort: port,
+          remoteIp: socket.remoteAddress || "",
+          payload: frame,
+        });
+        if (captured) console.log(formatSafeCaptureLog(captured));
+      }
+    }
     await handleVettiFrame(socket, frame, port);
   }
 }
@@ -889,7 +902,7 @@ export function startReceivers() {
 
         socket.on('data', async (data) => {
           try {
-            if (isSafeCaptureEnabled(brand)) {
+            if (isSafeCaptureEnabled(brand) && brand !== 'VETTI') {
               const frame = recordSafeCaptureFrame(socket, {
                 brand,
                 receiverPort: port,
