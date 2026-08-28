@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmRemoteCredentialForTransport, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -16,7 +16,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
-import { consumeVettiBenchStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchStatusQuery } from './vettiBenchTransport';
+import { consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 
 // Configuração dos receptores por marca/porta
@@ -236,22 +236,71 @@ const vettiLoginIdentityBySocket = new WeakMap<object, VettiLoginIdentity>();
 async function deliverPendingVettiBenchStatusQuery(system: { id: number; account: string }) {
   const pendingQuery = await getPendingVettiBenchStatusQuery(system.id);
   if (!pendingQuery) return;
-  const dispatched = sendVettiBenchStatusQuery({ alarmSystemId: system.id, commandId: pendingQuery.id });
+  const externalAccessPassword = await getAlarmRemoteCredentialForTransport(system.id, "vetti_installer");
+  if (!externalAccessPassword) {
+    await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
+      status: "failed",
+      responsePayload: "Consulta VSec bloqueada: cadastre a Senha de Instalador Vetti (acesso externo) antes de transmitir o login remoto 0x11.",
+      executedAt: new Date(),
+    });
+    console.warn(`[VSEC] VETTI consulta bloqueada sem credencial de acesso externo | comando ${pendingQuery.id} | Conta ${system.account}`);
+    return;
+  }
+  let dispatched;
+  try {
+    dispatched = sendVettiBenchRemoteLogin({ alarmSystemId: system.id, commandId: pendingQuery.id, externalAccessPassword });
+  } catch (error) {
+    await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
+      status: "failed",
+      responsePayload: `Consulta VSec bloqueada: ${error instanceof Error ? error.message : "senha de acesso externo inválida"}`,
+      executedAt: new Date(),
+    });
+    return;
+  }
   if (!dispatched.sent) return;
   await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
     status: "sent",
-    responsePayload: "Consulta VSec 0x14 enviada após o ACK de login da central; aguardando resposta 0x94.",
+    responsePayload: "Login remoto VSec 0x11 enviado após o ACK da central; aguardando confirmação 0x91 antes da consulta 0x14.",
     executedAt: new Date(),
   });
-  console.log(`[VSEC] VETTI consulta pendente enviada após ACK de login | comando ${pendingQuery.id} | Conta ${system.account}`);
+  console.log(`[VSEC] VETTI login remoto enviado após ACK da central | comando ${pendingQuery.id} | Conta ${system.account}`);
 }
 
 async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
   if (!Buffer.isBuffer(data) || data.length === 0) return;
+  const completedRemoteLogin = consumeVettiBenchRemoteLoginResponse(socket, data);
+  if (completedRemoteLogin) {
+    if (!completedRemoteLogin.accepted) {
+      await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
+        status: "failed",
+        responsePayload: `Login remoto VSec 0x11 recusado pela central: erro 0x${completedRemoteLogin.errorCode.toString(16).toUpperCase().padStart(2, "0")} (${completedRemoteLogin.response}).`,
+        executedAt: new Date(),
+      });
+      console.warn(`[VSEC] VETTI login remoto recusado | comando ${completedRemoteLogin.commandId} | erro 0x${completedRemoteLogin.errorCode.toString(16).toUpperCase().padStart(2, "0")}`);
+      return;
+    }
+    const knownSystem = identifiedSystemBySocket.get(socket);
+    if (!knownSystem || !isConfirmedVettiBenchSystem(knownSystem)) return;
+    const dispatchedStatus = sendVettiBenchStatusQuery({ alarmSystemId: knownSystem.id, commandId: completedRemoteLogin.commandId });
+    if (!dispatchedStatus.sent) return;
+    await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
+      status: "sent",
+      responsePayload: "Login remoto VSec 0x11 confirmado (0x91); consulta 0x14 enviada e aguardando resposta 0x94.",
+      executedAt: new Date(),
+    });
+    console.log(`[VSEC] VETTI login remoto confirmado; consulta 0x14 enviada | comando ${completedRemoteLogin.commandId} | Conta ${knownSystem.account}`);
+    return;
+  }
   const completedStatusQuery = consumeVettiBenchStatusResponse(socket, data);
   if (completedStatusQuery) {
-    await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, { status: "responded", responsePayload: completedStatusQuery.response, executedAt: new Date() });
-    console.log(`[VSEC] VETTI consulta de status confirmada pela central | comando ${completedStatusQuery.commandId} | ${completedStatusQuery.response}`);
+    const accepted = completedStatusQuery.errorCode === 0x80;
+    await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
+      status: accepted ? "responded" : "failed",
+      responsePayload: completedStatusQuery.response,
+      executedAt: new Date(),
+    });
+    console.log(`[VSEC] VETTI consulta de status ${accepted ? "confirmada" : "recusada"} pela central | comando ${completedStatusQuery.commandId} | ${completedStatusQuery.response}`);
+    return;
   }
   if (isVettiKeepAliveFrame(data)) {
     await recordKeepAlive(socket, "VETTI", port, "0xF7");

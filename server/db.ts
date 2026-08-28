@@ -45,7 +45,7 @@ import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
 import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
-import { encryptRemoteCommandCredential } from "./remoteCommandCredentials";
+import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -831,6 +831,18 @@ export async function getAlarmRemoteCredentialStatus(alarmSystemId: number) {
   }).from(alarmRemoteCredentials).where(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId));
   const system = await getAlarmSystem(alarmSystemId);
   return { configured: credentials.length > 0, credentials, laboratoryEnabled: Boolean(system?.remoteCommandLabEnabled) };
+}
+
+/** Uso exclusivo do transporte físico homologado; o segredo decifrado jamais atravessa a API. */
+export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer") {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [credential] = await db.select({ encryptedSecret: alarmRemoteCredentials.encryptedSecret })
+    .from(alarmRemoteCredentials)
+    .where(and(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId), eq(alarmRemoteCredentials.credentialKind, credentialKind)))
+    .limit(1);
+  if (!credential?.encryptedSecret) return undefined;
+  return decryptRemoteCommandCredential(credential.encryptedSecret);
 }
 
 /** Apenas a API administrativa recebe o texto curto, cifra-o e persiste o resultado. */

@@ -64,6 +64,22 @@ Os comandos de pareamento (`0x40`), IR-Cloner (`0x41`), reset e sirene foram ide
 
 O `0x14` é a consulta obrigatória de pré-checagem. No campo de estado geral (`CTN`), o bit `0` indica se a central está armada; no campo `PAR`, cada bit de `0` a `5` representa a Partição 1 a 6; no campo `PGM`, os bits `0` a `7` representam PGM 1 a 8; e no campo `STY`, os bits `0` a `5` indicam se a respectiva partição armada está em STAY. Essa resposta fornece o estado que o Police Central deve registrar antes e depois de qualquer teste físico Vetti.
 
+## Homologação da bancada Vetti 0336 — 28/08/2026
+
+A central Vetti Smartalar32 de bancada, conta `0336` e MAC final `2DE4A8`, confirmou a entrega da consulta física depois do ACK de login da própria central. Em duas consultas, uma realizada com a central ARMADA STAY/PARCIAL e outra com a central DESARMADA, o retorno observado foi igual: `02 06 AF 94 85 FF 60`.
+
+Esse retorno curto **não é estado da central**. O byte `0x85` ocupa a posição de erro da resposta `0x94` e o protocolo o define como **Login Expirado. Necessário novo login**. Portanto, a implementação não pode classificar esse retorno como ARMADO, STAY ou DESARMADO, mesmo que o frame `0x94` tenha sido recebido.
+
+O fluxo físico obrigatório para a bancada passa a ser:
+
+1. a central abre e autentica a sessão na VPS (`0xC0`), que responde o ACK documentado;
+2. a VPS envia o login remoto `0x11` usando somente a senha de acesso externo cifrada no servidor;
+3. a central deve responder `0x91` com erro `0x80` para confirmar o login válido por 60 segundos;
+4. somente então a VPS envia a consulta de status `0x14`;
+5. a resposta `0x94` só é aceita como status quando o campo de erro for `0x80`; qualquer outro código é registrado como falha auditável.
+
+Até a nova leitura com essa sequência, Arme, Desarme, Zona e PGM físicos Vetti permanecem bloqueados. A credencial de comando do usuário e a senha de acesso externo nunca devem aparecer em quadros de histórico, logs ou na interface.
+
 ## Referência
 
 [1]: file:///home/ubuntu/upload/VETTI-ProtocolodecomunicacaoVSecRev13.pdf "VETTI — Protocolo de comunicação VSec Rev. 13"

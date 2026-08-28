@@ -584,12 +584,18 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
+- [x] Enviar o login remoto Vetti 0x11 com a credencial técnica cifrada antes da consulta física 0x14 da bancada
+- [x] Exigir a confirmação VSec 0x91 antes de enviar a consulta 0x14 e registrar a resposta 0x94 sem tratar 0x85 como estado
+- [x] Investigar por que a consulta Vetti 0x14 retornou 0206AF9485FF60 tanto em ARMADO STAY quanto em DESARMADO: o código 0x85 indica login expirado
+- [x] Impedir que a resposta Vetti curta 0x94/0x85 seja apresentada como estado confiável até a consulta ter login VSec válido
+- [x] Homologar a consulta física Vetti 0x14: fila pós-login, MAC 2DE4A8, auditoria e resposta real 0206AF945FF60
+- [ ] Decodificar e documentar o estado 5F devolvido pela resposta VSec 0x94 da central Vetti de testes
 - [x] Corrigir a ativação do modo de bancada VSec da Vetti 0336 que não persistiu após o clique do operador
-- [ ] Atualizar a VPS da revisão f088fa1 para a revisão a6a8af5 que exibe o Modo de bancada VSec da Vetti 0336
-- [ ] Conferir os valores persistidos de marca, conta e MAC da Vetti 0336 para alinhar a regra visual de Modo de bancada VSec
-- [ ] Corrigir a identificação visual da Vetti 0336 quando o cadastro contém o MAC abreviado 2DE4A8, para exibir o Modo de bancada VSec
+- [x] Atualizar a VPS da revisão f088fa1 para a revisão a6a8af5 que exibe o Modo de bancada VSec da Vetti 0336
+- [x] Conferir os valores persistidos de marca, conta e MAC da Vetti 0336 para alinhar a regra visual de Modo de bancada VSec
+- [x] Corrigir a identificação visual da Vetti 0336 quando o cadastro contém o MAC abreviado 2DE4A8, para exibir o Modo de bancada VSec
 - [x] Exibir no cadastro da Vetti 0336 o controle de ativação do modo de bancada VSec, sem mostrá-lo para sistemas Vetti comuns
-- [ ] Ativar exclusivamente o modo de bancada da central Vetti 0336/MAC FC-0F-E7-2D-E4-A8 antes de repetir a consulta física 0x14
+- [x] Ativar exclusivamente o modo de bancada da central Vetti 0336/MAC FC-0F-E7-2D-E4-A8 antes de repetir a consulta física 0x14
 - [x] Corrigir a ordem entre o ACK de login Vetti e o despacho da consulta física 0x14, que foi enviada sem resposta 0x94
 - [ ] Repetir uma única consulta Vetti 0x14 após a correção e registrar a resposta da central de testes
 - [x] Implementar uma única consulta física Vetti de status para a bancada 0336, sem habilitar Arme, Desarme, Zona ou PGM
