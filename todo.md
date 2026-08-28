@@ -704,7 +704,7 @@
 - [x] Impedir mais de uma sequência VSec física ativa ou aguardando para a bancada Vetti 0336
 - [x] Tratar fragmentação e agregação TCP de quadros VSec antes de consumir respostas 0x91, 0x94 ou 0xC3
 - [x] Converter em falha auditável as perdas de sessão, de identidade, de modo bancada ou de transmissão durante um fluxo VSec em andamento
-- [ ] Cobrir com testes o ciclo Vetti completo 0x91 → 0x94 prévio armado → 0xC3/0x80 → 0x94 posterior, inclusive bloqueios e recusas
+- [x] Cobrir em testes as funções do ciclo Vetti 0x91 → 0x94 prévio armado → 0xC3/0x80 → 0x94 posterior, inclusive CRC, máscara divergente, credencial refletida e estado posterior ainda armado
 
 ## Responsividade da Interface
 - [ ] Mapear os pontos de quebra do Dashboard, cadastros, relatórios e navegação em telas de 1440 px, 1024 px, 768 px e 375 px

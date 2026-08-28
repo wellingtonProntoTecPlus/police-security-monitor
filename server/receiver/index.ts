@@ -16,7 +16,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
-import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, extractVettiFrames, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
+import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 
 // Configuração dos receptores por marca/porta
@@ -280,12 +280,6 @@ function bindVettiTimeoutCleanup(socket: net.Socket) {
   });
 }
 
-function parseVettiStatusResponse(data: string) {
-  const bytes = Buffer.from(data, "hex");
-  if (bytes.length < 13 || bytes[0] !== 0x02 || bytes[2] !== 0xAF || bytes[3] !== 0x94 || bytes[4] !== 0x80) return undefined;
-  return { centralStatus: bytes[6], partitionMask: bytes[7] };
-}
-
 async function deliverPendingVettiBenchStatusQuery(system: { id: number; account: string }, socket: net.Socket) {
   const pendingQuery = await getPendingVettiBenchStatusQuery(system.id);
   if (!pendingQuery) return;
@@ -402,7 +396,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
     if (accepted && completedStatusQuery.flow === "disarm" && completedStatusQuery.stage === "pre_disarm") {
       const knownSystem = identifiedSystemBySocket.get(socket);
       const currentSystem = knownSystem ? await getAlarmSystem(knownSystem.id) : undefined;
-      const state = parseVettiStatusResponse(completedStatusQuery.response);
+      const state = parseVerifiedVettiStatusResponse(completedStatusQuery.response);
       if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem) || !state || (state.centralStatus & 0x01) === 0 || state.partitionMask === 0) {
         await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
           status: "failed",
@@ -454,10 +448,8 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
       return;
     }
     const isDisarmPostCheck = completedStatusQuery.flow === "disarm" && completedStatusQuery.stage === "post_disarm";
-    const preState = isDisarmPostCheck && completedStatusQuery.preStatusResponse ? parseVettiStatusResponse(completedStatusQuery.preStatusResponse) : undefined;
-    const postState = isDisarmPostCheck ? parseVettiStatusResponse(completedStatusQuery.response) : undefined;
     const disarmVerified = !isDisarmPostCheck || Boolean(
-      accepted && preState && postState && (postState.centralStatus & 0x01) === 0 && (postState.partitionMask & preState.partitionMask) === 0,
+      accepted && completedStatusQuery.preStatusResponse && doesVettiPostStatusConfirmDisarm(completedStatusQuery.preStatusResponse, completedStatusQuery.response),
     );
     await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
       status: accepted && disarmVerified ? "responded" : "failed",

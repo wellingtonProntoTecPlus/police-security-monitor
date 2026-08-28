@@ -1,6 +1,6 @@
 import { calculateVettiCrc } from "../vettiCommandSimulation";
 import { describe, expect, it } from "vitest";
-import { buildVettiBenchDisarmFrame, buildVettiBenchRemoteLoginFrame, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, extractVettiFrames, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery, VETTI_BENCH_STATUS_QUERY } from "./vettiBenchTransport";
+import { buildVettiBenchDisarmFrame, buildVettiBenchRemoteLoginFrame, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery, VETTI_BENCH_STATUS_QUERY } from "./vettiBenchTransport";
 
 function fakeSocket() {
   const writes: Buffer[] = [];
@@ -102,5 +102,17 @@ describe("transporte VSec da bancada Vetti", () => {
     expect(consumeVettiBenchDisarmResponse(socket, vettiResponse([0x0A, 0xAF, 0xC3, 0x02, 0x80, 0x12, 0x34, 0xFF, 0xFF]))).toMatchObject({
       commandId: 96, accepted: true, partitionMask: 0x02, partitionMaskMatches: false, commandPasswordMatches: true,
     });
+  });
+
+  it("só confirma o Desarme se o status posterior íntegro não mantiver central nem partições armadas", () => {
+    const preStatus = vettiResponse([0x0C, 0xAF, 0x94, 0x80, 0x12, 0x01, 0x05, 0x00, 0x00, 0x05, 0xFF]);
+    const postDisarmed = vettiResponse([0x0C, 0xAF, 0x94, 0x80, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF]);
+    const postStillArmed = vettiResponse([0x0C, 0xAF, 0x94, 0x80, 0x12, 0x01, 0x01, 0x00, 0x00, 0x01, 0xFF]);
+    expect(parseVerifiedVettiStatusResponse(preStatus)).toEqual({ centralStatus: 0x01, partitionMask: 0x05 });
+    expect(doesVettiPostStatusConfirmDisarm(preStatus.toString("hex"), postDisarmed.toString("hex"))).toBe(true);
+    expect(doesVettiPostStatusConfirmDisarm(preStatus.toString("hex"), postStillArmed.toString("hex"))).toBe(false);
+    const corrupted = Buffer.from(postDisarmed);
+    corrupted[corrupted.length - 1] ^= 0xFF;
+    expect(parseVerifiedVettiStatusResponse(corrupted)).toBeUndefined();
   });
 });

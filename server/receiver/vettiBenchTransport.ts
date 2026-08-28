@@ -180,6 +180,22 @@ export function consumeVettiBenchStatusResponse(socket: net.Socket, data: Buffer
   };
 }
 
+/** Decodifica somente uma resposta completa, íntegra e bem-sucedida de status VSec 0x94. */
+export function parseVerifiedVettiStatusResponse(data: string | Buffer) {
+  const bytes = typeof data === "string" ? Buffer.from(data, "hex") : data;
+  if (!isExpectedVettiResponse(bytes, 0x94, 13) || bytes[4] !== 0x80) return undefined;
+  return { centralStatus: bytes[6], partitionMask: bytes[7] };
+}
+
+/** Confirma que o pós-status retirou todas as partições que estavam armadas no pré-status. */
+export function doesVettiPostStatusConfirmDisarm(preStatusResponse: string, postStatusResponse: string) {
+  const preState = parseVerifiedVettiStatusResponse(preStatusResponse);
+  const postState = parseVerifiedVettiStatusResponse(postStatusResponse);
+  return Boolean(
+    preState && postState && (postState.centralStatus & 0x01) === 0 && (postState.partitionMask & preState.partitionMask) === 0,
+  );
+}
+
 /** Envia exclusivamente o Desarme VSec 0x43 após status que comprove partições armadas. */
 export function sendVettiBenchDisarm(input: {
   alarmSystemId: number;
