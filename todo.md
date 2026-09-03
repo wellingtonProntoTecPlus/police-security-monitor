@@ -607,6 +607,10 @@
 - [x] Diagnosticar a central JFL Active 8W v8.0 conta 0022, serial 2835359229 e MAC final FAE1B4: o quadro proprietário `7A ... 0x21` chegava à porta 9061, mas não era reconhecido como identificação e supervisão
 - [x] Implementar o reconhecimento exclusivo do quadro Active 8W v8.0, vinculando-o por serial e MAC e renovando o Keep Alive sem enviar ACK do protocolo legado 7B
 - [ ] Instalar a correção JFL Active 8W v8.0 na VPS e confirmar que a conta 0022 muda para Online após o próximo quadro recebido
+- [ ] Verificar a recepção de eventos e identificação da central Intelbras AMT-8000 conta 0049 antes de alterar qualquer programação ou cadastro
+- [x] Confirmar chegada passiva da Intelbras AMT-8000 na porta 9271, origem 177.191.133.171, com quadro repetido de 9 bytes `07944500497B255F61`
+- [x] Homologar documentalmente o quadro Intelbras AMT-8000 de 9 bytes: ISECnet `0x94`, canal Ethernet, conta 0049 e MAC parcial 7B255F; resposta `FE` ainda não implementada
+- [ ] Implementar e validar isoladamente a resposta Intelbras `FE` ao ISECnet 0x94 e a associação por identificador físico antes de marcar a AMT-8000 como Online
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
