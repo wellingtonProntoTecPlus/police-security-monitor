@@ -27,3 +27,9 @@ O conteúdo decodificado é coerente com canal Ethernet (`0x45`), conta `0049` e
 ## Próxima validação controlada
 
 O reconhecimento do quadro ISECnet `0x94`, a resposta exclusiva `FE` e a associação por MAC físico confirmado foram implementados em revisão isolada. Depois da instalação na VPS, a central deverá ser observada em modo Online antes de qualquer implementação de eventos `0xB0`/`0xB4` ou de comandos remotos.
+
+## Tabela de eventos no material recebido
+
+O pacote recebido descreve como a AMT-8000 transmite eventos Contact ID pelos comandos ISECnet `0xB0`, `0xB4` e `0xB5`, e como o buffer `0x3900` entrega oito eventos de 13 bytes por vez. Ele informa os campos de novo/restauro, código Contact ID interno, código programado, zona ou usuário e partição. Contudo, **não contém uma tabela fechada de descrições dos códigos Contact ID** para importar diretamente.
+
+Assim, os códigos recebidos devem continuar sendo interpretados pela tabela Contact ID universal e pelo perfil Intelbras mantidos pelo Police Central. Somente depois de a recepção `0xB0`/`0xB4` ser homologada com capturas reais será possível comparar os códigos programados da instalação e complementar regras específicas, sem duplicar códigos universais.

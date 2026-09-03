@@ -612,6 +612,8 @@
 - [x] Homologar documentalmente o quadro Intelbras AMT-8000 de 9 bytes: ISECnet `0x94`, canal Ethernet, conta 0049 e MAC parcial 7B255F; resposta `FE` implementada e testada localmente
 - [x] Implementar e validar isoladamente a resposta Intelbras `FE` ao ISECnet 0x94 e a associação por identificador físico antes de marcar a AMT-8000 como Online
 - [ ] Instalar a resposta Intelbras ISECnet 0x94 na VPS e confirmar que somente a AMT-8000 com MAC 7B255F passa para Online
+- [x] Confirmar que o pacote AMT-8000 descreve o transporte e campos dos eventos ISECnet, mas não fornece uma tabela fechada de descrições Contact ID para importação
+- [ ] Homologar passivamente os eventos Intelbras `0xB0`/`0xB4` com capturas reais antes de complementar regras específicas sem duplicar a tabela universal
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
