@@ -101,6 +101,23 @@ describe("captura segura de pacotes", () => {
     expect(resolveUniqueCapturedPanelCandidate(candidates)).toEqual({ systemId: 44, identifierType: "serial_ascii", identifier: "2801936621" });
   });
 
+  it("reconhece a identificação e supervisão proprietária da JFL Active 8W v8.0", () => {
+    const payloadHex = "7A006C03002132383335333539323239FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF303034423132464145314234A938303002010106000101000100020000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000026";
+    const identity = parseJflConnectionIdentity(Buffer.from(payloadHex, "hex"));
+
+    expect(identity).toEqual({
+      serialNumber: "2835359229",
+      imeiNumber: undefined,
+      imeiSuffix: undefined,
+      fullMac: "004B12FAE1B4",
+      macSuffix: "FAE1B4",
+    });
+    const candidates = findCapturedPanelCandidates("JFL", [{
+      brand: "JFL", receiverPort: 9061, remoteIp: "179.238.25.195", capturedAt: "2026-09-03T16:10:00.000Z", totalBytes: 108, payloadHex, truncated: false,
+    }], [{ id: 22, macAddress: "FAE1B4", serialNumber: "2835359229" }]);
+    expect(resolveUniqueCapturedPanelCandidate(candidates)).toEqual({ systemId: 22, identifierType: "serial_ascii", identifier: "2835359229" });
+  });
+
   it("identifica a JFL Active 32 DUO da conta 0071 pelos campos fixos do quadro real", () => {
     const payloadHex = "7B66C72132363834363736323937333537313239303736363038343433313430383038373539354343A0373530020100021900010071000200030004000000000000000000000000000000000000000000000000000000000000003A";
     const identity = parseJflConnectionIdentity(Buffer.from(payloadHex, "hex"));

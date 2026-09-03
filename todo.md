@@ -604,6 +604,9 @@
 - [ ] Validar presencialmente que o próximo Desarme Vetti confirmado abre uma ocorrência e preserva a autoria, sem reatribuir um evento manual ou externo
 - [x] Manter Isolar Zona e PGM como ações operacionais separadas, sem liberar transmissão física não homologada
 - [x] Manter eventos manuais, automáticos e externos sem vínculo fora da janela estrita de confirmação do comando remoto correspondente
+- [x] Diagnosticar a central JFL Active 8W v8.0 conta 0022, serial 2835359229 e MAC final FAE1B4: o quadro proprietário `7A ... 0x21` chegava à porta 9061, mas não era reconhecido como identificação e supervisão
+- [x] Implementar o reconhecimento exclusivo do quadro Active 8W v8.0, vinculando-o por serial e MAC e renovando o Keep Alive sem enviar ACK do protocolo legado 7B
+- [ ] Instalar a correção JFL Active 8W v8.0 na VPS e confirmar que a conta 0022 muda para Online após o próximo quadro recebido
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão

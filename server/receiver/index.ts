@@ -131,7 +131,8 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
   if (data.length < 4) return;
 
   const seq = data[2];
-  const cmd = data[3];
+  const isJflActive8wV8Connection = brand === "JFL" && data[0] === 0x7a && data.length >= 6 && data[5] === 0x21;
+  const cmd = isJflActive8wV8Connection ? 0x21 : data[3];
 
   switch (cmd) {
     case 0x21: { // CONEXÃO
@@ -142,11 +143,17 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
           if (system) {
             rememberSystem(socket, system, port);
             console.log(`[RECIP] JFL conexão identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);
+            if (isJflActive8wV8Connection) {
+              await recordKeepAlive(socket, brand, port, "Active 8W v8 identificação 0x21");
+            }
           } else {
             console.log(`[RECIP] JFL conexão sem painel cadastrado | Serial ${identity.serialNumber || "—"} | MAC ${identity.fullMac || "—"}`);
           }
         }
       }
+      // A Active 8W v8.0 não utiliza o ACK do protocolo Contact ID 7B.
+      // Não responder com quadro legado evita alterar a conversa proprietária.
+      if (isJflActive8wV8Connection) break;
       let resp = Buffer.from([0x7B, 0x07, seq, 0x21, 0x01, 0x05, 0x00]);
       resp = calcularChecksum(resp);
       socket.write(resp);

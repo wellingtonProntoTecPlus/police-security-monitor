@@ -77,14 +77,19 @@ function normalizeIdentifier(value: string | null | undefined) {
 }
 
 export function parseJflConnectionIdentity(payload: Buffer) {
-  if (payload.length < 16 || payload[0] !== 0x7b || payload[3] !== 0x21) return undefined;
+  const isLegacyJflConnection = payload[0] === 0x7b && payload[3] === 0x21;
+  // Captura real da Active 8W v8.0: 7A / comprimento de 16 bits / 03 00 / 21.
+  // Ela não usa o cabeçalho Contact ID 7B, mas preserva serial, IMEI e MAC nos
+  // mesmos campos consecutivos após o cabeçalho de seis bytes.
+  const isActive8wV8Connection = payload[0] === 0x7a && payload[5] === 0x21;
+  if (payload.length < 16 || (!isLegacyJflConnection && !isActive8wV8Connection)) return undefined;
   const packetText = payload.toString("latin1");
-  // Nos quadros JFL Active v7+, os identificadores ficam após o cabeçalho
-  // 7B/len/seq/21. A leitura fixa impede que uma parte do IMEI seja confundida
-  // com o serial de 10 dígitos da central.
-  const serialAtFixedOffset = packetText.slice(4, 14);
-  const imeiAtFixedOffset = packetText.slice(14, 29);
-  const macAtFixedOffset = packetText.slice(29, 41);
+  // Nos quadros JFL Active v7+, os identificadores ficam após o cabeçalho.
+  // A Active 8W v8.0 acrescenta dois bytes de controle antes do 0x21.
+  const identifierOffset = isActive8wV8Connection ? 6 : 4;
+  const serialAtFixedOffset = packetText.slice(identifierOffset, identifierOffset + 10);
+  const imeiAtFixedOffset = packetText.slice(identifierOffset + 10, identifierOffset + 25);
+  const macAtFixedOffset = packetText.slice(identifierOffset + 25, identifierOffset + 37);
   const serialNumber = /^\d{10}$/.test(serialAtFixedOffset)
     ? serialAtFixedOffset
     : packetText.match(/(?<!\d)(\d{10})(?!\d)/)?.[1];
