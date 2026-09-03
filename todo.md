@@ -614,6 +614,8 @@
 - [ ] Instalar a resposta Intelbras ISECnet 0x94 na VPS e confirmar que somente a AMT-8000 com MAC 7B255F passa para Online
 - [x] Confirmar que o pacote AMT-8000 descreve o transporte e campos dos eventos ISECnet, mas não fornece uma tabela fechada de descrições Contact ID para importação
 - [ ] Homologar passivamente os eventos Intelbras `0xB0`/`0xB4` com capturas reais antes de complementar regras específicas sem duplicar a tabela universal
+- [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
+- [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão

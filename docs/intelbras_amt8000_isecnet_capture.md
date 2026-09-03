@@ -33,3 +33,9 @@ O reconhecimento do quadro ISECnet `0x94`, a resposta exclusiva `FE` e a associa
 O pacote recebido descreve como a AMT-8000 transmite eventos Contact ID pelos comandos ISECnet `0xB0`, `0xB4` e `0xB5`, e como o buffer `0x3900` entrega oito eventos de 13 bytes por vez. Ele informa os campos de novo/restauro, código Contact ID interno, código programado, zona ou usuário e partição. Contudo, **não contém uma tabela fechada de descrições dos códigos Contact ID** para importar diretamente.
 
 Assim, os códigos recebidos devem continuar sendo interpretados pela tabela Contact ID universal e pelo perfil Intelbras mantidos pelo Police Central. Somente depois de a recepção `0xB0`/`0xB4` ser homologada com capturas reais será possível comparar os códigos programados da instalação e complementar regras específicas, sem duplicar códigos universais.
+
+## Recepção passiva preparada
+
+O receptor passa a aceitar somente os eventos ISECnet `0xB0` e `0xB4` com tamanho e checksum válidos, preservando o ACK `FE` exigido pela central. O quadro é associado somente depois de a conexão ter sido identificada pelo comando `0x94`, com correspondência de conta e identificador físico; um quadro de evento não identificado é confirmado no transporte, mas não é persistido nem associado a qualquer cliente.
+
+O código Contact ID e o qualificador são campos independentes. A notação alternativa `1130` é normalizada para o código `130`; o qualificador `E` representa Disparo e `R` representa Restauração. Não deve existir um mapeamento separado `E1130`, pois ele duplicaria o mesmo evento.

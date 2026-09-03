@@ -14,7 +14,7 @@ import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccoun
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
-import { parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
+import { extractIntelbrasIsecnetFrames, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
@@ -42,6 +42,7 @@ export { sendVettiBenchStatusQuery } from './vettiBenchTransport';
 let eventCallback: EventCallback | null = null;
 const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
 const compatecPendingBytesBySocket = new WeakMap<object, Buffer>();
+const intelbrasPendingBytesBySocket = new WeakMap<object, Buffer>();
 const compatecAccountBySocket = new WeakMap<object, string>();
 const compatecRecentEventsBySocket = new WeakMap<object, Map<string, number>>();
 
@@ -187,7 +188,7 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
 }
 
 // Driver Intelbras
-async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
+async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: number) {
   const identification = parseIntelbrasIsecnetIdentification(data);
   if (identification) {
     // A associação é sempre por MAC físico; a conta transportada é conferida
@@ -227,22 +228,21 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
     return;
   }
 
-  if (data.length >= 19 && data[1] === 0xB0) {
-    // Evento Contact ID
-    const cidBcd = (v: number) => v === 0x0A ? '0' : v.toString();
-    const account = cidBcd(data[3]) + cidBcd(data[4]) + cidBcd(data[5]) + cidBcd(data[6]);
-    const qualificador = data[9];
-    const evento = cidBcd(data[10]) + cidBcd(data[11]) + cidBcd(data[12]);
-    const particao = cidBcd(data[13]) + cidBcd(data[14]);
-    const zona = cidBcd(data[15]) + cidBcd(data[16]) + cidBcd(data[17]);
-
+  const isecnetEvent = parseIntelbrasIsecnetEvent(data);
+  if (isecnetEvent) {
+    const known = identifiedSystemBySocket.get(socket);
+    if (!known || known.brand !== "INTELBRAS" || known.account !== isecnetEvent.account) {
+      console.warn(`[RECIP] INTELBRAS ${isecnetEvent.command} descartado: evento da conta ${isecnetEvent.account} sem identidade física confirmada nesta conexão.`);
+      socket.write(Buffer.from([0xfe]));
+      return;
+    }
     const eventoObj = {
       brand: 'INTELBRAS',
-      account,
-      qualifier: qualificador === 1 ? 'E' : 'R',
-      eventCode: evento,
-      partition: particao,
-      zoneUser: zona,
+      account: isecnetEvent.account,
+      qualifier: isecnetEvent.qualifier,
+      eventCode: isecnetEvent.eventCode,
+      partition: isecnetEvent.partition,
+      zoneUser: isecnetEvent.zoneUser,
       receiverPort: port,
       rawData: data.toString('hex').toUpperCase(),
     };
@@ -256,6 +256,13 @@ async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
     socket.write(Buffer.from([0xFE]));
     return;
   }
+}
+
+async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
+  const pending = intelbrasPendingBytesBySocket.get(socket) || Buffer.alloc(0);
+  const { frames, remainder } = extractIntelbrasIsecnetFrames(Buffer.concat([pending, data]));
+  intelbrasPendingBytesBySocket.set(socket, remainder);
+  for (const frame of frames) await handleIntelbrasFrame(socket, frame, port);
 }
 
 // Driver Vetti
