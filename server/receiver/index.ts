@@ -14,6 +14,7 @@ import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccoun
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
+import { parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
@@ -187,6 +188,26 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
 
 // Driver Intelbras
 async function handleIntelbras(socket: net.Socket, data: Buffer, port: number) {
+  const identification = parseIntelbrasIsecnetIdentification(data);
+  if (identification) {
+    // A associação é sempre por MAC físico; a conta transportada é conferida
+    // como defesa adicional e nunca é usada como fallback de identificação.
+    const system = await getAlarmSystemByPanelIdentifier(identification.macSuffix, "mac", "INTELBRAS", port);
+    if (system && system.account === identification.account) {
+      rememberSystem(socket, system, port);
+      await recordKeepAlive(socket, "INTELBRAS", port, `ISECnet 0x94 (${identification.channel})`);
+      console.log(`[RECIP] INTELBRAS ISECnet 0x94 identificado por MAC ${identification.macSuffix} | Conta ${system.account}`);
+    } else if (system) {
+      console.warn(`[RECIP] INTELBRAS ISECnet 0x94 recusado para supervisão: conta recebida ${identification.account} diverge da conta cadastrada para MAC ${identification.macSuffix}.`);
+    } else {
+      console.log(`[RECIP] INTELBRAS ISECnet 0x94 sem painel cadastrado | Conta ${identification.account} | MAC ${identification.macSuffix}`);
+    }
+    // ACK oficial do comando de identificação. Não é resposta de evento nem
+    // habilita controle remoto.
+    socket.write(Buffer.from([0xfe]));
+    return;
+  }
+
   if (data.length >= 2 && data[1] === 0x80) {
     // Pedido de data/hora
     const agora = new Date();

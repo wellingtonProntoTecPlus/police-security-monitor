@@ -18,7 +18,7 @@ O conteúdo decodificado é coerente com canal Ethernet (`0x45`), conta `0049` e
 | --- | --- |
 | Conectividade até a VPS | Confirmada na porta 9271 |
 | Identificação do quadro 0x94 | Documentada como conexão ISECnet |
-| Resposta obrigatória `FE` | Ainda não homologada no Police Central para a AMT-8000 |
+| Resposta obrigatória `FE` | Implementada e validada em testes; aguardando confirmação na VPS |
 | Classificação como evento ou Keep Alive | Bloqueada até validação controlada |
 | Comandos remotos Intelbras | Não habilitados |
 
@@ -26,4 +26,4 @@ O conteúdo decodificado é coerente com canal Ethernet (`0x45`), conta `0049` e
 
 ## Próxima validação controlada
 
-O próximo passo técnico é adicionar, em revisão isolada, o reconhecimento do quadro ISECnet `0x94`, responder somente com `FE` e associar a AMT-8000 por identificador físico confirmado. Depois disso, a central deverá ser observada em modo Online antes de qualquer implementação de eventos `0xB0`/`0xB4` ou de comandos remotos.
+O reconhecimento do quadro ISECnet `0x94`, a resposta exclusiva `FE` e a associação por MAC físico confirmado foram implementados em revisão isolada. Depois da instalação na VPS, a central deverá ser observada em modo Online antes de qualquer implementação de eventos `0xB0`/`0xB4` ou de comandos remotos.
