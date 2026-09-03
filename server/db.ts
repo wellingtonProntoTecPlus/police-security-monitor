@@ -1,4 +1,4 @@
-import { eq, and, or, desc, sql, like, inArray, gte, lte, ne, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, sql, like, inArray, gte, lte, ne, isNotNull, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -47,6 +47,7 @@ import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
+import { buildRemoteCommandIncidentNotes, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -773,10 +774,103 @@ export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCo
   });
 }
 
-export async function updateAlarmRemoteCommandDelivery(id: number, data: { status: string; responsePayload?: string | null; executedAt?: Date | null }) {
+export async function updateAlarmRemoteCommandDelivery(id: number, data: {
+  status: string;
+  responsePayload?: string | null;
+  executedAt?: Date | null;
+  technicalUserCode?: string | null;
+  panelConfirmedAt?: Date | null;
+  remoteEventId?: number | null;
+  incidentId?: number | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   await db.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
+}
+
+/**
+ * Um evento Vetti de Desarme só é retirado da finalização automática quando
+ * houver confirmação 0xC3 recente, do mesmo sistema físico de bancada, ainda
+ * sem outro evento associado. A reserva ocorre na mesma transação que cria o
+ * evento e o incidente, evitando atribuir retransmissões ou eventos manuais.
+ */
+export async function createConfirmedVettiDisarmEventWithOpenIncident(input: {
+  event: InsertAlarmEvent;
+  eventReceivedAt: Date;
+  alarmSystemId: number;
+  clientId: number | null;
+  priority: "critical" | "high" | "medium" | "low";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const eventForMatch = {
+    brand: input.event.brand,
+    qualifier: input.event.qualifier,
+    eventCode: input.event.eventCode,
+    receivedAt: input.eventReceivedAt,
+  };
+  const windowStart = new Date(input.eventReceivedAt.getTime() - 60_000);
+  const windowEnd = new Date(input.eventReceivedAt.getTime() + 60_000);
+
+  return db.transaction(async (tx) => {
+    const candidates = await tx.select({
+      id: alarmRemoteCommands.id,
+      brand: alarmRemoteCommands.brand,
+      commandType: alarmRemoteCommands.commandType,
+      transportMode: alarmRemoteCommands.transportMode,
+      status: alarmRemoteCommands.status,
+      panelConfirmedAt: alarmRemoteCommands.panelConfirmedAt,
+      remoteEventId: alarmRemoteCommands.remoteEventId,
+      operatorName: users.name,
+      technicalUserCode: alarmRemoteCommands.technicalUserCode,
+    }).from(alarmRemoteCommands)
+      .leftJoin(users, eq(alarmRemoteCommands.operatorId, users.id))
+      .where(and(
+        eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId),
+        eq(alarmRemoteCommands.brand, "VETTI"),
+        eq(alarmRemoteCommands.commandType, "disarm"),
+        eq(alarmRemoteCommands.transportMode, "vsec_bench"),
+        inArray(alarmRemoteCommands.status, ["sent", "responded"]),
+        isNotNull(alarmRemoteCommands.panelConfirmedAt),
+        isNull(alarmRemoteCommands.remoteEventId),
+        gte(alarmRemoteCommands.panelConfirmedAt, windowStart),
+        lte(alarmRemoteCommands.panelConfirmedAt, windowEnd),
+      ))
+      .orderBy(desc(alarmRemoteCommands.panelConfirmedAt))
+      .limit(1)
+      .for("update");
+    const command = candidates[0];
+    if (!command || !isConfirmedRemoteCommandEventMatch(command, eventForMatch)) return undefined;
+
+    const notes = buildRemoteCommandIncidentNotes({
+      commandId: command.id,
+      commandLabel: "Desarme remoto Vetti",
+      requestedBy: command.operatorName || "Operador autenticado",
+      technicalUserCode: command.technicalUserCode,
+      panelUser: input.event.zoneUser,
+    });
+    const eventResult = await tx.insert(alarmEvents).values({
+      ...input.event,
+      alarmSystemId: input.alarmSystemId,
+      remoteCommandId: command.id,
+      autoFinalized: false,
+      autoFinalizationReason: null,
+      receivedAt: input.eventReceivedAt,
+    });
+    const eventId = Number(eventResult[0].insertId);
+    const incidentResult = await tx.insert(incidents).values({
+      eventId,
+      alarmSystemId: input.alarmSystemId,
+      clientId: input.clientId,
+      operatorId: null,
+      status: "waiting",
+      priority: input.priority,
+      notes,
+    });
+    const incidentId = Number(incidentResult[0].insertId);
+    await tx.update(alarmRemoteCommands).set({ remoteEventId: eventId, incidentId }).where(eq(alarmRemoteCommands.id, command.id));
+    return { eventId, incidentId, commandId: command.id, notes };
+  });
 }
 
 /**
@@ -832,6 +926,8 @@ export async function listAlarmRemoteCommands(alarmSystemId: number, limit = 20)
     incidentId: alarmRemoteCommands.incidentId,
     operatorId: alarmRemoteCommands.operatorId,
     operatorName: users.name,
+    technicalUserCode: alarmRemoteCommands.technicalUserCode,
+    remoteEventId: alarmRemoteCommands.remoteEventId,
     commandType: alarmRemoteCommands.commandType,
     transportMode: alarmRemoteCommands.transportMode,
     status: alarmRemoteCommands.status,
@@ -873,6 +969,17 @@ export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number
     .limit(1);
   if (!credential?.encryptedSecret) return undefined;
   return decryptRemoteCommandCredential(credential.encryptedSecret);
+}
+
+/** Exposição administrativa mínima para auditoria interna; nunca devolve a senha cifrada ou decifrada. */
+export async function getAlarmRemoteCredentialTechnicalUserCode(alarmSystemId: number, credentialKind: "vetti_command_user") {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [credential] = await db.select({ technicalUserCode: alarmRemoteCredentials.technicalUserCode })
+    .from(alarmRemoteCredentials)
+    .where(and(eq(alarmRemoteCredentials.alarmSystemId, alarmSystemId), eq(alarmRemoteCredentials.credentialKind, credentialKind)))
+    .limit(1);
+  return credential?.technicalUserCode || undefined;
 }
 
 /** Apenas a API administrativa recebe o texto curto, cifra-o e persiste o resultado. */

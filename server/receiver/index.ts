@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmRemoteCredentialForTransport, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -415,6 +415,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
         });
         return;
       }
+      const technicalUserCode = await getAlarmRemoteCredentialTechnicalUserCode(currentSystem.id, "vetti_command_user");
       try {
         const dispatchedDisarm = sendVettiBenchDisarm({
           alarmSystemId: currentSystem.id,
@@ -433,6 +434,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
         }
         await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
           status: "sent",
+          technicalUserCode: technicalUserCode || null,
           responsePayload: `Consulta prévia 0x14 confirmou central armada (partições 0x${state.partitionMask.toString(16).toUpperCase().padStart(2, "0")}); Desarme VSec 0x43 enviado e aguardando confirmação 0xC3.`,
           executedAt: new Date(),
         });
@@ -505,6 +507,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
     }
     await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
       status: "sent",
+      panelConfirmedAt: new Date(),
       responsePayload: "Desarme VSec 0x43 confirmado (0xC3); consulta posterior 0x14 enviada para validar o novo estado.",
       executedAt: new Date(),
     });
@@ -763,7 +766,9 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     // não poderia ser reconstruído depois de reiniciar ou trocar de operador.
     let savedEvent: any;
     let incident: { id: number } | null = null;
+    let remoteCommandMatched = false;
     try {
+      const eventReceivedAt = new Date();
       const eventData = {
         alarmSystemId: system?.id || null,
         account: effectiveAccount,
@@ -780,7 +785,21 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
-      if (shouldOpenAttendance) {
+      const remoteMatch = system && !accountResolution.isSystemAccount && !systemInMaintenance
+        ? await createConfirmedVettiDisarmEventWithOpenIncident({
+          event: eventData,
+          eventReceivedAt,
+          alarmSystemId: system.id,
+          clientId: system.clientId || null,
+          priority: priority as "critical" | "high" | "medium" | "low",
+        })
+        : undefined;
+      if (remoteMatch) {
+        savedEvent = { id: remoteMatch.eventId };
+        incident = { id: remoteMatch.incidentId };
+        remoteCommandMatched = true;
+        console.log(`[RECIP] VETTI | Conta ${effectiveAccount} | evento associado ao Desarme remoto confirmado #${remoteMatch.commandId}`);
+      } else if (shouldOpenAttendance) {
         const persisted = await createAlarmEventWithOpenIncident({
           event: eventData,
           incident: {
@@ -802,7 +821,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       return false;
     }
 
-    if (deliveryPlan.shouldPersistReport) {
+    if (deliveryPlan.shouldPersistReport && !remoteCommandMatched) {
       const client = system?.clientId ? await getClient(system.clientId) : undefined;
       await persistAutomaticOccurrence({
         create: createOccurrence,
@@ -858,7 +877,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     // Emitir para o dashboard via callback
-    if (deliveryPlan.shouldEmitDashboard && eventCallback) {
+    if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && eventCallback) {
       eventCallback({
         id: savedEvent.id,
         ...evento,

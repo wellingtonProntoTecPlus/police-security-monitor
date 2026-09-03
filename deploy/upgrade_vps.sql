@@ -571,6 +571,56 @@ CREATE TABLE IF NOT EXISTS alarm_remote_commands (
   INDEX alarm_remote_commands_incident (incidentId)
 );
 
+-- Rastreabilidade do evento Contact ID gerado por comando remoto confirmado.
+-- Os campos são somente referências e códigos técnicos; nunca armazenam senha.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_events ADD COLUMN remoteCommandId INT NULL AFTER alarmSystemId',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_events' AND COLUMN_NAME = 'remoteCommandId'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_remote_commands ADD COLUMN technicalUserCode VARCHAR(20) NULL AFTER operatorId',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_remote_commands' AND COLUMN_NAME = 'technicalUserCode'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_remote_commands ADD COLUMN panelConfirmedAt TIMESTAMP NULL AFTER responsePayload',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_remote_commands' AND COLUMN_NAME = 'panelConfirmedAt'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE alarm_remote_commands ADD COLUMN remoteEventId INT NULL AFTER panelConfirmedAt',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_remote_commands' AND COLUMN_NAME = 'remoteEventId'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Credenciais técnicas de painel para comando remoto. O segredo chega cifrado
 -- pelo servidor e não é exposto em consultas, eventos ou histórico operacional.
 CREATE TABLE IF NOT EXISTS alarm_remote_credentials (

@@ -189,4 +189,15 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(source).toContain("Simulados: Arme, Zona e PGM. Físicos controlados: consulta 0x14 e Desarme 0x43");
     expect(source).not.toContain('"Vetti VSec" : "Compatec"} · modo de simulação');
   });
+
+  it("mantém um único controle de estado e apresenta o resumo da ação remota no atendimento", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
+
+    expect(source).toContain('selectedArmDisarmState === "armed"');
+    expect(source).toContain(">DESARMAR</Button>");
+    expect(source).toContain(">ARMAR</Button>");
+    expect(source).toContain("Arme remoto ainda não homologado.");
+    expect(source).toContain("Ação remota confirmada");
+    expect(source).toContain("[COMANDO REMOTO CONFIRMADO]");
+  });
 });

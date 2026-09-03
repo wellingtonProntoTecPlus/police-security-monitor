@@ -315,6 +315,9 @@ export type InsertCamera = typeof cameras.$inferInsert;
 export const alarmEvents = mysqlTable("alarm_events", {
   id: int("id").autoincrement().primaryKey(),
   alarmSystemId: int("alarmSystemId"),
+  // Referência preenchida somente quando o evento é associado de forma
+  // transacional a um comando remoto que a central já confirmou.
+  remoteCommandId: int("remoteCommandId"),
   account: varchar("account", { length: 10 }).notNull(),
   brand: varchar("brand", { length: 50 }).notNull(),
   qualifier: varchar("qualifier", { length: 1 }).notNull(), // E=evento, R=restauro
@@ -421,6 +424,9 @@ export const alarmRemoteCommands = mysqlTable("alarm_remote_commands", {
   alarmSystemId: int("alarmSystemId").notNull(),
   incidentId: int("incidentId"),
   operatorId: int("operatorId").notNull(),
+  // Código técnico não sigiloso usado para o comando (ex.: usuário Vetti 399).
+  // A senha permanece somente na tabela de credenciais cifradas.
+  technicalUserCode: varchar("technicalUserCode", { length: 20 }),
   brand: varchar("brand", { length: 30 }).notNull(),
   commandType: varchar("commandType", { length: 40 }).notNull(),
   transportMode: varchar("transportMode", { length: 20 }).notNull().default("simulation"),
@@ -431,6 +437,10 @@ export const alarmRemoteCommands = mysqlTable("alarm_remote_commands", {
   reason: text("reason").notNull(),
   commandPayload: text("commandPayload").notNull(),
   responsePayload: text("responsePayload"),
+  // A confirmação do painel é distinta do estado final da fila. Ela permite
+  // associar somente o evento que chega logo após um comando aceito.
+  panelConfirmedAt: timestamp("panelConfirmedAt"),
+  remoteEventId: int("remoteEventId"),
   confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
   executedAt: timestamp("executedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

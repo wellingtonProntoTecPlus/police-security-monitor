@@ -584,20 +584,27 @@
 - [x] Alinhar a comparação de horários de manutenção ao fuso operacional brasileiro
 
 ## Comandos Operacionais Remotos
-- [x] Preparar o Desarme Vetti 0x43 somente para a central de testes 0336/MAC 2DE4A8 após login e consulta de status bem-sucedidos; homologação física ainda pendente
-- [x] Exigir confirmação Vetti 0xC3/0x80 e consulta posterior antes de registrar o Desarme como confirmado; homologação física ainda exige teste controlado
+- [x] Preparar e homologar o Desarme Vetti 0x43 somente para a central de testes 0336/MAC 2DE4A8 após login e consulta de status bem-sucedidos
+- [x] Exigir confirmação Vetti 0xC3/0x80 e consulta posterior antes de registrar o Desarme como confirmado; validação física concluída exclusivamente na bancada
 - [x] Mascarar os bytes de senha refletidos no retorno Vetti 0xC3 antes de qualquer auditoria, log ou interface
 - [x] Definir a sequência Vetti de consulta de estado, login, comando e confirmação antes de preparar o primeiro Desarme físico da bancada
-- [x] Manter Arme, Arme STAY, Isolar Zona e PGM Vetti bloqueados; o Desarme 0x43 continua exclusivo da bancada e pendente de homologação unitária
+- [x] Manter Arme, Arme STAY, Isolar Zona e PGM Vetti bloqueados; o Desarme 0x43 é homologado exclusivamente na bancada
 - [x] Renomear o cabeçalho do modal Vetti para diferenciar simulações dos únicos controles físicos e controlados da bancada
-- [ ] Diagnosticar e encerrar com segurança a solicitação Vetti pendente que bloqueou a nova tentativa de Desarme da bancada
-- [ ] Cancelar a tentativa Vetti criada em 02/09 que permaneceu aguardando conexão; o Desarme observado foi manual e não homologa o comando físico
+- [x] Diagnosticar e encerrar com segurança a solicitação Vetti pendente que bloqueou a nova tentativa de Desarme da bancada; a sequência 31 terminou como failed e não ficou pendente
+- [x] Confirmar o encerramento da tentativa Vetti criada em 02/09: a central recusou o 0x43 com 0x8A e o Desarme observado foi manual, portanto sem homologação física
 - [ ] Investigar por que a tentativa Vetti autorizada permaneceu em waiting_connection apesar de a central estar conectada no aplicativo
-- [ ] Investigar a recusa física Vetti 0x8A do Desarme 0x43 em 02/09, sem nova transmissão, validando código de retorno, credencial de comando e formato do quadro
-- [ ] Confirmar o alinhamento entre a credencial Vetti cifrada e a senha do usuário 99, criado após a recusa 0x8A, antes de uma nova tentativa presencial
-- [ ] Rotacionar a senha do usuário Vetti 99 e atualizar sua credencial cifrada no Police Central após a senha anterior ter sido exposta em conversa
+- [x] Investigar a recusa física Vetti 0x8A do Desarme 0x43 em 02/09 sem nova transmissão: a credencial estava cadastrada, mas o usuário Vetti 99 correspondente não existia na central na primeira tentativa
+- [x] Confirmar o alinhamento entre a credencial Vetti cifrada e a senha do usuário 99, criado após a recusa 0x8A, antes de uma nova tentativa presencial
+- [x] Rotacionar a senha do usuário Vetti 99 e atualizar sua credencial cifrada no Police Central após a senha anterior ter sido exposta em conversa; persistência confirmada na VPS em 03/09/2026 às 12:06:11
 - [x] Corrigir a interface de credenciais para bloquear fechamento durante o salvamento e apresentar erro explícito quando a substituição não persistir na VPS
-- [ ] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
+- [x] Implementar vínculo restrito do evento Vetti de Desarme ao comando remoto físico confirmado, abrindo atendimento sem atribuir eventos manuais ou externos; validação operacional pendente
+- [x] Implementar uma ocorrência simples para Desarme remoto Vetti confirmado, permitindo ao operador registrar livremente solicitante, autorização e providências; expansão depende de homologação individual das demais ações
+- [x] Manter no histórico técnico do comando, sem criar campos extras para o operador, a identidade do operador solicitante, o usuário técnico e a resposta confirmada
+- [x] Exibir abaixo da ocorrência um único botão de estado: DESARMAR vermelho quando a central estiver armada e ARMAR verde desabilitado quando o Arme físico ainda não estiver homologado
+- [ ] Validar presencialmente que o próximo Desarme Vetti confirmado abre uma ocorrência e preserva a autoria, sem reatribuir um evento manual ou externo
+- [x] Manter Isolar Zona e PGM como ações operacionais separadas, sem liberar transmissão física não homologada
+- [x] Manter eventos manuais, automáticos e externos sem vínculo fora da janela estrita de confirmação do comando remoto correspondente
+- [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
 - [ ] Confirmar a revisão Vetti instalada na VPS e descartar a solicitação antiga que ficou em sent antes de criar nova consulta pós-login

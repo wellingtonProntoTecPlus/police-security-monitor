@@ -34,6 +34,7 @@ const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = 
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
   incidentId?: number;
+  incidentNotes?: string | null;
   queueStatus: QueueStatus;
   queuedAt: number;
   observationUntil?: string | Date | null;
@@ -221,6 +222,16 @@ export default function Dashboard() {
   const { data: remoteCommandHistory = [] } = trpc.remoteCommand.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0, limit: 8 }, { enabled: Boolean(selectedRemoteSystemId) });
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
   const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
+  const selectedArmDisarmState = useMemo<"armed" | "disarmed" | undefined>(() => {
+    if (!selectedEvent?.alarmSystemId) return undefined;
+    if ((armDisarmData?.armed || []).some((item: any) => item.alarmSystemId === selectedEvent.alarmSystemId)) return "armed";
+    if ((armDisarmData?.disarmed || []).some((item: any) => item.alarmSystemId === selectedEvent.alarmSystemId)) return "disarmed";
+    return undefined;
+  }, [selectedEvent?.alarmSystemId, armDisarmData]);
+  const selectedRemoteCommandNotes = useMemo(() => {
+    const notes = selectedEvent?.incidentNotes || "";
+    return notes.startsWith("[COMANDO REMOTO CONFIRMADO]") ? notes.split("\n").slice(1) : [];
+  }, [selectedEvent?.incidentNotes]);
 
   const manualAccountMatch = useMemo(() => {
     const normalize = (value?: string | null) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -1106,6 +1117,18 @@ export default function Dashboard() {
                     {selectedClient?.fantasyName && <span className="text-cyan-400">· {selectedClient.fantasyName}</span>}
                   </div>
                   <p className={`mt-1 font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>{selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}</p>
+                  {(selectedEvent.brand === "VETTI" || selectedEvent.brand === "COMPATEC") && selectedEvent.alarmSystemId && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {selectedArmDisarmState === "armed" ? (
+                        <Button className="h-9 bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-700" onClick={() => openRemoteCommand("disarm")}>DESARMAR</Button>
+                      ) : selectedArmDisarmState === "disarmed" ? (
+                        <Button className="h-9 bg-green-600 px-4 text-sm font-bold text-white hover:bg-green-700" disabled title="Arme remoto permanece bloqueado até homologação física independente">ARMAR</Button>
+                      ) : (
+                        <Button className="h-9 px-4 text-sm font-bold" variant="outline" disabled>Estado não confirmado</Button>
+                      )}
+                      {selectedArmDisarmState === "disarmed" && <span className="text-xs text-muted-foreground">Arme remoto ainda não homologado.</span>}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -1145,6 +1168,7 @@ export default function Dashboard() {
 	                </div>
                 <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[0.82fr_1.18fr]">
                   <div className="space-y-4">
+                    {selectedRemoteCommandNotes.length > 0 && <div className="rounded-lg border border-cyan-400/30 bg-cyan-400/5 p-4"><h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-cyan-100"><Shield className="h-4 w-4 text-cyan-300" /> Ação remota confirmada</h3><div className="space-y-1 text-xs text-cyan-50">{selectedRemoteCommandNotes.map((line, index) => <p key={index}>{line}</p>)}</div></div>}
                     <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-red-100"><MapPin className="h-4 w-4 text-red-400" /> Zonas e setores</h3><div className="max-h-48 space-y-1.5 overflow-y-auto">{treatmentZones.filter((zone: any) => zone.isActive !== false).map((zone: any) => <div key={zone.id} className={`flex items-center justify-between rounded px-2.5 py-1.5 text-xs ${String(zone.zoneNumber) === String(selectedEvent.zoneUser).replace(/^0+/, "") ? "bg-red-500/15 text-red-100" : "bg-black/20 text-muted-foreground"}`}><span><strong className="font-mono">Zona {String(zone.zoneNumber).padStart(3, "0")}</strong> · {zone.name}</span><span className="uppercase text-[10px]">{zone.type}</span></div>)}{treatmentZones.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma zona cadastrada neste sistema.</p>}</div></div>
                     <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Dados do sistema</h3><div className="grid gap-1 text-sm text-muted-foreground"><p>Central: <span className="text-foreground">{selectedEvent.systemModel}</span></p><p>Porta: <span className="font-mono text-foreground">{selectedEvent.receiverPort || "Não informada"}</span></p><p>Zona/usuário: <span className="font-mono text-foreground">{selectedEvent.zoneUser || "Não informado"}</span></p><p>Prioridade: <span className={PRIORITY_TEXT_COLOR[selectedEvent.priority] || "text-foreground"}>{PRIORITY_LABELS[selectedEvent.priority]?.label || "Média"}</span></p></div></div>
                   </div>
@@ -1185,7 +1209,7 @@ export default function Dashboard() {
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
                 <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "O Desarme validado da central de bancada exige confirmação explícita; os demais comandos ainda são simulados." : "A consulta VSec 0x14 e o Desarme 0x43 da central de testes podem ser físicos; Arme, Zona e PGM Vetti permanecem simulados."}</p>
                 <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p><p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro simulado</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">Quadro simulado</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>

@@ -90,13 +90,15 @@ Na sequência corrigida — login remoto `0x11` confirmado e consulta `0x14` env
 
 O usuário confirmou que a central estava **ARMADA TOTAL** nesse instante. A decodificação verificada é: erro `0x80` (sucesso), modelo `0x12` (SmartAlarm Monitorada), `CTN=0x01` (central armada), `PAR=0x01` (Partição 1 armada), `PGM=0x00` (PGMs 1 a 8 desligadas), `STY=0x00` (Partição 1 sem STAY) e `USO=0x01` (Partição 1 em uso). Esse quadro passa a ser a pré-condição auditável para qualquer futuro teste físico de Desarme Vetti na bancada.
 
-### Preparação do Desarme físico VSec 0x43 — pendente de homologação
+### Desarme físico VSec 0x43 — homologado exclusivamente na bancada
 
-O Police Central está preparado para uma única sequência de **Desarme VSec `0x43`**, exclusivamente para a central de bancada `0336`, MAC final `2DE4A8`, firmware `6.68` e com o modo de bancada VSec explicitamente ativo. A implementação não habilita Arme, Arme STAY, Zona ou PGM físicos.
+O Police Central executou com êxito a sequência de **Desarme VSec `0x43`**, exclusivamente na central de bancada `0336`, MAC final `2DE4A8`, firmware `6.68` e com o modo de bancada VSec explicitamente ativo. A implementação não habilita Arme, Arme STAY, Zona ou PGM físicos.
 
 A sequência preparada exige: conexão autenticada da própria central; login remoto `0x11` com retorno `0x91/0x80`; pré-consulta completa `0x14/0x94/0x80` que comprove `CTN` armado e máscara `PAR` não nula; envio do `0x43` com a máscara lida e a senha do usuário de comando mantida somente em memória; retorno `0xC3/0x80` com a mesma máscara e os quatro bytes de credencial refletidos; e consulta posterior `0x14`. O resultado só fica como `responded` se o pós-estado comprovar central desarmada e ausência das partições que estavam armadas antes. Os três retornos são gravados como auditoria sem expor qualquer senha.
 
-O transporte VSec agora também valida comprimento e CRC de cada resposta, separa frames TCP fracionados ou agregados, impõe no máximo uma sequência VSec ativa para a bancada e encerra como `failed` as perdas de sessão, divergências de confirmação ou ausência de resposta em até 12 segundos. Como a confirmação `0xC3` devolve o campo de senha, seus quatro bytes são substituídos por um marcador antes de qualquer auditoria, log ou interface; fragmentos Vetti brutos também não são registrados antes da recomposição segura do frame. Esses controles foram validados automaticamente; **não houve teste físico do `0x43` e ele não pode ser considerado homologado**.
+O transporte VSec também valida comprimento e CRC de cada resposta, separa frames TCP fracionados ou agregados, impõe no máximo uma sequência VSec ativa para a bancada e encerra como `failed` as perdas de sessão, divergências de confirmação ou ausência de resposta em até 12 segundos. Como a confirmação `0xC3` devolve o campo de senha, seus quatro bytes são substituídos por um marcador antes de qualquer auditoria, log ou interface; fragmentos Vetti brutos também não são registrados antes da recomposição segura do frame.
+
+Em 03/09/2026, a primeira tentativa física foi corretamente recusada com `0xC3/0x8A` porque o usuário de comando ainda não existia na central. Após o cadastro do usuário e a rotação da credencial temporária pelo cadastro protegido, o comando auditado `#32` concluiu como `responded` e a central foi observada desarmando fisicamente. Assim, fica **homologado somente o Desarme Vetti `0x43` desta bancada**. Arme, Arme STAY, Isolamento de Zona e PGM físicos continuam bloqueados. A correlação que abrirá automaticamente uma ocorrência para futuros Desarmes confirmados está implementada e validada em testes, mas ainda requer validação operacional própria antes de ser considerada homologada.
 
 ## Referência
 
