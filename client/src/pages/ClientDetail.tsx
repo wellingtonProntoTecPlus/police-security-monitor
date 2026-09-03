@@ -56,7 +56,16 @@ export default function ClientDetail() {
   const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema cadastrado!"); } });
   const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema excluído!"); } });
   const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
-  const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); setRemoteCredentialValues({}); toast.success("Credencial técnica protegida e atualizada."); } });
+  const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({
+    onSuccess: async () => {
+      await refetchRemoteCredentialStatus();
+      setRemoteCredentialValues({});
+      toast.success("Credencial técnica protegida e atualizada.");
+    },
+    onError: (error) => {
+      toast.error(`Não foi possível atualizar a credencial técnica: ${error.message}`);
+    },
+  });
   const clearRemoteCredential = trpc.alarmSystem.clearRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Credencial técnica removida."); } });
   const setRemoteCommandLaboratory = trpc.alarmSystem.setRemoteCommandLaboratory.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Modo de bancada atualizado."); } });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
@@ -433,7 +442,13 @@ export default function ClientDetail() {
               </Dialog>
             )}
             {credentialSystem && (
-              <Dialog open={!!credentialSystem} onOpenChange={(open) => { if (!open) { setCredentialSystem(null); setRemoteCredentialValues({}); } }}>
+              <Dialog open={!!credentialSystem} onOpenChange={(open) => {
+                if (!open && setRemoteCredential.isPending) {
+                  toast.info("Aguarde a confirmação da atualização da credencial antes de fechar esta janela.");
+                  return;
+                }
+                if (!open) { setCredentialSystem(null); setRemoteCredentialValues({}); }
+              }}>
                 <DialogContent className="sm:max-w-lg">
                   <DialogHeader><DialogTitle>Credencial técnica de comando remoto</DialogTitle></DialogHeader>
                   <div className="space-y-4">
@@ -450,7 +465,7 @@ export default function ClientDetail() {
                       const vettiUserPreview = profile.kind === "vetti_command_user" && /^\d{2}/.test(value) ? `3${value.slice(0, 2)}` : null;
                       return <div key={profile.kind} className="rounded-lg border border-border bg-background/40 p-3"><div className="flex items-start justify-between gap-3"><div><Label>{profile.label}</Label><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{profile.help}</p>{saved?.technicalUserCode && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti registrado: {saved.technicalUserCode}</p>}{vettiUserPreview && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti que será registrado: {vettiUserPreview}</p>}</div><Badge variant={saved ? "default" : "secondary"}>{saved ? "Cadastrada" : "Não cadastrada"}</Badge></div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><Input type="password" autoComplete="new-password" value={value} onChange={(event) => setRemoteCredentialValues({ ...remoteCredentialValues, [profile.kind]: event.target.value })} placeholder={saved ? "Digite somente para substituir" : "Digite a credencial"} /><div className="flex gap-2"><Button size="sm" disabled={setRemoteCredential.isPending || !value.trim()} onClick={() => setRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind, credential: value })}>{setRemoteCredential.isPending ? "Salvando..." : saved ? "Substituir" : "Salvar"}</Button>{saved && <Button variant="destructive" size="sm" disabled={clearRemoteCredential.isPending} onClick={() => { if (confirm(`Remover ${profile.label}?`)) clearRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind }); }}>Remover</Button>}</div></div></div>;
                     })}</div>
-                    <div className="flex justify-end"><Button variant="outline" onClick={() => { setCredentialSystem(null); setRemoteCredentialValues({}); }}>Concluir</Button></div>
+                    <div className="flex justify-end"><Button variant="outline" disabled={setRemoteCredential.isPending} onClick={() => { setCredentialSystem(null); setRemoteCredentialValues({}); }}>{setRemoteCredential.isPending ? "Salvando credencial..." : "Concluir"}</Button></div>
                   </div>
                 </DialogContent>
               </Dialog>

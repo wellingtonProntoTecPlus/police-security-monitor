@@ -590,6 +590,14 @@
 - [x] Definir a sequência Vetti de consulta de estado, login, comando e confirmação antes de preparar o primeiro Desarme físico da bancada
 - [x] Manter Arme, Arme STAY, Isolar Zona e PGM Vetti bloqueados; o Desarme 0x43 continua exclusivo da bancada e pendente de homologação unitária
 - [x] Renomear o cabeçalho do modal Vetti para diferenciar simulações dos únicos controles físicos e controlados da bancada
+- [ ] Diagnosticar e encerrar com segurança a solicitação Vetti pendente que bloqueou a nova tentativa de Desarme da bancada
+- [ ] Cancelar a tentativa Vetti criada em 02/09 que permaneceu aguardando conexão; o Desarme observado foi manual e não homologa o comando físico
+- [ ] Investigar por que a tentativa Vetti autorizada permaneceu em waiting_connection apesar de a central estar conectada no aplicativo
+- [ ] Investigar a recusa física Vetti 0x8A do Desarme 0x43 em 02/09, sem nova transmissão, validando código de retorno, credencial de comando e formato do quadro
+- [ ] Confirmar o alinhamento entre a credencial Vetti cifrada e a senha do usuário 99, criado após a recusa 0x8A, antes de uma nova tentativa presencial
+- [ ] Rotacionar a senha do usuário Vetti 99 e atualizar sua credencial cifrada no Police Central após a senha anterior ter sido exposta em conversa
+- [x] Corrigir a interface de credenciais para bloquear fechamento durante o salvamento e apresentar erro explícito quando a substituição não persistir na VPS
+- [ ] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
 - [ ] Confirmar a revisão Vetti instalada na VPS e descartar a solicitação antiga que ficou em sent antes de criar nova consulta pós-login
