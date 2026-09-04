@@ -388,11 +388,15 @@
 - [ ] Diagnosticar o encaminhamento ViaWeb do teste que chegou ao FullArm, mas não foi persistido no PoliceCentral
 - [ ] Corrigir a confirmação do evento interno ViaWeb EAA5 de autorização, associado ao ISEP F301 e conta 0337, que chegou mas não foi persistido
 - [ ] Capturar no Receiver os eventos ViaWeb 0337 comprovados no FullArm: E603, E410 e E412 da partição 01
+- [ ] Classificar o E603 ViaWeb como teste de supervisão de relatório, com descrição correta e sem fila operacional
+- [ ] Verificar e preservar o cadastro manual existente do E603 ViaWeb, corrigindo somente a busca por código, qualificador e fabricante
 - [x] Mapear e confirmar com segurança o evento interno `1AA0`/tipo 1 sem ISEP, sem associá-lo a um painel, liberando a fila para eventos reais identificados
 - [x] Analisar a gravação do teste ViaWeb 0337 para confrontar a sequência exibida no terminal com o encaminhamento ao PoliceCentral
 - [x] Registrar de forma mascarada a estrutura da mensagem encaminhada pelo VIAWEB Receiver antes de ajustar o parser de eventos
 - [ ] Manter Arme, Desarme, Isolar Zona e PGM da ViaWeb 0337 bloqueados até homologação física específica; validar recepção por evento manual independente
 - [ ] Diagnosticar no aplicativo ViaWeb por que o controle de Arme e Desarme não funciona apesar da central 0337 estar On Line, sem liberar comandos no PoliceCentral
+- [x] Validar que o E130 Universal abre atendimento quando recebido da ViaWeb sem código exclusivo cadastrado para a marca
+- [x] Garantir a precedência: código exclusivo da marca primeiro; na ausência, código Universal, sem duplicar ou alterar cadastros existentes
 - [x] Atualizar o status Online do PoliceCentral pelo evento interno de entrada On Line da ViaWeb 0337 autenticada por ISEP F301
 - [x] Confirmar e persistir as variáveis VIAWEB_INTEGRATION no processo PM2 do PoliceCentral antes de alterar a configuração da central
 - [x] Conferir o MAC 0FA8CB apenas como evidência secundária da ViaWeb 0337, mantendo ISEP F301 como identidade obrigatória de associação

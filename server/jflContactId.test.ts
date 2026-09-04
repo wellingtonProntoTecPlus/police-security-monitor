@@ -40,4 +40,17 @@ describe("tabela Contact ID JFL", () => {
     expect(dbSource).toContain("eq(contactIdCodes.isUniversal, true)");
     expect(receiverSource).toContain("getContactIdDescription(evento.eventCode, evento.qualifier, evento.brand)");
   });
+
+  it("aplica a regra Universal E130 à ViaWeb quando não houver código exclusivo", () => {
+    const seedSource = readFileSync(resolve(process.cwd(), "deploy/seed_contact_ids.sql"), "utf8");
+    const dbSource = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
+    const receiverSource = readFileSync(resolve(process.cwd(), "server/receiver/index.ts"), "utf8");
+
+    expect(seedSource).toContain("'130', 'E', 'UNIVERSAL', 1, 'Disparo de Alarme - Zona/Setor'");
+    expect(dbSource.indexOf("eq(contactIdCodes.fabricante, fabricante)")).toBeLessThan(
+      dbSource.indexOf("eq(contactIdCodes.isUniversal, true)"),
+    );
+    expect(receiverSource).toContain("const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);");
+    expect(receiverSource).toContain("const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance;");
+  });
 });
