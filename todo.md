@@ -346,7 +346,7 @@
 - [x] Corrigir a consulta do Dashboard que recebe “Too many requests” em texto e quebra a leitura JSON do tRPC
 - [x] Corrigir a conexão WebSocket de atualização do Vite que tenta usar localhost:5173 na prévia do Dashboard
 - [x] Eliminar o cliente Vite que ainda tenta abrir WebSocket na prévia e mostra “WebSocket closed without opened”
-- [ ] Eliminar a origem residual do aviso Vite visível na prévia, sem exigir que o usuário execute ações técnicas
+- [x] Eliminar a origem residual do aviso Vite visível na prévia, sem exigir que o usuário execute ações técnicas
 
 ## Complementos de Relatórios
 - [x] Adicionar períodos rápidos Hoje, Ontem, Semana, Mês e período personalizado em Relatórios

@@ -10,5 +10,10 @@ describe("prévia Vite sem HMR", () => {
     expect(source).toContain("transformIndexHtml");
     expect(source).toContain("/@vite/client");
     expect(source).toContain("transformedPage.replace");
+    expect(source).toContain('"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"');
+    expect(source).toContain('app.get("/@vite/client"');
+    expect(source).toContain("export function createHotContext()");
+    expect(source).toContain("export function updateStyle");
+    expect(source).toContain("export function removeStyle");
   });
 });

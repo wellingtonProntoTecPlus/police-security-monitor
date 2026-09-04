@@ -24,6 +24,40 @@ export async function setupVite(app: Express, server: Server) {
     appType: "custom",
   });
 
+  // Uma página de prévia anterior pode ainda conter <script src="/@vite/client">.
+  // Como HMR não é usado nesse ambiente, retornamos um módulo inerte para que
+  // essa página legada não tente abrir WebSocket através do proxy HTTPS.
+  app.get("/@vite/client", (_req, res) => {
+    res.status(200).set({
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      Pragma: "no-cache",
+    }).end(`const hot = {
+  accept() {}, dispose() {}, prune() {}, decline() {}, invalidate() {},
+  send() {}, on() {}, off() {},
+};
+const styles = new Map();
+export function createHotContext() { return hot; }
+export function updateStyle(id, content) {
+  let style = styles.get(id) || document.querySelector('style[data-vite-dev-id="' + id + '"]');
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute('data-vite-dev-id', id);
+    document.head.appendChild(style);
+  }
+  style.textContent = content;
+  styles.set(id, style);
+}
+export function removeStyle(id) { styles.get(id)?.remove(); styles.delete(id); }
+export function injectQuery(url, query) { return url + (url.includes('?') ? '&' : '?') + query; }
+export function createOverlay() { return null; }
+export function clearErrorOverlay() {}
+export function prepareError(error) { return error; }
+export function buildErrorMessage(error) { return String(error?.message || error); }
+export function waitForSuccessfulPing() { return Promise.resolve(); }
+`);
+  });
+
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
@@ -50,7 +84,14 @@ export async function setupVite(app: Express, server: Server) {
         /<script type="module" src="\/@vite\/client"><\/script>\s*/,
         "",
       );
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      // A prévia passa por proxy e pode reaproveitar uma página anterior que
+      // ainda carregava /@vite/client. A página de desenvolvimento nunca deve
+      // ser armazenada: cada abertura recebe o HTML atual, já sem HMR.
+      res.status(200).set({
+        "Content-Type": "text/html",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        Pragma: "no-cache",
+      }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);
