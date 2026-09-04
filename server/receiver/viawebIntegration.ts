@@ -95,6 +95,26 @@ export function parseViawebEvent(operation: unknown): ViawebEvent | null {
   };
 }
 
+/**
+ * Eventos internos 1/2 sem ISEP são avisos do próprio Receiver sem painel
+ * associado. Eles não podem ser ligados à conta 0337 e não devem abrir fila,
+ * mas precisam ser confirmados para não bloquear a entrega dos próximos
+ * eventos reais, que obrigatoriamente trazem ISEP hexadecimal.
+ */
+export function isAcknowledgableUnassociatedInternalViawebEvent(operation: unknown) {
+  if (!operation || typeof operation !== "object") return false;
+  const value = operation as Record<string, unknown>;
+  const hasOperationId = typeof value.id === "string" || typeof value.id === "number";
+  const hasValidContactId = isValidHex(normalizeHex(value.codigoEvento), 4);
+  const internalEventType = Number(value.eventoInterno);
+  const missingIsep = !isValidHex(normalizeHex(value.isep), 4);
+  return hasOperationId
+    && value.acao === "evento"
+    && hasValidContactId
+    && missingIsep
+    && (internalEventType === 1 || internalEventType === 2);
+}
+
 function extractJsonMessages(buffer: string) {
   const messages: string[] = [];
   let depth = 0;
@@ -352,6 +372,11 @@ export function startViawebEventIntegration(options: ViawebIntegrationOptions) {
           }
 
           const unknown = operation as Record<string, unknown>;
+          if (isAcknowledgableUnassociatedInternalViawebEvent(unknown)) {
+            responses.push({ id: String(unknown.id) });
+            console.info("[VIAWEB] Evento interno sem ISEP confirmado sem persistência; aguardando eventos associados a ISEP.");
+            continue;
+          }
           if ((typeof unknown.id === "string" || typeof unknown.id === "number") && unknown.acao === "ping") {
             responses.push({ id: String(unknown.id) });
           }

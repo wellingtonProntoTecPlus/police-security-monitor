@@ -386,8 +386,9 @@
 - [ ] Validar a chegada e a persistência de um evento manual de bancada após a central ViaWeb 0337 confirmar On Line pelo ISEP F301
 - [ ] Diagnosticar o encaminhamento ViaWeb do teste que chegou ao FullArm, mas não foi persistido no PoliceCentral
 - [ ] Capturar no Receiver os eventos ViaWeb 0337 comprovados no FullArm: E603, E410 e E412 da partição 01
-- [ ] Analisar a gravação do teste ViaWeb 0337 para confrontar a sequência exibida no terminal com o encaminhamento ao PoliceCentral
-- [ ] Registrar de forma mascarada a estrutura da mensagem encaminhada pelo VIAWEB Receiver antes de ajustar o parser de eventos
+- [x] Mapear e confirmar com segurança o evento interno `1AA0`/tipo 1 sem ISEP, sem associá-lo a um painel, liberando a fila para eventos reais identificados
+- [x] Analisar a gravação do teste ViaWeb 0337 para confrontar a sequência exibida no terminal com o encaminhamento ao PoliceCentral
+- [x] Registrar de forma mascarada a estrutura da mensagem encaminhada pelo VIAWEB Receiver antes de ajustar o parser de eventos
 - [ ] Manter Arme, Desarme, Isolar Zona e PGM da ViaWeb 0337 bloqueados até homologação física específica; validar recepção por evento manual independente
 - [ ] Diagnosticar no aplicativo ViaWeb por que o controle de Arme e Desarme não funciona apesar da central 0337 estar On Line, sem liberar comandos no PoliceCentral
 - [x] Atualizar o status Online do PoliceCentral pelo evento interno de entrada On Line da ViaWeb 0337 autenticada por ISEP F301

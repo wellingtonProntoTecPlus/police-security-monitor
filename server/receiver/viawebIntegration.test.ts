@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __testables, buildIsepAuthorizationOperation, parseViawebClientStatuses, parseViawebEvent, readPreauthorizedIseps, summarizeViawebReceiverMessage } from "./viawebIntegration";
+import { __testables, buildIsepAuthorizationOperation, isAcknowledgableUnassociatedInternalViawebEvent, parseViawebClientStatuses, parseViawebEvent, readPreauthorizedIseps, summarizeViawebReceiverMessage } from "./viawebIntegration";
 
 describe("integração oficial ViaWeb", () => {
   it("normaliza um evento Contact ID de alarme pelo ISEP hexadecimal", () => {
@@ -31,6 +31,18 @@ describe("integração oficial ViaWeb", () => {
       .toMatchObject({ operationId: "22", qualifier: "R", eventCode: "130", requiresAuthorization: true, internalEventType: 3 });
     expect(parseViawebEvent({ id: 23, acao: "evento", codigoEvento: "1130", isep: "LYUL" })).toBeNull();
     expect(parseViawebEvent({ id: 24, acao: "evento", codigoEvento: "E130", isep: "F301" })).toBeNull();
+  });
+
+  it("confirma somente avisos internos sem ISEP, sem associá-los a um painel", () => {
+    expect(isAcknowledgableUnassociatedInternalViawebEvent({
+      id: "receiver-online", acao: "evento", codigoEvento: "1AA0", eventoInterno: 1,
+    })).toBe(true);
+    expect(isAcknowledgableUnassociatedInternalViawebEvent({
+      id: "authorization", acao: "evento", codigoEvento: "1AA5", eventoInterno: 3,
+    })).toBe(false);
+    expect(isAcknowledgableUnassociatedInternalViawebEvent({
+      id: "panel-event", acao: "evento", codigoEvento: "1603", isep: "F301",
+    })).toBe(false);
   });
 
   it("preserva JSON fracionado e prepara somente identificação e recepção de eventos", () => {
