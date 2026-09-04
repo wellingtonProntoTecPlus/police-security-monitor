@@ -68,7 +68,9 @@ export function parseIntelbrasIsecnetEvent(frame: Buffer): IntelbrasIsecnetEvent
     qualifier,
     eventCode: normalizeIntelbrasContactIdEventCode(`${decodeContactIdNibble(frame[10])}${decodeContactIdNibble(frame[11])}${decodeContactIdNibble(frame[12])}`),
     partition: decodeContactIdByte(frame[13]),
-    zoneUser: `${decodeContactIdByte(frame[15])}${decodeContactIdNibble(frame[17])}`,
+    // ZZZ ocupa três bytes independentes no ISECnet. Não compactar os dois
+    // primeiros bytes, pois isso perderia o dígito central (ex.: usuário 198).
+    zoneUser: `${decodeContactIdNibble(frame[15])}${decodeContactIdNibble(frame[16])}${decodeContactIdNibble(frame[17])}`,
     command: isB0 ? "0xB0" : "0xB4",
   };
 }

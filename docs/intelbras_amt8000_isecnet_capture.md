@@ -40,6 +40,8 @@ O receptor passa a aceitar somente os eventos ISECnet `0xB0` e `0xB4` com tamanh
 
 O código Contact ID e o qualificador são campos independentes. A notação alternativa `1130` é normalizada para o código `130`; o qualificador `E` representa Disparo e `R` representa Restauração. Não deve existir um mapeamento separado `E1130`, pois ele duplicaria o mesmo evento.
 
+O campo final `ZZZ` ocupa **três bytes independentes** no ISECnet. A leitura anterior juntava apenas o primeiro e o terceiro bytes, fazendo com que o usuário `198` fosse exibido incorretamente como `18`. O parser agora preserva todos os três dígitos, mantendo o contexto definido pelo código e pelo qualificador.
+
 ## Continuidade entre conexões TCP
 
 Na AMT-8000 observada, o evento `0xB0` pode chegar em uma conexão TCP curta diferente da conexão que transmitiu o `0x94` de identificação. O receptor passa a manter por até cinco minutos a associação confirmada por **MAC, conta, IP de origem e porta** para permitir essa continuidade. Se duas centrais diferentes forem identificadas com a mesma conta no mesmo IP e porta, a associação fica ambígua e o evento é descartado da persistência, mantendo a segurança contra atribuição indevida.

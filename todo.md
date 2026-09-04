@@ -624,6 +624,8 @@
 - [ ] Quando houver presença na bancada da empresa, capturar um evento manual Intelbras conhecido da conta 0049 para confirmar a persistência 0xB0 ou 0xB4
 - [x] Corrigir o Arme Intelbras AMT-8000 recebido em 0xB0 que foi associado à conta 0000 em vez da conta física 0049, preservando e auditando o quadro original
 - [ ] Instalar a correção da associação Intelbras 0xB0 na VPS e confirmar que o próximo Arme manual seja gravado somente na conta 0049
+- [x] Corrigir a leitura do argumento de três dígitos nos eventos Intelbras, pois o usuário 198 foi exibido como 18 no Police Central
+- [ ] Instalar a correção de três dígitos Intelbras na VPS e confirmar que o próximo evento E407 seja exibido com Usuário 198
 - [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
 - [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
