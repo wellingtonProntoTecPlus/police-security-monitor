@@ -55,6 +55,29 @@ const EVENT_OPTIONS: Array<{ value: EventGroup; label: string }> = [
   { value: "system", label: "Falhas e sistema" },
 ];
 
+const DEFAULT_REPORT_LIMIT = 100;
+const FILTERED_REPORT_LIMIT = 1000;
+
+function hasActiveReportFilters(filters: {
+  dateFrom: string;
+  dateTo: string;
+  account: string;
+  clientId?: number;
+  partnerCompanyId?: number;
+  operatorName?: string;
+  eventGroup: EventGroup;
+}) {
+  return Boolean(
+    filters.dateFrom
+    || filters.dateTo
+    || filters.account.trim()
+    || filters.clientId
+    || filters.partnerCompanyId
+    || filters.operatorName?.trim()
+    || filters.eventGroup !== "all",
+  );
+}
+
 export default function Reports() {
   const [reportMode, setReportMode] = useState<ReportMode>("occurrences");
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("custom");
@@ -75,9 +98,11 @@ export default function Reports() {
   const availableClients = useMemo(() => partnerFilter === "all"
     ? clients
     : clients.filter((client: any) => client.partnerCompanyId === Number(partnerFilter)), [clients, partnerFilter]);
+  const hasAppliedFilters = hasActiveReportFilters(appliedFilters);
+  const reportLimit = hasAppliedFilters ? FILTERED_REPORT_LIMIT : DEFAULT_REPORT_LIMIT;
 
-  const { data: occurrences = [], isLoading: isLoadingOccurrences, error: occurrencesError } = trpc.occurrence.list.useQuery({ limit: 1000, offset: 0, ...appliedFilters });
-  const { data: events = [], isLoading: isLoadingEvents, error: eventsError } = trpc.alarmEvent.report.useQuery({ limit: 1000, offset: 0, ...appliedFilters }, { enabled: reportMode === "events" });
+  const { data: occurrences = [], isLoading: isLoadingOccurrences, error: occurrencesError } = trpc.occurrence.list.useQuery({ limit: reportLimit, offset: 0, ...appliedFilters });
+  const { data: events = [], isLoading: isLoadingEvents, error: eventsError } = trpc.alarmEvent.report.useQuery({ limit: reportLimit, offset: 0, ...appliedFilters }, { enabled: reportMode === "events" });
   const { data: connectionRows = [], isLoading: isLoadingConnections, error: connectionsError } = trpc.alarmEvent.connectionReport.useQuery({
     clientId: appliedFilters.clientId,
     partnerCompanyId: appliedFilters.partnerCompanyId,
@@ -192,7 +217,7 @@ export default function Reports() {
       </Card>
 
       <Card>
-        <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle className="text-lg">{reportMode === "occurrences" ? "Ocorrências finalizadas" : reportMode === "events" ? "Eventos recebidos" : "Status atual das centrais"} ({currentRows.length})</CardTitle><Button variant="outline" size="sm" onClick={handleExport} disabled={!currentRows.length}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button></div></CardHeader>
+        <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="text-lg">{reportMode === "occurrences" ? "Ocorrências finalizadas" : reportMode === "events" ? "Eventos recebidos" : "Status atual das centrais"} ({currentRows.length})</CardTitle>{reportMode !== "connections" && !hasAppliedFilters && <p className="mt-1 text-xs text-muted-foreground">Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.</p>}</div><Button variant="outline" size="sm" onClick={handleExport} disabled={!currentRows.length}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button></div></CardHeader>
         <CardContent><ScrollArea className="h-[500px]"><table className="w-full text-sm"><thead className="bg-muted sticky top-0"><tr>{reportMode === "connections" ? <><th className="p-2 text-left">Status</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Central</th><th className="p-2 text-left">Último Keep Alive</th><th className="p-2 text-left">Prazo</th></> : <><th className="p-2 text-left">Data/Hora</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Evento</th><th className="p-2 text-left">Descrição</th><th className="p-2 text-left">Finalização</th><th className="p-2 text-left">Tempo</th><th className="p-2 text-left">Operador</th></>}</tr></thead><tbody>
           {isLoading ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Carregando relatório…</td></tr> : error ? <tr><td colSpan={8} className="p-4 text-center text-destructive">Não foi possível carregar o relatório. Atualize a página e tente novamente.</td></tr> : !currentRows.length ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhum registro encontrado para os filtros informados</td></tr> : reportMode === "connections" ? connectionRows.map((system: any) => <tr key={system.id} className="border-b hover:bg-muted/50"><td className="p-2"><Badge variant={system.connectionStatus === "online" ? "default" : "destructive"}>{system.connectionStatus === "online" ? "Online" : "Offline"}</Badge></td><td className="p-2 font-mono">{system.account}</td><td className="p-2">{system.clientName || "-"}</td><td className="p-2">{[system.brand, system.model].filter(Boolean).join(" · ")}</td><td className="p-2 whitespace-nowrap">{formatReportDate(system.lastKeepAliveAt)}</td><td className="p-2">{system.keepAliveOfflineAfterMinutes || "-"} min</td></tr>) : currentRows.map((row: any) => <tr key={row.id} className="border-b hover:bg-muted/50"><td className="p-2 whitespace-nowrap">{formatReportDate(row.finalizedAt || row.receivedAt)}</td><td className="p-2 font-mono">{row.account}</td><td className="p-2">{row.clientName || (row.account === "0000" ? "Conta do Sistema" : "-")}</td><td className="p-2"><Badge variant="outline">{row.qualifier || ""}{row.eventCode}</Badge></td><td className="p-2">{row.description || "-"}</td><td className="p-2 max-w-[220px] truncate">{row.observations || row.autoFinalizationReason || "-"}</td><td className="p-2 whitespace-nowrap">{formatReportDuration(row.attendingTimeMs)}</td><td className="p-2 font-medium">{row.operatorName || (row.autoFinalized ? "Sistema" : "-")}</td></tr>)}
         </tbody></table></ScrollArea></CardContent>

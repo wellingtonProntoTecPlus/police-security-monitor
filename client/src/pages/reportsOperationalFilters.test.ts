@@ -24,4 +24,12 @@ describe("Relatórios operacionais", () => {
     expect(source).toContain("Somente Offline");
     expect(source).toContain("Exportar CSV");
   });
+
+  it("limita relatórios sem filtros a 100 e preserva até 1000 com filtros aplicados", () => {
+    expect(source).toContain("const DEFAULT_REPORT_LIMIT = 100");
+    expect(source).toContain("const FILTERED_REPORT_LIMIT = 1000");
+    expect(source).toContain("const reportLimit = hasAppliedFilters ? FILTERED_REPORT_LIMIT : DEFAULT_REPORT_LIMIT");
+    expect(source).toContain("limit: reportLimit");
+    expect(source).toContain("Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.");
+  });
 });
