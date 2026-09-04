@@ -385,6 +385,7 @@
 - [ ] Pré-autorizar explicitamente somente o ISEP F301 na inicialização da integração ViaWeb, sem autorizar ISEPs desconhecidos
 - [ ] Validar a chegada e a persistência de um evento manual de bancada após a central ViaWeb 0337 confirmar On Line pelo ISEP F301
 - [ ] Diagnosticar o encaminhamento ViaWeb do teste que chegou ao FullArm, mas não foi persistido no PoliceCentral
+- [ ] Corrigir a confirmação do evento interno ViaWeb EAA5 de autorização, associado ao ISEP F301 e conta 0337, que chegou mas não foi persistido
 - [ ] Capturar no Receiver os eventos ViaWeb 0337 comprovados no FullArm: E603, E410 e E412 da partição 01
 - [x] Mapear e confirmar com segurança o evento interno `1AA0`/tipo 1 sem ISEP, sem associá-lo a um painel, liberando a fila para eventos reais identificados
 - [x] Analisar a gravação do teste ViaWeb 0337 para confrontar a sequência exibida no terminal com o encaminhamento ao PoliceCentral

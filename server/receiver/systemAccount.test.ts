@@ -56,10 +56,23 @@ describe("Conta do Sistema", () => {
     });
   });
 
+  it("planeja auditoria sem fila para um evento interno ViaWeb associado", () => {
+    expect(getOperationalDeliveryPlan({
+      isSystemAccount: false,
+      automaticAction: "report_only",
+      systemInMaintenance: false,
+    })).toEqual({
+      shouldOpenAttendance: false,
+      shouldPersistReport: true,
+      shouldEmitDashboard: false,
+    });
+  });
+
   it("registra a conta técnica no relatório sem emitir card para o dashboard", () => {
     const receiver = readFileSync(resolve(process.cwd(), "server/receiver/index.ts"), "utf8");
 
     expect(receiver).toContain("getOperationalDeliveryPlan({");
+    expect(receiver).toContain('const deliveryAutomaticAction = isViawebInternalEvent ? "report_only" as const : automaticAction;');
     expect(receiver).toContain("Registrada na Conta do Sistema (0000) para conferência no relatório");
     expect(receiver).toContain("if (deliveryPlan.shouldPersistReport && !remoteCommandMatched) {");
     expect(receiver).toContain("await persistAutomaticOccurrence({");

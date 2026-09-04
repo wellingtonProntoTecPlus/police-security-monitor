@@ -847,12 +847,16 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     if (systemInMaintenance) {
       description = `${maintenanceMessage} — ${description}`;
     }
+    // Eventos internos ViaWeb já associados ao ISEP são auditáveis, mas não são
+    // ocorrências operacionais. Forçar report_only mantém a confirmação ao
+    // Receiver e evita que o EAA5 fique retransmitindo e bloqueie a fila.
+    const deliveryAutomaticAction = isViawebInternalEvent ? "report_only" as const : automaticAction;
     const deliveryPlan = getOperationalDeliveryPlan({
       isSystemAccount: accountResolution.isSystemAccount,
-      automaticAction,
+      automaticAction: deliveryAutomaticAction,
       systemInMaintenance,
     });
-    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !isViawebInternalEvent;
+    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance;
     const automaticFinalizationMessage = accountResolution.isSystemAccount
       ? "Registrada na Conta do Sistema (0000) para conferência no relatório"
       : systemInMaintenance ? maintenanceMessage : isViawebInternalEvent ? "Evento interno ViaWeb registrado para auditoria" : "Finalizada automaticamente";
