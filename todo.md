@@ -288,6 +288,9 @@
 - [x] Coluna Qualifier visível na tabela Contact ID
 - [x] Edição de códigos Contact ID funcional (botão lápis)
 - [x] Receptor busca descrição com qualifier (E/R) para identificar corretamente
+- [x] Interpretar o argumento Contact ID por código e qualificador em todos os fabricantes, sem rotulá-lo genericamente como Zona
+- [x] Registrar os mapeamentos: E361/R361 = IP, R401/E401 e E407/R407 = Usuário, E570/R570 = Zona isolada, E708/R708 = PGM
+- [x] Corrigir a exibição do argumento em Dashboard e Relatórios para preservar a descrição e o número contextual corretos
 
 ## Botões Armados/Desarmados no Dashboard
 - [x] Preservar a confirmação visível de arme e desarme após eventos analíticos ou disparos JFL
@@ -346,6 +349,7 @@
 - [x] Adicionar filtro hierárquico de empresa parceira e cliente nos Relatórios
 - [ ] Validar na VPS os novos períodos, categorias e filtros hierárquicos dos Relatórios
 - [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend
+- [ ] Limitar a 100 eventos a listagem de Relatórios quando nenhum filtro estiver ativo, preservando resultados de consultas filtradas
 - [x] Exibir o cliente correto no relatório de eventos identificados por MAC ou IMEI
 - [x] Resolver o cliente do relatório por alarmSystemId nos eventos finalizados automaticamente
 - [x] Enriquecer linhas já existentes do relatório pelo sistema e cliente vinculados

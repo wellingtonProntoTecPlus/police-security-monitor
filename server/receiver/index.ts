@@ -20,6 +20,7 @@ import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent }
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
+import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -756,6 +757,12 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       description = `EVENTO NÃO CADASTRADO (${evento.qualifier || ''}${evento.eventCode})`;
       console.warn(`[RECIP] Código não cadastrado ${evento.eventCode}: ${e.message}`);
     }
+    const argumentContext = getContactIdArgumentContext({
+      eventCode: evento.eventCode,
+      qualifier: evento.qualifier,
+      value: evento.zoneUser,
+    });
+    if (argumentContext.description) description = argumentContext.description;
 
     // Nenhuma central IP pode ser associada somente pela conta. MAC, IMEI ou,
     // exclusivamente para ViaWeb, ID ISEP precisam estar confirmados no pacote
@@ -845,7 +852,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         priority: priority as any,
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
-        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}${evento.confirmedIntelbrasIdentifier ? `\nIdentificado por ${evento.confirmedIntelbrasIdentifier}` : system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
+        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}\n${argumentContext.label}: ${argumentContext.value}${evento.confirmedIntelbrasIdentifier ? `\nIdentificado por ${evento.confirmedIntelbrasIdentifier}` : system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
