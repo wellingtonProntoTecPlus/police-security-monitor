@@ -671,14 +671,28 @@ export function assertRequiredPanelIdentifier(input: { brand?: string | null; fi
   if (error) throw new Error(error);
 }
 
-const ISEP_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const ISEP_HEX_CHARS = "0123456789ABCDEF";
+
+export function normalizeIsepId(value: string) {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function isValidIsepId(value: string | null | undefined) {
+  return /^[0-9A-F]{4}$/.test(normalizeIsepId(value || ""));
+}
+
+function assertValidIsepId(value: string) {
+  if (!isValidIsepId(value)) {
+    throw new Error("O ID ISEP ViaWeb deve ter exatamente 4 caracteres hexadecimais, de 0 a 9 e A a F");
+  }
+}
 
 export async function generateIsepId() {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const candidate = Array.from({ length: 4 }, () => ISEP_CHARS[Math.floor(Math.random() * ISEP_CHARS.length)]).join("");
+    const candidate = Array.from({ length: 4 }, () => ISEP_HEX_CHARS[Math.floor(Math.random() * ISEP_HEX_CHARS.length)]).join("");
     const found = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isepId, candidate)).limit(1);
     if (!found[0]) return candidate;
   }
@@ -691,6 +705,7 @@ export async function getAlarmSystemByPanelIdentifier(identifier: string, identi
   if (!db) return undefined;
   const normalized = normalizePanelIdentifier(identifier);
   if (!normalized) return undefined;
+  if (identifierType === "isep" && !isValidIsepId(normalized)) return undefined;
 
   const identifierColumn = identifierType === "isep"
     ? alarmSystems.isepId
@@ -1023,8 +1038,9 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
     macAddress: data.macAddress ? normalizePanelIdentifier(data.macAddress) : null,
     imeiGprs: data.imeiGprs ? normalizePanelIdentifier(data.imeiGprs) : null,
     serialNumber: data.serialNumber ? normalizePanelIdentifier(data.serialNumber) : null,
-    isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizePanelIdentifier(data.isepId) : await generateIsepId()) : null,
+    isepId: data.brand === "VIAWEB" ? (data.isepId ? normalizeIsepId(data.isepId) : await generateIsepId()) : null,
   };
+  if (normalizedData.brand === "VIAWEB" && normalizedData.isepId) assertValidIsepId(normalizedData.isepId);
   assertRequiredJflVersion5OrLaterSerial(normalizedData);
   assertRequiredPanelIdentifier(normalizedData);
   const result = await db.insert(alarmSystems).values(normalizedData);
@@ -1057,7 +1073,14 @@ export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSys
     imeiGprs: normalizedData.imeiGprs ?? current?.imeiGprs,
     serialNumber: normalizedData.serialNumber ?? current?.serialNumber,
   });
-  if (effectiveBrand === "VIAWEB" && !current?.isepId && !normalizedData.isepId) normalizedData.isepId = await generateIsepId();
+  if (effectiveBrand === "VIAWEB") {
+    if (normalizedData.isepId !== undefined) {
+      normalizedData.isepId = normalizeIsepId(normalizedData.isepId || "");
+      assertValidIsepId(normalizedData.isepId);
+    } else if (!isValidIsepId(current?.isepId)) {
+      normalizedData.isepId = await generateIsepId();
+    }
+  }
   if (effectiveBrand !== "VIAWEB") normalizedData.isepId = null;
   await db.update(alarmSystems).set(normalizedData).where(eq(alarmSystems.id, id));
 }

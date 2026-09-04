@@ -14,6 +14,8 @@ import {
   updateContactId,
   updateFinalization,
   updateSystemUser,
+  generateIsepId,
+  isValidIsepId,
 } from "./db";
 
 const inserted: unknown[] = [];
@@ -60,6 +62,16 @@ describe("CRUDs reais com textos padronizados", () => {
 
     expect(inserted[0]).toMatchObject({ model: "Central Principal", account: "0336", macAddress: "C1BDCB", imeiGprs: "123456", simCardNumber: "8955032123456789012", simPhoneNumber: "11987654321", serialNumber: "2801936621", isepId: "693E", firmwareVersion: "V4.0" });
     expect(updated[0]).toMatchObject({ model: "Central Reserva", account: "0337", macAddress: "AABBCC", imeiGprs: "654321", simCardNumber: "8955032123456789013", simPhoneNumber: "11987654322", serialNumber: "9876543210", isepId: "693E", firmwareVersion: "V5.0" });
+  });
+
+  it("gera ISEP ViaWeb com quatro caracteres hexadecimais e recusa letras inválidas", async () => {
+    currentSystem = undefined as any;
+    const generated = await generateIsepId();
+    expect(generated).toMatch(/^[0-9A-F]{4}$/);
+    expect(isValidIsepId("A0F9")).toBe(true);
+    expect(isValidIsepId("LYUL")).toBe(false);
+    await expect(createAlarmSystem({ clientId: 1, brand: "VIAWEB", account: "0337", isepId: "LYUL" } as any))
+      .rejects.toThrow("4 caracteres hexadecimais");
   });
 
   it("persiste a classificação do cliente e apartamentos sem restringir vários usuários por unidade", async () => {

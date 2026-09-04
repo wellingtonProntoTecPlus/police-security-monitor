@@ -284,6 +284,7 @@
 - [x] Separar E130 (Alarme) e R130 (Restauração) como códigos universais
 - [x] Cadastrar E602 (Teste Periódico) e E610 (Teste Manual) como universais
 - [x] Corrigir código 701 Compatec: E701 (Desarme por App) e R701 (Arme por App)
+- [x] Gerar e validar o ID ISEP ViaWeb com exatamente 4 caracteres hexadecimais em maiúsculo, de 0 a 9 e A a F
 - [x] Códigos universais aparecem em TODAS as abas de fabricantes
 - [x] Coluna Qualifier visível na tabela Contact ID
 - [x] Edição de códigos Contact ID funcional (botão lápis)
