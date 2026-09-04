@@ -9,12 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
+import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { getRemoteCommandCredentialProfiles } from "@shared/remoteCommandCredentialProfiles";
 
 const CONTACTS_PER_PAGE = 20;
@@ -53,8 +55,8 @@ export default function ClientDetail() {
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
   const deleteContact = trpc.clientContact.delete.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato excluído!"); } });
   const updateContact = trpc.clientContact.update.useMutation({ onSuccess: () => { refetchContacts(); setEditingContact(null); toast.success("Contato atualizado!"); } });
-  const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema cadastrado!"); } });
-  const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); toast.success("Sistema excluído!"); } });
+  const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); setShowSystemForm(false); toast.success("Sistema cadastrado!"); }, onError: (error) => toast.error(error.message) });
+  const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); setSystemPendingDeletion(null); setSystemDeletionConfirmation(""); toast.success("Sistema excluído!"); }, onError: (error) => toast.error(error.message) });
   const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
   const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({
     onSuccess: async () => {
@@ -97,6 +99,8 @@ export default function ClientDetail() {
   const [editingZone, setEditingZone] = useState<any>(null);
   const [showAlarmUserForm, setShowAlarmUserForm] = useState(false);
   const [editingAlarmUser, setEditingAlarmUser] = useState<any>(null);
+  const [systemPendingDeletion, setSystemPendingDeletion] = useState<any>(null);
+  const [systemDeletionConfirmation, setSystemDeletionConfirmation] = useState("");
   const [contactPage, setContactPage] = useState(0);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" });
   const [systemForm, setSystemForm] = useState({
@@ -352,8 +356,6 @@ export default function ClientDetail() {
                     const identifierError = getAlarmSystemIdentifierValidationError(systemForm);
                     if (identifierError) { toast.error(identifierError); return; }
                     createSystem.mutate({ clientId, ...systemForm });
-                    setShowSystemForm(false);
-                    setSystemForm({ account: "", brand: "JFL", model: "", communicationType: "ethernet", firmwareVersion: "", macAddress: "", imeiGprs: "", simCardNumber: "", simPhoneNumber: "", serialNumber: "", viawebCode: "", receiverPort: 9061, keepAliveMonitoringEnabled: true, keepAliveExpectedIntervalSeconds: 60, keepAliveFailureEventEnabled: false, keepAliveOfflineAfterMinutes: 5, keepAliveDisconnectAlertEnabled: true, keepAliveRepeatAlertEnabled: false, keepAliveRepeatAlertEveryMinutes: 60 });
                   }}>Salvar</Button>
                 </DialogContent>
               </Dialog>
@@ -386,7 +388,7 @@ export default function ClientDetail() {
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingSystem({ ...system })} title="Editar sistema">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { if (confirm("Excluir este sistema?")) deleteSystem.mutate({ id: system.id }); }}>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { setSystemPendingDeletion(system); setSystemDeletionConfirmation(""); }} title={`Excluir ${system.brand} ${system.model || ""} · Conta ${system.account}`}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -397,6 +399,25 @@ export default function ClientDetail() {
                 {systems.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum sistema cadastrado</p>}
               </div>
             </ScrollArea>
+            <AlertDialog open={!!systemPendingDeletion} onOpenChange={(open) => { if (!open) { setSystemPendingDeletion(null); setSystemDeletionConfirmation(""); } }}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirmar exclusão do sistema</AlertDialogTitle>
+                  <AlertDialogDescription>Esta ação remove o sistema selecionado do cadastro. Confira os dados abaixo antes de confirmar.</AlertDialogDescription>
+                </AlertDialogHeader>
+                {systemPendingDeletion && (() => {
+                  const expectedConfirmation = buildAlarmSystemDeletionConfirmation(systemPendingDeletion);
+                  return <div className="space-y-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm">
+                    <p><strong>Conta:</strong> {systemPendingDeletion.account}</p><p><strong>Central:</strong> {systemPendingDeletion.brand} · {systemPendingDeletion.model || "Modelo não informado"}</p><p><strong>Serial:</strong> {systemPendingDeletion.serialNumber || "Não informado"}</p><p><strong>MAC:</strong> {systemPendingDeletion.macAddress || "Não informado"}</p><p><strong>ISEP:</strong> {systemPendingDeletion.isepId || "Não se aplica"}</p>
+                    <div><Label>Para excluir, digite exatamente <code className="rounded bg-black/20 px-1 font-mono text-red-200">{expectedConfirmation}</code></Label><Input className="mt-2 font-mono" value={systemDeletionConfirmation} onChange={(event) => setSystemDeletionConfirmation(event.target.value.toUpperCase())} autoComplete="off" /></div>
+                  </div>;
+                })()}
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction className="bg-red-600 hover:bg-red-700" disabled={!systemPendingDeletion || systemDeletionConfirmation !== buildAlarmSystemDeletionConfirmation(systemPendingDeletion) || deleteSystem.isPending} onClick={(event) => { event.preventDefault(); if (systemPendingDeletion) deleteSystem.mutate({ id: systemPendingDeletion.id, confirmation: systemDeletionConfirmation }); }}>Excluir sistema</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             {editingSystem && (
               <Dialog open={!!editingSystem} onOpenChange={() => setEditingSystem(null)}>
                 <DialogContent>

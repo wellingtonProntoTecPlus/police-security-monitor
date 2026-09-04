@@ -443,7 +443,16 @@ export const appRouter = router({
       await db.releaseMaintenanceIncidents(input.systemId, "Sistema retirado da manutenção pelo operador. Ocorrência retornada para atendimento.");
       return { success: true } as const;
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmSystem(input.id)),
+    delete: adminProcedure.input(z.object({ id: z.number(), confirmation: z.string().trim().min(1) })).mutation(async ({ input }) => {
+      const system = await db.getAlarmSystem(input.id);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema não encontrado" });
+      const expectedConfirmation = db.getAlarmSystemDeletionConfirmation(system);
+      if (input.confirmation.trim().toUpperCase() !== expectedConfirmation) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Confirmação inválida. Digite exatamente: ${expectedConfirmation}` });
+      }
+      await db.deleteAlarmSystem(input.id);
+      return { success: true } as const;
+    }),
     remoteCommandCredentialStatus: operatorProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.getAlarmRemoteCredentialStatus(input.alarmSystemId);

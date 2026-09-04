@@ -22,6 +22,10 @@
 - [x] Barra de pesquisa/filtros (conta, marca, evento, porta, data/hora)
 - [x] Footer com status do sistema (CPU, memória, banco, socket, drivers, uptime)
 - [x] Exibir no atendimento operacional a empresa parceira responsável e o nome cadastrado do usuário da central, além de seu número técnico
+- [x] Confirmar que a Active 8W MAC FAE1B4 e serial 2835359229 pertence à conta 0022 e não deve ser alterada
+- [x] Confirmar que a Active 8W MAC 298874 e serial 2835361274 está cadastrada e ativa na conta 0029
+- [x] Exigir confirmação explícita validada com conta, marca, modelo e identificador antes de excluir um sistema de alarme
+- [x] Cobrir em teste a frase completa de exclusão com conta, marca, modelo e identificador
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

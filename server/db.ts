@@ -39,6 +39,7 @@ import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
+import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
@@ -1043,8 +1044,24 @@ export async function createAlarmSystem(data: InsertAlarmSystem) {
   if (normalizedData.brand === "VIAWEB" && normalizedData.isepId) assertValidIsepId(normalizedData.isepId);
   assertRequiredJflVersion5OrLaterSerial(normalizedData);
   assertRequiredPanelIdentifier(normalizedData);
-  const result = await db.insert(alarmSystems).values(normalizedData);
+  let result;
+  try {
+    result = await db.insert(alarmSystems).values(normalizedData);
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new Error(getDuplicateAlarmSystemIdentifierMessage(normalizedData, (error as { message?: string; sqlMessage?: string }).message || (error as { sqlMessage?: string }).sqlMessage));
+    }
+    throw error;
+  }
   return { id: result[0].insertId };
+}
+
+export function getDuplicateAlarmSystemIdentifierMessage(system: Pick<InsertAlarmSystem, "serialNumber" | "macAddress" | "isepId">, databaseMessage?: string) {
+  const message = databaseMessage || "";
+  if (/serialNumber/i.test(message)) return `Serial ${system.serialNumber || "informado"} já está vinculado a outro sistema. Confira o cadastro anterior antes de tentar novamente.`;
+  if (/macAddress/i.test(message)) return `MAC ${system.macAddress || "informado"} já está vinculado a outro sistema. Confira o cadastro anterior antes de tentar novamente.`;
+  if (/isepId/i.test(message)) return `ISEP ${system.isepId || "informado"} já está vinculado a outro sistema ViaWeb. Confira o cadastro anterior antes de tentar novamente.`;
+  return "Um identificador técnico desta central já está vinculado a outro sistema. Confira Serial, MAC e ISEP antes de tentar novamente.";
 }
 
 export async function updateAlarmSystem(id: number, data: Partial<InsertAlarmSystem>) {
@@ -1837,6 +1854,10 @@ export async function deleteClient(id: number) {
 export async function deleteAlarmSystem(id: number) {
   const db = await getDb(); if (!db) return;
   await db.delete(alarmSystems).where(eq(alarmSystems.id, id));
+}
+
+export function getAlarmSystemDeletionConfirmation(system: { account: string; brand: string; model?: string | null; macAddress?: string | null; serialNumber?: string | null; isepId?: string | null }) {
+  return buildAlarmSystemDeletionConfirmation(system);
 }
 
 export async function listContactIdByFabricante(fabricante: string) {
