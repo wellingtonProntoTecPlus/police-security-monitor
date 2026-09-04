@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __testables, buildIsepAuthorizationOperation, parseViawebClientStatuses, parseViawebEvent, readPreauthorizedIseps } from "./viawebIntegration";
+import { __testables, buildIsepAuthorizationOperation, parseViawebClientStatuses, parseViawebEvent, readPreauthorizedIseps, summarizeViawebReceiverMessage } from "./viawebIntegration";
 
 describe("integração oficial ViaWeb", () => {
   it("normaliza um evento Contact ID de alarme pelo ISEP hexadecimal", () => {
@@ -85,5 +85,15 @@ describe("integração oficial ViaWeb", () => {
       { isep: "F301", online: true, remoteIp: "189.101.32.9" },
       { isep: "A0F9", online: false, remoteIp: "127.0.0.1" },
     ]);
+  });
+
+  it("resume a estrutura recebida sem expor campos de credencial", () => {
+    const summary = summarizeViawebReceiverMessage({
+      oper: [{ acao: "evento", isep: "F301", codigoEvento: "1603", eventoInterno: 0, senha: "não-expor" }],
+      token: "não-expor",
+      resp: [],
+    });
+    expect(summary).toContain("evento(ISEP:F301, código:1603, interno:0)");
+    expect(summary).not.toMatch(/senha|token|não-expor/i);
   });
 });

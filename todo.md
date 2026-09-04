@@ -384,7 +384,13 @@
 - [ ] Capturar a mensagem exata de autenticação pendente da ViaWeb 0337 no Receiver e responder conforme o protocolo oficial antes de testar evento
 - [ ] Pré-autorizar explicitamente somente o ISEP F301 na inicialização da integração ViaWeb, sem autorizar ISEPs desconhecidos
 - [ ] Validar a chegada e a persistência de um evento manual de bancada após a central ViaWeb 0337 confirmar On Line pelo ISEP F301
-- [ ] Atualizar o status Online do PoliceCentral pelo evento interno de entrada On Line da ViaWeb 0337 autenticada por ISEP F301
+- [ ] Diagnosticar o encaminhamento ViaWeb do teste que chegou ao FullArm, mas não foi persistido no PoliceCentral
+- [ ] Capturar no Receiver os eventos ViaWeb 0337 comprovados no FullArm: E603, E410 e E412 da partição 01
+- [ ] Analisar a gravação do teste ViaWeb 0337 para confrontar a sequência exibida no terminal com o encaminhamento ao PoliceCentral
+- [ ] Registrar de forma mascarada a estrutura da mensagem encaminhada pelo VIAWEB Receiver antes de ajustar o parser de eventos
+- [ ] Manter Arme, Desarme, Isolar Zona e PGM da ViaWeb 0337 bloqueados até homologação física específica; validar recepção por evento manual independente
+- [ ] Diagnosticar no aplicativo ViaWeb por que o controle de Arme e Desarme não funciona apesar da central 0337 estar On Line, sem liberar comandos no PoliceCentral
+- [x] Atualizar o status Online do PoliceCentral pelo evento interno de entrada On Line da ViaWeb 0337 autenticada por ISEP F301
 - [x] Confirmar e persistir as variáveis VIAWEB_INTEGRATION no processo PM2 do PoliceCentral antes de alterar a configuração da central
 - [x] Conferir o MAC 0FA8CB apenas como evidência secundária da ViaWeb 0337, mantendo ISEP F301 como identidade obrigatória de associação
 - [x] Substituir a escuta TCP genérica da porta 9111 pela integração oficial ViaWeb, pois a central 0337 chega somente ao estado Conectado e não completa o estado On Line

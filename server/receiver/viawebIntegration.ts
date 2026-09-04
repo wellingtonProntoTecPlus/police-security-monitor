@@ -238,6 +238,32 @@ export function buildIsepAuthorizationOperation(event: ViawebEvent) {
   };
 }
 
+function summarizeReceiverOperation(value: unknown) {
+  if (!value || typeof value !== "object") return "inválida";
+  const operation = value as Record<string, unknown>;
+  const action = typeof operation.acao === "string" && /^[A-Za-z]+$/.test(operation.acao)
+    ? operation.acao
+    : "sem-ação";
+  const isep = isValidHex(normalizeHex(operation.isep), 4) ? normalizeHex(operation.isep) : "sem-ISEP";
+  const code = isValidHex(normalizeHex(operation.codigoEvento), 4) ? normalizeHex(operation.codigoEvento) : "sem-código";
+  const internal = Number.isInteger(Number(operation.eventoInterno)) ? `, interno:${Number(operation.eventoInterno)}` : "";
+  return `${action}(ISEP:${isep}, código:${code}${internal})`;
+}
+
+/** Não registra JSON bruto nem credenciais; somente a estrutura necessária ao diagnóstico. */
+export function summarizeViawebReceiverMessage(message: unknown) {
+  if (!message || typeof message !== "object") return "mensagem inválida";
+  const record = message as Record<string, unknown>;
+  const operations = Array.isArray(record.oper) ? record.oper : [];
+  const responses = Array.isArray(record.resp) ? record.resp : [];
+  const topLevel = Object.keys(record)
+    .filter((key) => !/senha|password|chave|key|token|segredo/i.test(key))
+    .slice(0, 8)
+    .join(",") || "sem campos";
+  const operationSummary = operations.slice(0, 4).map(summarizeReceiverOperation).join("; ") || "nenhuma";
+  return `campos:${topLevel} | operações:${operations.length} [${operationSummary}] | respostas:${responses.length}`;
+}
+
 /**
  * Conecta-se somente ao VIAWEB Receiver local. A criptografia é dispensada
  * exclusivamente para loopback, conforme modo documentado pelo fabricante;
@@ -291,6 +317,8 @@ export function startViawebEventIntegration(options: ViawebIntegrationOptions) {
           console.warn("[VIAWEB] Mensagem JSON inválida recebida do Receiver local; aguardando próximo quadro.");
           continue;
         }
+
+        console.log(`[VIAWEB] Estrutura recebida do Receiver: ${summarizeViawebReceiverMessage(message)}`);
 
         for (const status of parseViawebClientStatuses(message)) {
           if (!options.onClientStatus) continue;
