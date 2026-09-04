@@ -21,6 +21,7 @@ import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rem
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
+import { startViawebEventIntegration } from './viawebIntegration';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -29,7 +30,6 @@ const RECEIVERS_CONFIG = [
   { brand: 'JFL', port: 9131 },
   { brand: 'INTELBRAS', port: 9071 },
   { brand: 'INTELBRAS', port: 9271 },
-  { brand: 'VIAWEB', port: 9111 },
   { brand: 'VETTI', port: 9161 },
   { brand: 'COMPATEC', port: 9112 },
   { brand: 'RADIOENGE', port: 9035 },
@@ -763,6 +763,16 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       value: evento.zoneUser,
     });
     if (argumentContext.description) description = argumentContext.description;
+    const isViawebInternalEvent = evento.brand === "VIAWEB" && Number.isInteger(evento.viawebInternalEventType);
+    if (isViawebInternalEvent) {
+      const internalDescriptions: Record<number, string> = {
+        1: "VIAWEB: Servidor, cliente ou equipamento entrou On Line",
+        2: "VIAWEB: Servidor, cliente ou equipamento ficou Off Line",
+        3: "VIAWEB: Equipamento solicitou autorização de conexão",
+      };
+      description = internalDescriptions[evento.viawebInternalEventType] || `VIAWEB: Evento interno ${evento.viawebInternalEventType}`;
+      priority = evento.viawebInternalEventType === 2 ? "medium" : "low";
+    }
 
     // Nenhuma central IP pode ser associada somente pela conta. MAC, IMEI ou,
     // exclusivamente para ViaWeb, ID ISEP precisam estar confirmados no pacote
@@ -784,6 +794,21 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
           system = continuedSystem;
           clientName = `Sistema ${system.account}`;
           console.log(`[RECIP] INTELBRAS evento associado à identidade 0x94 já confirmada | Conta ${system.account}`);
+        }
+      }
+      const confirmedViawebSystemId = evento.brand === "VIAWEB" && Number.isInteger(evento.confirmedViawebSystemId)
+        ? evento.confirmedViawebSystemId
+        : undefined;
+      if (!system && confirmedViawebSystemId) {
+        const continuedSystem = await getAlarmSystem(confirmedViawebSystemId);
+        if (
+          continuedSystem
+          && continuedSystem.brand?.trim().toUpperCase() === "VIAWEB"
+          && continuedSystem.isepId === evento.confirmedViawebIsep
+        ) {
+          system = continuedSystem;
+          clientName = `Sistema ${system.account}`;
+          console.log(`[RECIP] VIAWEB evento associado ao ISEP confirmado ${evento.confirmedViawebIsep} | Conta ${system.account}`);
         }
       }
       if (!system) system = await getAlarmSystemByCapturedPanelIdentifier({ brand: evento.brand, frames: captureFrames });
@@ -827,10 +852,10 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       automaticAction,
       systemInMaintenance,
     });
-    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance;
+    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !isViawebInternalEvent;
     const automaticFinalizationMessage = accountResolution.isSystemAccount
       ? "Registrada na Conta do Sistema (0000) para conferência no relatório"
-      : systemInMaintenance ? maintenanceMessage : "Finalizada automaticamente";
+      : systemInMaintenance ? maintenanceMessage : isViawebInternalEvent ? "Evento interno ViaWeb registrado para auditoria" : "Finalizada automaticamente";
 
     // Salvar o evento e a ocorrência aberta juntos antes de emitir ao dashboard.
     // Nunca use Date.now() como ID de reserva: isso criaria um card temporário que
@@ -1031,5 +1056,31 @@ export function startReceivers() {
     } catch (err: any) {
       console.error(`[RECIP] Falha ao criar servidor ${brand} porta ${port}:`, err.message);
     }
+  });
+
+  startViawebEventIntegration({
+    onEvent: async (viawebEvent) => {
+      const system = await getAlarmSystemByPanelIdentifier(viawebEvent.isep, "isep", "VIAWEB");
+      if (!system) console.warn(`[VIAWEB] ISEP ${viawebEvent.isep} não cadastrado; o evento será preservado na Conta do Sistema.`);
+      const persisted = await processEvent({
+        brand: "VIAWEB",
+        account: system?.account || viawebEvent.receivedAccount,
+        qualifier: viawebEvent.qualifier,
+        eventCode: viawebEvent.eventCode,
+        partition: viawebEvent.partition,
+        zoneUser: viawebEvent.zoneUser,
+        receiverPort: 9111,
+        rawData: viawebEvent.rawData,
+        confirmedViawebSystemId: system?.id,
+        confirmedViawebIsep: viawebEvent.isep,
+        viawebInternalEventType: viawebEvent.internalEventType,
+      }, viawebEvent.remoteIp);
+      return {
+        persisted,
+        // A autorização ocorre somente no evento interno oficial e exclusivamente
+        // quando o ISEP já corresponde a uma central ViaWeb cadastrada.
+        authorizeIsep: Boolean(system && viawebEvent.requiresAuthorization),
+      };
+    },
   });
 }

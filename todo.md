@@ -373,6 +373,14 @@
 - [x] Diagnosticar e corrigir o bloqueio de acesso após o redirecionamento para /dashboard na VPS
 
 ## Identificação de Sistemas de Alarme
+- [x] Inspecionar passivamente a chegada dos quadros da central ViaWeb conta 0337, sem homologar eventos, Keep Alive ou comandos antes da documentação técnica
+- [ ] Analisar o SDK ViaWeb V10.1.5, comparar seu protocolo criptografado com a VPS e implementar apenas a recepção de eventos identificados por ISEP após validação controlada
+- [x] Confirmar a porta, o modo de comunicação e o ID ISEP efetivamente configurados no programador da ViaWeb 0337 antes de instalar ou conectar qualquer serviço intermediário
+- [x] Comparar a confirmação de Servidor 1 On Line exibida pela ViaWeb 0337 com as portas e os registros efetivamente recebidos na VPS
+- [ ] Capturar passivamente o tráfego da ViaWeb 0337 configurada com ISEP F301 para o IP 104.207.144.231 na porta 9111
+- [x] Conferir o MAC 0FA8CB apenas como evidência secundária da ViaWeb 0337, mantendo ISEP F301 como identidade obrigatória de associação
+- [x] Substituir a escuta TCP genérica da porta 9111 pela integração oficial ViaWeb, pois a central 0337 chega somente ao estado Conectado e não completa o estado On Line
+- [ ] Instalar o VIAWEB Receiver oficial na VPS e integrá-lo localmente ao PoliceCentral apenas para recepção, confirmação e persistência de eventos por ISEP F301; comandos físicos permanecem bloqueados
 - [x] Confirmar que o tráfego TLS da porta 9191 é uma sondagem externa, não uma central JFL
 - [ ] Conferir no Programador JFL a porta configurada e validar a recepção da central real
 - [ ] Diagnosticar a central JFL indicada como conectada no programador, mas ausente na Police Central
