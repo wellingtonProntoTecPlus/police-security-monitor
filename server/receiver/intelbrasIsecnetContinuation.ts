@@ -51,6 +51,10 @@ export function getConfirmedIntelbrasEndpoint(remoteIp: string, receiverPort: nu
   return current.kind === "confirmed" ? current.system : undefined;
 }
 
+export function matchesConfirmedIntelbrasEventSystem(system: ConfirmedIntelbrasSystem | undefined, account: string) {
+  return Boolean(system && system.brand.trim().toUpperCase() === "INTELBRAS" && system.account === account);
+}
+
 export function clearConfirmedIntelbrasEndpointsForTesting() {
   continuationsByEndpoint.clear();
 }

@@ -255,6 +255,10 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
       zoneUser: isecnetEvent.zoneUser,
       receiverPort: port,
       rawData: data.toString('hex').toUpperCase(),
+      // O 0xB0 não carrega MAC. Este ID só existe após o 0x94 ter conferido
+      // MAC e conta na mesma origem dentro da janela curta de segurança.
+      confirmedIntelbrasSystemId: known.id,
+      confirmedIntelbrasIdentifier: "MAC confirmado no ISECnet 0x94 desta origem",
     };
 
     await processEvent(eventoObj, socket.remoteAddress || '', getSafeCaptureSummary(socket), getSafeCaptureFrames(socket), socket);
@@ -760,10 +764,25 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     let system: any = null;
     let clientName = `CONTA NÃO CADASTRADA (${evento.account})`;
     if (captureMode) {
-      system = await getAlarmSystemByCapturedPanelIdentifier({ brand: evento.brand, frames: captureFrames });
+      const confirmedIntelbrasSystemId = evento.brand === "INTELBRAS" && Number.isInteger(evento.confirmedIntelbrasSystemId)
+        ? evento.confirmedIntelbrasSystemId
+        : undefined;
+      if (confirmedIntelbrasSystemId) {
+        const continuedSystem = await getAlarmSystem(confirmedIntelbrasSystemId);
+        if (
+          continuedSystem
+          && continuedSystem.brand?.trim().toUpperCase() === "INTELBRAS"
+          && continuedSystem.account === evento.account
+        ) {
+          system = continuedSystem;
+          clientName = `Sistema ${system.account}`;
+          console.log(`[RECIP] INTELBRAS evento associado à identidade 0x94 já confirmada | Conta ${system.account}`);
+        }
+      }
+      if (!system) system = await getAlarmSystemByCapturedPanelIdentifier({ brand: evento.brand, frames: captureFrames });
       if (system) {
         clientName = `Sistema ${system.account}`;
-        console.log(`[RECIP] ${evento.brand} identificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}`);
+        if (system.capturedIdentifier) console.log(`[RECIP] ${evento.brand} identificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}`);
       }
     } else {
       try {
@@ -826,7 +845,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         priority: priority as any,
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
-        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}${system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
+        rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}${evento.confirmedIntelbrasIdentifier ? `\nIdentificado por ${evento.confirmedIntelbrasIdentifier}` : system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
         autoFinalized: !shouldOpenAttendance,
         autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
