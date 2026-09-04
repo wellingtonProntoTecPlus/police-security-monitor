@@ -9,6 +9,7 @@ import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
 import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
+import { getConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
@@ -196,6 +197,7 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
     const system = await getAlarmSystemByPanelIdentifier(identification.macSuffix, "mac", "INTELBRAS", port);
     if (system && system.account === identification.account) {
       rememberSystem(socket, system, port);
+      rememberConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, { id: system.id, account: system.account, brand: system.brand });
       await recordKeepAlive(socket, "INTELBRAS", port, `ISECnet 0x94 (${identification.channel})`);
       console.log(`[RECIP] INTELBRAS ISECnet 0x94 identificado por MAC ${identification.macSuffix} | Conta ${system.account}`);
     } else if (system) {
@@ -230,7 +232,15 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
 
   const isecnetEvent = parseIntelbrasIsecnetEvent(data);
   if (isecnetEvent) {
-    const known = identifiedSystemBySocket.get(socket);
+    let known = identifiedSystemBySocket.get(socket);
+    if (!known) {
+      const continued = getConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, isecnetEvent.account);
+      if (continued) {
+        known = continued;
+        identifiedSystemBySocket.set(socket, continued);
+        console.log(`[RECIP] INTELBRAS ${isecnetEvent.command} associado à identificação ISECnet confirmada recentemente | Conta ${continued.account}`);
+      }
+    }
     if (!known || known.brand !== "INTELBRAS" || known.account !== isecnetEvent.account) {
       console.warn(`[RECIP] INTELBRAS ${isecnetEvent.command} descartado: evento da conta ${isecnetEvent.account} sem identidade física confirmada nesta conexão.`);
       socket.write(Buffer.from([0xfe]));

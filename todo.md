@@ -612,8 +612,11 @@
 - [x] Homologar documentalmente o quadro Intelbras AMT-8000 de 9 bytes: ISECnet `0x94`, canal Ethernet, conta 0049 e MAC parcial 7B255F; resposta `FE` implementada e testada localmente
 - [x] Implementar e validar isoladamente a resposta Intelbras `FE` ao ISECnet 0x94 e a associação por identificador físico antes de marcar a AMT-8000 como Online
 - [ ] Instalar a resposta Intelbras ISECnet 0x94 na VPS e confirmar que somente a AMT-8000 com MAC 7B255F passa para Online
+- [ ] Medir a estabilidade da AMT-8000 pelos horários dos quadros ISECnet e pelo relatório de Falha/Restauração de Keep Alive após a resposta FE
 - [x] Confirmar que o pacote AMT-8000 descreve o transporte e campos dos eventos ISECnet, mas não fornece uma tabela fechada de descrições Contact ID para importação
 - [ ] Homologar passivamente os eventos Intelbras `0xB0`/`0xB4` com capturas reais antes de complementar regras específicas sem duplicar a tabela universal
+- [x] Corrigir a associação Intelbras entre o 0x94 de identificação e o evento 0xB0 quando a AMT-8000 usa conexões TCP curtas, mantendo bloqueados eventos sem identidade física confirmada
+- [ ] Instalar a continuidade Intelbras na VPS e confirmar a persistência de um evento 0xB0 real da conta 0049
 - [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
 - [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08

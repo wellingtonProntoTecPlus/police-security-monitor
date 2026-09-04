@@ -39,3 +39,7 @@ Assim, os códigos recebidos devem continuar sendo interpretados pela tabela Con
 O receptor passa a aceitar somente os eventos ISECnet `0xB0` e `0xB4` com tamanho e checksum válidos, preservando o ACK `FE` exigido pela central. O quadro é associado somente depois de a conexão ter sido identificada pelo comando `0x94`, com correspondência de conta e identificador físico; um quadro de evento não identificado é confirmado no transporte, mas não é persistido nem associado a qualquer cliente.
 
 O código Contact ID e o qualificador são campos independentes. A notação alternativa `1130` é normalizada para o código `130`; o qualificador `E` representa Disparo e `R` representa Restauração. Não deve existir um mapeamento separado `E1130`, pois ele duplicaria o mesmo evento.
+
+## Continuidade entre conexões TCP
+
+Na AMT-8000 observada, o evento `0xB0` pode chegar em uma conexão TCP curta diferente da conexão que transmitiu o `0x94` de identificação. O receptor passa a manter por até cinco minutos a associação confirmada por **MAC, conta, IP de origem e porta** para permitir essa continuidade. Se duas centrais diferentes forem identificadas com a mesma conta no mesmo IP e porta, a associação fica ambígua e o evento é descartado da persistência, mantendo a segurança contra atribuição indevida.
