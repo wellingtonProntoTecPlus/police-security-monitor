@@ -345,6 +345,7 @@
 - [x] Corrigir chave React duplicada nos cards da fila de eventos do dashboard
 - [x] Corrigir a consulta do Dashboard que recebe “Too many requests” em texto e quebra a leitura JSON do tRPC
 - [x] Corrigir a conexão WebSocket de atualização do Vite que tenta usar localhost:5173 na prévia do Dashboard
+- [x] Eliminar o cliente Vite que ainda tenta abrir WebSocket na prévia e mostra “WebSocket closed without opened”
 
 ## Complementos de Relatórios
 - [x] Adicionar períodos rápidos Hoje, Ontem, Semana, Mês e período personalizado em Relatórios

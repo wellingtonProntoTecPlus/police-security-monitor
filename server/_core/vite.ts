@@ -42,7 +42,14 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
       );
-      const page = await vite.transformIndexHtml(url, template);
+      const transformedPage = await vite.transformIndexHtml(url, template);
+      // Mesmo com HMR desativado, transformIndexHtml injeta /@vite/client, que
+      // tenta abrir um WebSocket no proxy de prévia. Como a atualização ocorre
+      // por reinício controlado, removemos somente esse cliente de desenvolvimento.
+      const page = transformedPage.replace(
+        /<script type="module" src="\/@vite\/client"><\/script>\s*/,
+        "",
+      );
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
