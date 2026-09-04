@@ -6,9 +6,20 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
+import { shouldRetryQuery, toTrpcRateLimitResponse } from "./lib/trpcRateLimit";
 import "./index.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Evita picos de tráfego quando o Dashboard volta ao foco e impede que um
+      // 429 textual do proxy provoque novas tentativas imediatas em cascata.
+      refetchOnWindowFocus: false,
+      retry: shouldRetryQuery,
+      retryDelay: 3_000,
+    },
+  },
+});
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -62,11 +73,12 @@ const trpcClient = trpc.createClient({
         }
         return {};
       },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
+      async fetch(input, init) {
+        const response = await globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",
         });
+        return toTrpcRateLimitResponse(response);
       },
     }),
   ],

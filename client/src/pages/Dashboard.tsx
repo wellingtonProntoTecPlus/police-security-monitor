@@ -208,15 +208,19 @@ export default function Dashboard() {
 
   // Queries
   const { data: persistedQueueData, isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, {
-    refetchInterval: 5000,
+    // Socket.IO já atualiza a fila no instante em que um evento é persistido.
+    // A consulta periódica é somente uma recuperação de segurança, para reduzir
+    // picos de tráfego no proxy quando a tela recebe foco ou é recarregada.
+    refetchInterval: 15_000,
     refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
+    retry: false,
   });
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
-  const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30000 });
-  const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 15000 });
-  const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
+  const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 30_000, retry: false });
+  const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const selectedRemoteSystemId = selectedEvent && (selectedEvent.brand === "COMPATEC" || selectedEvent.brand === "VETTI") ? selectedEvent.alarmSystemId : undefined;
   const selectedRemoteBrand = selectedEvent?.brand === "VETTI" ? "VETTI" : "COMPATEC";
   const { data: remoteCommandPgms = [] } = trpc.alarmPgm.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0 }, { enabled: Boolean(selectedRemoteSystemId) });

@@ -343,6 +343,7 @@
 
 ## Correção de Eventos no Dashboard
 - [x] Corrigir chave React duplicada nos cards da fila de eventos do dashboard
+- [x] Corrigir a consulta do Dashboard que recebe “Too many requests” em texto e quebra a leitura JSON do tRPC
 
 ## Complementos de Relatórios
 - [x] Adicionar períodos rápidos Hoje, Ontem, Semana, Mês e período personalizado em Relatórios
