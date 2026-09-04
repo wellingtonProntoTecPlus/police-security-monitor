@@ -140,7 +140,14 @@ function getIntegrationPort() {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : VIAWEB_INTEGRATION_PORT;
 }
 
-function integrationHandshake() {
+export function readPreauthorizedIseps(value = process.env.VIAWEB_PREAUTHORIZED_ISEPS || "") {
+  return Array.from(new Set(value
+    .split(",")
+    .map((item) => normalizeHex(item))
+    .filter((item) => isValidHex(item, 4))));
+}
+
+function integrationHandshake(preauthorizedIseps = readPreauthorizedIseps()) {
   return {
     ts: Date.now(),
     oper: [
@@ -167,6 +174,14 @@ function integrationHandshake() {
         filtroEvento: 255,
         filtroRestauro: 255,
       },
+      ...preauthorizedIseps.map((isep) => ({
+        id: `policecentral-preauthorize-${isep}`,
+        acao: "salvarCliente",
+        operacao: 2,
+        porta: VIAWEB_SERVER_PORT,
+        idISEP: isep,
+        autorizacao: 1,
+      })),
     ],
   };
 }
@@ -197,6 +212,7 @@ export function startViawebEventIntegration(options: ViawebIntegrationOptions) {
 
   const host = getIntegrationHost();
   const port = getIntegrationPort();
+  const preauthorizedIseps = readPreauthorizedIseps();
   let reconnectDelayMs = 1_000;
   let reconnectTimer: NodeJS.Timeout | undefined;
   let stopped = false;
@@ -219,8 +235,8 @@ export function startViawebEventIntegration(options: ViawebIntegrationOptions) {
 
     socket.on("connect", () => {
       reconnectDelayMs = 1_000;
-      socket.write(JSON.stringify(integrationHandshake()));
-      console.log(`[VIAWEB] Conectado ao VIAWEB Receiver local em ${host}:${port}; aguardando eventos.`);
+      socket.write(JSON.stringify(integrationHandshake(preauthorizedIseps)));
+      console.log(`[VIAWEB] Conectado ao VIAWEB Receiver local em ${host}:${port}; aguardando eventos${preauthorizedIseps.length ? `; ISEPs pré-autorizados: ${preauthorizedIseps.join(", ")}` : ""}.`);
     });
 
     socket.on("data", async (data) => {

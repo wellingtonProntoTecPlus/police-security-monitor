@@ -92,6 +92,7 @@ receiver_started=1
 VIAWEB_INTEGRATION_ENABLED=true \
 VIAWEB_INTEGRATION_HOST=127.0.0.1 \
 VIAWEB_INTEGRATION_PORT=2700 \
+VIAWEB_PREAUTHORIZED_ISEPS=F301 \
 pm2 restart police-central --update-env
 pm2 save
 

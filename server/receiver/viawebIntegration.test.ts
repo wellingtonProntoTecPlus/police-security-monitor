@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __testables, buildIsepAuthorizationOperation, parseViawebEvent } from "./viawebIntegration";
+import { __testables, buildIsepAuthorizationOperation, parseViawebEvent, readPreauthorizedIseps } from "./viawebIntegration";
 
 describe("integração oficial ViaWeb", () => {
   it("normaliza um evento Contact ID de alarme pelo ISEP hexadecimal", () => {
@@ -37,10 +37,15 @@ describe("integração oficial ViaWeb", () => {
     const first = __testables.extractJsonMessages('{"resp":[{"id":"1"}]}{"oper":');
     expect(first.messages).toEqual(['{"resp":[{"id":"1"}]}']);
     expect(first.remainder).toBe('{"oper":');
-    const handshake = __testables.integrationHandshake();
-    expect(handshake.oper.map(operation => operation.acao)).toEqual(["ident", "salvarVIAWEB"]);
+    const handshake = __testables.integrationHandshake(["F301"]);
+    expect(handshake.oper.map(operation => operation.acao)).toEqual(["ident", "salvarVIAWEB", "salvarCliente"]);
     expect(JSON.stringify(handshake)).not.toContain("executar");
     expect(handshake.oper[1]).toMatchObject({ porta: 9111, monitoramento: 1, filtroEvento: 255, filtroRestauro: 255 });
+    expect(handshake.oper[2]).toMatchObject({ idISEP: "F301", autorizacao: 1, porta: 9111 });
+  });
+
+  it("aceita apenas ISEPs hexadecimais distintos na pré-autorização", () => {
+    expect(readPreauthorizedIseps("F301, f301,LYUL,A0F9,123")).toEqual(["F301", "A0F9"]);
   });
 
   it("autoriza exclusivamente o ISEP que solicitou conexão e não prepara comandos físicos", () => {
