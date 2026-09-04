@@ -9,7 +9,11 @@ import viteConfig from "../../vite.config";
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    // A prévia passa por um proxy HTTPS que não expõe a porta WebSocket interna
+    // do Vite de forma estável. Desativar HMR evita que o navegador tente abrir
+    // localhost:5173 (ou um WSS inválido); alterações seguem sendo aplicadas
+    // pelo reinício controlado do servidor de desenvolvimento.
+    hmr: false,
     allowedHosts: true as const,
   };
 
