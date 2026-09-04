@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __testables, buildIsepAuthorizationOperation, parseViawebEvent, readPreauthorizedIseps } from "./viawebIntegration";
+import { __testables, buildIsepAuthorizationOperation, parseViawebClientStatuses, parseViawebEvent, readPreauthorizedIseps } from "./viawebIntegration";
 
 describe("integração oficial ViaWeb", () => {
   it("normaliza um evento Contact ID de alarme pelo ISEP hexadecimal", () => {
@@ -38,7 +38,7 @@ describe("integração oficial ViaWeb", () => {
     expect(first.messages).toEqual(['{"resp":[{"id":"1"}]}']);
     expect(first.remainder).toBe('{"oper":');
     const handshake = __testables.integrationHandshake(["F301"]);
-    expect(handshake.oper.map(operation => operation.acao)).toEqual(["ident", "salvarVIAWEB", "salvarCliente"]);
+    expect(handshake.oper.map(operation => operation.acao)).toEqual(["ident", "salvarVIAWEB", "salvarCliente", "listarClientes"]);
     expect(JSON.stringify(handshake)).not.toContain("executar");
     expect(handshake.oper[1]).toMatchObject({ porta: 9111, monitoramento: 1, filtroEvento: 255, filtroRestauro: 255 });
     expect(handshake.oper[2]).toMatchObject({ idISEP: "F301", autorizacao: 1, porta: 9111 });
@@ -68,5 +68,22 @@ describe("integração oficial ViaWeb", () => {
     expect(JSON.stringify(buildIsepAuthorizationOperation(pendingAuthorization!))).not.toContain("executar");
     const normalEvent = parseViawebEvent({ id: "102-evt", acao: "evento", codigoEvento: "1130", isep: "F301" });
     expect(buildIsepAuthorizationOperation(normalEvent!)).toBeNull();
+  });
+
+  it("reconhece apenas status autenticado de cliente ViaWeb para supervisão", () => {
+    expect(parseViawebClientStatuses({
+      resp: [{
+        viaweb: [{
+          cliente: [
+            { idISEP: "F301", online: 1, meio: [{ online: 1, ip: "189.101.32.9" }] },
+            { idISEP: "LYUL", online: 1 },
+            { idISEP: "A0F9", online: 0, meio: [] },
+          ],
+        }],
+      }],
+    })).toEqual([
+      { isep: "F301", online: true, remoteIp: "189.101.32.9" },
+      { isep: "A0F9", online: false, remoteIp: "127.0.0.1" },
+    ]);
   });
 });

@@ -382,6 +382,8 @@
 - [ ] Diagnosticar e concluir a autenticação do ISEP F301, pois a central ViaWeb 0337 passou de Conectado para Autenticando após assumir a porta 9111
 - [ ] Capturar a mensagem exata de autenticação pendente da ViaWeb 0337 no Receiver e responder conforme o protocolo oficial antes de testar evento
 - [ ] Pré-autorizar explicitamente somente o ISEP F301 na inicialização da integração ViaWeb, sem autorizar ISEPs desconhecidos
+- [ ] Validar a chegada e a persistência de um evento manual de bancada após a central ViaWeb 0337 confirmar On Line pelo ISEP F301
+- [ ] Atualizar o status Online do PoliceCentral pelo evento interno de entrada On Line da ViaWeb 0337 autenticada por ISEP F301
 - [x] Confirmar e persistir as variáveis VIAWEB_INTEGRATION no processo PM2 do PoliceCentral antes de alterar a configuração da central
 - [x] Conferir o MAC 0FA8CB apenas como evidência secundária da ViaWeb 0337, mantendo ISEP F301 como identidade obrigatória de associação
 - [x] Substituir a escuta TCP genérica da porta 9111 pela integração oficial ViaWeb, pois a central 0337 chega somente ao estado Conectado e não completa o estado On Line

@@ -14,8 +14,15 @@ export type ViawebEvent = {
   rawData: string;
 };
 
+export type ViawebClientStatus = {
+  isep: string;
+  online: boolean;
+  remoteIp: string;
+};
+
 type ViawebIntegrationOptions = {
   onEvent: (event: ViawebEvent) => Promise<{ persisted: boolean; authorizeIsep: boolean }>;
+  onClientStatus?: (status: ViawebClientStatus) => Promise<void>;
 };
 
 const VIAWEB_SERVER_PORT = 9111;
@@ -182,8 +189,41 @@ function integrationHandshake(preauthorizedIseps = readPreauthorizedIseps()) {
         idISEP: isep,
         autorizacao: 1,
       })),
+      ...(preauthorizedIseps.length > 0 ? [{
+        id: "policecentral-status-viaweb-v1",
+        acao: "listarClientes",
+        porta: VIAWEB_SERVER_PORT,
+        idISEP: preauthorizedIseps,
+      }] : []),
     ],
   };
+}
+
+export function parseViawebClientStatuses(message: unknown): ViawebClientStatus[] {
+  if (!message || typeof message !== "object") return [];
+  const responses = Array.isArray((message as Record<string, unknown>).resp)
+    ? (message as Record<string, unknown>).resp as Array<Record<string, unknown>>
+    : [];
+
+  const statuses: ViawebClientStatus[] = [];
+  for (const response of responses) {
+    const servers = Array.isArray(response.viaweb) ? response.viaweb as Array<Record<string, unknown>> : [];
+    for (const server of servers) {
+      const clients = Array.isArray(server.cliente) ? server.cliente as Array<Record<string, unknown>> : [];
+      for (const client of clients) {
+        const isep = normalizeHex(client.idISEP);
+        if (!isValidHex(isep, 4)) continue;
+        const means = Array.isArray(client.meio) ? client.meio as Array<Record<string, unknown>> : [];
+        const activeMean = means.find((mean) => mean.online !== undefined && Number(mean.online) > 0);
+        statuses.push({
+          isep,
+          online: Number(client.online) > 0 || Boolean(activeMean),
+          remoteIp: safeRemoteIp(activeMean?.ip),
+        });
+      }
+    }
+  }
+  return statuses;
 }
 
 export function buildIsepAuthorizationOperation(event: ViawebEvent) {
@@ -250,6 +290,15 @@ export function startViawebEventIntegration(options: ViawebIntegrationOptions) {
         } catch {
           console.warn("[VIAWEB] Mensagem JSON inválida recebida do Receiver local; aguardando próximo quadro.");
           continue;
+        }
+
+        for (const status of parseViawebClientStatuses(message)) {
+          if (!options.onClientStatus) continue;
+          try {
+            await options.onClientStatus(status);
+          } catch (error: any) {
+            console.error(`[VIAWEB] Falha ao atualizar supervisão do ISEP ${status.isep}: ${error?.message || "erro desconhecido"}`);
+          }
         }
 
         const responses: Array<{ id: string }> = [];

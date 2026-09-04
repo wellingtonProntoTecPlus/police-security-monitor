@@ -1059,6 +1059,16 @@ export function startReceivers() {
   });
 
   startViawebEventIntegration({
+    onClientStatus: async (status) => {
+      if (!status.online) return;
+      const system = await getAlarmSystemByPanelIdentifier(status.isep, "isep", "VIAWEB");
+      if (!system) {
+        console.warn(`[VIAWEB] Status On Line recebido para ISEP ${status.isep} não cadastrado; supervisão ignorada.`);
+        return;
+      }
+      const measurement = await recordSystemKeepAlive(system.id);
+      console.log(`[KEEPALIVE] VIAWEB | Conta ${system.account} | ISEP ${status.isep} autenticado On Line${measurement ? ` | ${formatKeepAliveInterval(measurement.intervalMs)}` : ""}`);
+    },
     onEvent: async (viawebEvent) => {
       const system = await getAlarmSystemByPanelIdentifier(viawebEvent.isep, "isep", "VIAWEB");
       if (!system) console.warn(`[VIAWEB] ISEP ${viawebEvent.isep} não cadastrado; o evento será preservado na Conta do Sistema.`);
