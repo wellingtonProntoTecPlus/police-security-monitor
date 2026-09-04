@@ -346,6 +346,7 @@
 - [x] Corrigir a consulta do Dashboard que recebe “Too many requests” em texto e quebra a leitura JSON do tRPC
 - [x] Corrigir a conexão WebSocket de atualização do Vite que tenta usar localhost:5173 na prévia do Dashboard
 - [x] Eliminar o cliente Vite que ainda tenta abrir WebSocket na prévia e mostra “WebSocket closed without opened”
+- [ ] Eliminar a origem residual do aviso Vite visível na prévia, sem exigir que o usuário execute ações técnicas
 
 ## Complementos de Relatórios
 - [x] Adicionar períodos rápidos Hoje, Ontem, Semana, Mês e período personalizado em Relatórios
@@ -377,20 +378,21 @@
 
 ## Identificação de Sistemas de Alarme
 - [x] Inspecionar passivamente a chegada dos quadros da central ViaWeb conta 0337, sem homologar eventos, Keep Alive ou comandos antes da documentação técnica
-- [ ] Analisar o SDK ViaWeb V10.1.5, comparar seu protocolo criptografado com a VPS e implementar apenas a recepção de eventos identificados por ISEP após validação controlada
+- [x] Analisar o SDK ViaWeb V10.1.5, comparar seu protocolo criptografado com a VPS e implementar apenas a recepção de eventos identificados por ISEP após validação controlada
 - [x] Confirmar a porta, o modo de comunicação e o ID ISEP efetivamente configurados no programador da ViaWeb 0337 antes de instalar ou conectar qualquer serviço intermediário
 - [x] Comparar a confirmação de Servidor 1 On Line exibida pela ViaWeb 0337 com as portas e os registros efetivamente recebidos na VPS
-- [ ] Capturar passivamente o tráfego da ViaWeb 0337 configurada com ISEP F301 para o IP 104.207.144.231 na porta 9111
+- [x] Capturar passivamente o tráfego da ViaWeb 0337 configurada com ISEP F301 para o IP 104.207.144.231 na porta 9111
 - [x] Confirmar ao vivo que o VIAWEB Receiver oficial, e não o receptor TCP legado, atende a porta 9111 após a instalação
-- [ ] Diagnosticar e concluir a autenticação do ISEP F301, pois a central ViaWeb 0337 passou de Conectado para Autenticando após assumir a porta 9111
-- [ ] Capturar a mensagem exata de autenticação pendente da ViaWeb 0337 no Receiver e responder conforme o protocolo oficial antes de testar evento
-- [ ] Pré-autorizar explicitamente somente o ISEP F301 na inicialização da integração ViaWeb, sem autorizar ISEPs desconhecidos
-- [ ] Validar a chegada e a persistência de um evento manual de bancada após a central ViaWeb 0337 confirmar On Line pelo ISEP F301
-- [ ] Diagnosticar o encaminhamento ViaWeb do teste que chegou ao FullArm, mas não foi persistido no PoliceCentral
-- [ ] Corrigir a confirmação do evento interno ViaWeb EAA5 de autorização, associado ao ISEP F301 e conta 0337, que chegou mas não foi persistido
-- [ ] Capturar no Receiver os eventos ViaWeb 0337 comprovados no FullArm: E603, E410 e E412 da partição 01
-- [ ] Classificar o E603 ViaWeb como teste de supervisão de relatório, com descrição correta e sem fila operacional
-- [ ] Verificar e preservar o cadastro manual existente do E603 ViaWeb, corrigindo somente a busca por código, qualificador e fabricante
+- [x] Diagnosticar a ausência de reconexão da ViaWeb 0337 após teste controlado de queda e retorno de energia, sem enviar comandos físicos
+- [x] Diagnosticar e concluir a autenticação do ISEP F301, pois a central ViaWeb 0337 passou de Conectado para Autenticando após assumir a porta 9111
+- [x] Capturar a mensagem exata de autenticação pendente da ViaWeb 0337 no Receiver e responder conforme o protocolo oficial antes de testar evento
+- [x] Pré-autorizar explicitamente somente o ISEP F301 na inicialização da integração ViaWeb, sem autorizar ISEPs desconhecidos
+- [x] Validar a chegada e a persistência de um evento manual de bancada após a central ViaWeb 0337 confirmar On Line pelo ISEP F301
+- [x] Diagnosticar o encaminhamento ViaWeb do teste que chegou ao FullArm, mas não foi persistido no PoliceCentral
+- [x] Corrigir a confirmação do evento interno ViaWeb EAA5 de autorização, associado ao ISEP F301 e conta 0337, que chegou mas não foi persistido
+- [x] Capturar no Receiver os eventos ViaWeb 0337 comprovados no FullArm: E603, E410 e E412 da partição 01
+- [x] Classificar o E603 ViaWeb como teste de supervisão de relatório, com descrição correta e sem fila operacional
+- [x] Verificar e preservar o cadastro manual existente do E603 ViaWeb, corrigindo somente a busca por código, qualificador e fabricante
 - [x] Mapear e confirmar com segurança o evento interno `1AA0`/tipo 1 sem ISEP, sem associá-lo a um painel, liberando a fila para eventos reais identificados
 - [x] Analisar a gravação do teste ViaWeb 0337 para confrontar a sequência exibida no terminal com o encaminhamento ao PoliceCentral
 - [x] Registrar de forma mascarada a estrutura da mensagem encaminhada pelo VIAWEB Receiver antes de ajustar o parser de eventos
@@ -402,7 +404,7 @@
 - [x] Confirmar e persistir as variáveis VIAWEB_INTEGRATION no processo PM2 do PoliceCentral antes de alterar a configuração da central
 - [x] Conferir o MAC 0FA8CB apenas como evidência secundária da ViaWeb 0337, mantendo ISEP F301 como identidade obrigatória de associação
 - [x] Substituir a escuta TCP genérica da porta 9111 pela integração oficial ViaWeb, pois a central 0337 chega somente ao estado Conectado e não completa o estado On Line
-- [ ] Instalar o VIAWEB Receiver oficial na VPS e integrá-lo localmente ao PoliceCentral apenas para recepção, confirmação e persistência de eventos por ISEP F301; comandos físicos permanecem bloqueados
+- [x] Instalar o VIAWEB Receiver oficial na VPS e integrá-lo localmente ao PoliceCentral apenas para recepção, confirmação e persistência de eventos por ISEP F301; comandos físicos permanecem bloqueados
 - [x] Confirmar que o tráfego TLS da porta 9191 é uma sondagem externa, não uma central JFL
 - [ ] Conferir no Programador JFL a porta configurada e validar a recepção da central real
 - [ ] Diagnosticar a central JFL indicada como conectada no programador, mas ausente na Police Central
