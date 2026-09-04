@@ -503,6 +503,7 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmUsers(input.alarmSystemId);
     }),
+    operationalList: operatorProcedure.query(() => db.listOperationalAlarmUsers()),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       userNumber: z.number().int().min(0),

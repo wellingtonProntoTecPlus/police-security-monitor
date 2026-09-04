@@ -1110,6 +1110,18 @@ export async function listAlarmUsers(alarmSystemId: number) {
   return db.select().from(alarmUsers).where(eq(alarmUsers.alarmSystemId, alarmSystemId)).orderBy(alarmUsers.userNumber);
 }
 
+/** Lista operacional sem senhas, contra-senhas ou códigos de coação. */
+export async function listOperationalAlarmUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    alarmSystemId: alarmUsers.alarmSystemId,
+    userNumber: alarmUsers.userNumber,
+    name: alarmUsers.name,
+    isActive: alarmUsers.isActive,
+  }).from(alarmUsers).where(eq(alarmUsers.isActive, true)).orderBy(alarmUsers.alarmSystemId, alarmUsers.userNumber);
+}
+
 export async function createAlarmUser(data: InsertAlarmUser) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

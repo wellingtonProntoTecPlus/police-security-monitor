@@ -21,6 +21,7 @@
 - [x] Painel lateral com dados do cliente selecionado e sistema de alarme
 - [x] Barra de pesquisa/filtros (conta, marca, evento, porta, data/hora)
 - [x] Footer com status do sistema (CPU, memória, banco, socket, drivers, uptime)
+- [x] Exibir no atendimento operacional a empresa parceira responsável e o nome cadastrado do usuário da central, além de seu número técnico
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

@@ -50,7 +50,8 @@ vi.mock("@/lib/trpc", () => ({
       login: { useMutation: () => standardMutation },
       logout: { useMutation: () => standardMutation },
     },
-    monitoredClient: { list: { useQuery: () => ({ data: [{ id: 4, name: "Cliente de Teste" }] }) } },
+    monitoredClient: { list: { useQuery: () => ({ data: [{ id: 4, name: "Cliente de Teste", partnerCompanyId: 8 }] }) } },
+    partnerCompany: { list: { useQuery: () => ({ data: [{ id: 8, name: "Parceira de Teste" }] }) } },
     alarmSystem: {
       list: { useQuery: () => ({ data: [{ id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X" }] }) },
       startMaintenance: { useMutation: () => standardMutation },
@@ -69,7 +70,10 @@ vi.mock("@/lib/trpc", () => ({
     clientContact: { list: { useQuery: () => ({ data: [] }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) } },
     alarmZone: { list: { useQuery: () => ({ data: [] }) } },
-    alarmUser: { list: { useQuery: () => ({ data: [] }) } },
+    alarmUser: {
+      list: { useQuery: () => ({ data: [] }) },
+      operationalList: { useQuery: () => ({ data: [] }) },
+    },
     dashboard: {
       armDisarmStatus: { useQuery: () => ({ data: { armed: [], disarmed: [] } }) },
       recentAutoFinalizedArmDisarm: { useQuery: () => ({ data: [{ account: "0336", brand: "VETTI", stateLabel: "ARMADO", description: "Arme", eventCode: "401", receivedAt: new Date("2026-08-13T13:08:00.000Z") }] }) },

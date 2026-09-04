@@ -44,6 +44,12 @@ interface QueueEvent extends AlarmEvent {
   zoneName?: string;
 }
 
+const PANEL_USER_EVENT_CODES = new Set(["401", "407"]);
+
+function isPanelUserEvent(event?: Pick<AlarmEvent, "eventCode"> | null) {
+  return Boolean(event && PANEL_USER_EVENT_CODES.has(event.eventCode));
+}
+
 // Modal de câmera expandida
 function CameraModal({ cam, onClose, url, label }: { cam: number; onClose: () => void; url?: string; label?: string }) {
   return (
@@ -217,7 +223,9 @@ export default function Dashboard() {
     retry: false,
   });
   const { data: clientData } = trpc.monitoredClient.list.useQuery(undefined);
+  const { data: partnerCompanyData = [] } = trpc.partnerCompany.list.useQuery(undefined);
   const { data: systemData } = trpc.alarmSystem.list.useQuery(undefined);
+  const { data: operationalAlarmUsers = [] } = trpc.alarmUser.operationalList.useQuery(undefined);
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
@@ -583,6 +591,11 @@ export default function Dashboard() {
     return (clientData || []).find((c: any) => c.id === selectedSystem.clientId);
   }, [selectedSystem, clientData]);
 
+  const selectedPartner = useMemo(() => {
+    if (!selectedClient?.partnerCompanyId) return null;
+    return partnerCompanyData.find((partner: any) => partner.id === selectedClient.partnerCompanyId) || null;
+  }, [selectedClient, partnerCompanyData]);
+
   const { data: treatmentContacts = [] } = trpc.clientContact.list.useQuery(
     { clientId: selectedClient?.id || 0, alarmSystemId: selectedSystem?.id || 0 },
     { enabled: !!selectedClient?.id && !!selectedSystem?.id }
@@ -596,6 +609,12 @@ export default function Dashboard() {
     { alarmSystemId: selectedSystem?.id || 0 },
     { enabled: !!selectedSystem?.id }
   );
+  const selectedPanelUser = useMemo(() => {
+    if (!selectedEvent || !isPanelUserEvent(selectedEvent)) return null;
+    const eventUserNumber = Number(selectedEvent.zoneUser);
+    if (!Number.isInteger(eventUserNumber)) return null;
+    return operationalAlarmUsers.find((panelUser: any) => panelUser.alarmSystemId === selectedSystem?.id && Number(panelUser.userNumber) === eventUserNumber) || null;
+  }, [selectedEvent, selectedSystem?.id, operationalAlarmUsers]);
   const { data: treatmentProcedures = [] } = trpc.clientProcedure.list.useQuery(
     { clientId: selectedClient?.id || 0 },
     { enabled: !!selectedClient?.id }
@@ -1019,6 +1038,14 @@ export default function Dashboard() {
     const pri = PRIORITY_LABELS[ev.priority] || PRIORITY_LABELS.medium;
     const time = ev.receivedAt ? new Date(ev.receivedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "--:--";
     const isNew = ev.queueStatus === "waiting" && Date.now() - ev.queuedAt < 90_000;
+    const eventSystem = (systemData || []).find((system: any) => system.id === ev.alarmSystemId || system.account === ev.account);
+    const eventClient = eventSystem ? (clientData || []).find((client: any) => client.id === eventSystem.clientId) : null;
+    const eventPartner = eventClient?.partnerCompanyId
+      ? partnerCompanyData.find((partner: any) => partner.id === eventClient.partnerCompanyId)
+      : null;
+    const eventPanelUser = isPanelUserEvent(ev) && eventSystem
+      ? operationalAlarmUsers.find((panelUser: any) => panelUser.alarmSystemId === eventSystem.id && Number(panelUser.userNumber) === Number(ev.zoneUser))
+      : null;
 
     return (
       <div
@@ -1038,6 +1065,8 @@ export default function Dashboard() {
         </div>
         <div className={`mt-0.5 font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
         <div className="mt-0.5 text-sm text-primary font-semibold"><span className="font-mono tracking-[0.12em]">{ev.account}</span> <span className="text-muted-foreground">·</span> {ev.clientName}</div>
+        <div className="text-[11px] text-cyan-300/90 truncate">Parceira: {eventPartner?.name || "Sem empresa parceira vinculada"}</div>
+        {isPanelUserEvent(ev) && <div className="text-[11px] text-blue-200 truncate">Usuário da central: {String(ev.zoneUser || "").padStart(2, "0")} · {eventPanelUser?.name || "Não cadastrado"}</div>}
         <div className="text-[11px] text-muted-foreground truncate">Central: {ev.systemModel}</div>
         <div className="flex items-center gap-2 mt-1">
           <span className="font-mono text-xs text-muted-foreground">{ev.qualifier === 'E' ? '' : 'R'}{ev.eventCode}</span>
@@ -1123,6 +1152,10 @@ export default function Dashboard() {
                     <span className="font-mono text-lg font-bold tracking-[0.14em] text-green-400">Conta {selectedEvent.account}</span>
                     <span className="font-bold text-foreground">{selectedClient?.name || selectedEvent.clientName}</span>
                     {selectedClient?.fantasyName && <span className="text-cyan-400">· {selectedClient.fantasyName}</span>}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                    <span className="text-cyan-200">Parceira responsável: <strong className="text-foreground">{selectedPartner?.name || "Sem empresa parceira vinculada"}</strong></span>
+                    {isPanelUserEvent(selectedEvent) && <span className="text-blue-200">Usuário da central: <strong className="text-foreground">{String(selectedEvent.zoneUser || "").padStart(2, "0")}{selectedPanelUser ? ` · ${selectedPanelUser.name}` : " · Não cadastrado"}</strong></span>}
                   </div>
                   <p className={`mt-1 font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>{selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}</p>
                   {(selectedEvent.brand === "VETTI" || selectedEvent.brand === "COMPATEC") && selectedEvent.alarmSystemId && (
