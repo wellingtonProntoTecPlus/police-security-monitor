@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __testables, parseViawebEvent } from "./viawebIntegration";
+import { __testables, buildIsepAuthorizationOperation, parseViawebEvent } from "./viawebIntegration";
 
 describe("integração oficial ViaWeb", () => {
   it("normaliza um evento Contact ID de alarme pelo ISEP hexadecimal", () => {
@@ -41,5 +41,27 @@ describe("integração oficial ViaWeb", () => {
     expect(handshake.oper.map(operation => operation.acao)).toEqual(["ident", "salvarVIAWEB"]);
     expect(JSON.stringify(handshake)).not.toContain("executar");
     expect(handshake.oper[1]).toMatchObject({ porta: 9111, monitoramento: 1, filtroEvento: 255, filtroRestauro: 255 });
+  });
+
+  it("autoriza exclusivamente o ISEP que solicitou conexão e não prepara comandos físicos", () => {
+    const pendingAuthorization = parseViawebEvent({
+      id: "101-evt",
+      acao: "evento",
+      codigoEvento: "1AA5",
+      eventoInterno: 3,
+      isep: "F301",
+    });
+    expect(pendingAuthorization).not.toBeNull();
+    expect(buildIsepAuthorizationOperation(pendingAuthorization!)).toEqual({
+      id: "policecentral-authorize-101-evt",
+      acao: "salvarCliente",
+      operacao: 2,
+      porta: 9111,
+      idISEP: "F301",
+      autorizacao: 1,
+    });
+    expect(JSON.stringify(buildIsepAuthorizationOperation(pendingAuthorization!))).not.toContain("executar");
+    const normalEvent = parseViawebEvent({ id: "102-evt", acao: "evento", codigoEvento: "1130", isep: "F301" });
+    expect(buildIsepAuthorizationOperation(normalEvent!)).toBeNull();
   });
 });

@@ -171,6 +171,18 @@ function integrationHandshake() {
   };
 }
 
+export function buildIsepAuthorizationOperation(event: ViawebEvent) {
+  if (!event.requiresAuthorization) return null;
+  return {
+    id: `policecentral-authorize-${event.operationId}`,
+    acao: "salvarCliente",
+    operacao: 2,
+    porta: VIAWEB_SERVER_PORT,
+    idISEP: event.isep,
+    autorizacao: 1,
+  };
+}
+
 /**
  * Conecta-se somente ao VIAWEB Receiver local. A criptografia é dispensada
  * exclusivamente para loopback, conforme modo documentado pelo fabricante;
@@ -231,18 +243,13 @@ export function startViawebEventIntegration(options: ViawebIntegrationOptions) {
           const event = parseViawebEvent(operation);
           if (event) {
             try {
+              console.log(`[VIAWEB] Evento recebido do ISEP ${event.isep}: ${event.qualifier}${event.eventCode}${event.requiresAuthorization ? " (solicita autorização)" : ""}.`);
               const result = await options.onEvent(event);
               if (result.persisted) responses.push({ id: event.operationId });
               else console.warn(`[VIAWEB] Evento ${event.operationId} do ISEP ${event.isep} não confirmado; o Receiver poderá retransmiti-lo.`);
               if (result.persisted && result.authorizeIsep && event.requiresAuthorization) {
-                operationsToSend.push({
-                  id: `policecentral-authorize-${event.operationId}`,
-                  acao: "salvarCliente",
-                  operacao: 2,
-                  porta: VIAWEB_SERVER_PORT,
-                  idISEP: event.isep,
-                  autorizacao: 1,
-                });
+                const authorization = buildIsepAuthorizationOperation(event);
+                if (authorization) operationsToSend.push(authorization);
                 console.log(`[VIAWEB] Solicitação de autorização do ISEP ${event.isep} confirmada após persistência do evento interno.`);
               }
             } catch (error: any) {

@@ -378,6 +378,10 @@
 - [x] Confirmar a porta, o modo de comunicação e o ID ISEP efetivamente configurados no programador da ViaWeb 0337 antes de instalar ou conectar qualquer serviço intermediário
 - [x] Comparar a confirmação de Servidor 1 On Line exibida pela ViaWeb 0337 com as portas e os registros efetivamente recebidos na VPS
 - [ ] Capturar passivamente o tráfego da ViaWeb 0337 configurada com ISEP F301 para o IP 104.207.144.231 na porta 9111
+- [x] Confirmar ao vivo que o VIAWEB Receiver oficial, e não o receptor TCP legado, atende a porta 9111 após a instalação
+- [ ] Diagnosticar e concluir a autenticação do ISEP F301, pois a central ViaWeb 0337 passou de Conectado para Autenticando após assumir a porta 9111
+- [ ] Capturar a mensagem exata de autenticação pendente da ViaWeb 0337 no Receiver e responder conforme o protocolo oficial antes de testar evento
+- [x] Confirmar e persistir as variáveis VIAWEB_INTEGRATION no processo PM2 do PoliceCentral antes de alterar a configuração da central
 - [x] Conferir o MAC 0FA8CB apenas como evidência secundária da ViaWeb 0337, mantendo ISEP F301 como identidade obrigatória de associação
 - [x] Substituir a escuta TCP genérica da porta 9111 pela integração oficial ViaWeb, pois a central 0337 chega somente ao estado Conectado e não completa o estado On Line
 - [ ] Instalar o VIAWEB Receiver oficial na VPS e integrá-lo localmente ao PoliceCentral apenas para recepção, confirmação e persistência de eventos por ISEP F301; comandos físicos permanecem bloqueados
