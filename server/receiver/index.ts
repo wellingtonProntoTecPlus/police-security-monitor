@@ -9,7 +9,7 @@ import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
 import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
-import { buildJflActive8wConnectionAcknowledgement, buildJflStatusRequest, isJflActive8wV8Connection } from './jflActive8wProtocol';
+import { buildJflActive8wConnectionAcknowledgement, buildJflStatusRequest, isJflActive8wV8Connection, isJflActive8wV8StatusReply } from './jflActive8wProtocol';
 import { getConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
@@ -134,6 +134,15 @@ function parseStandardEvent(hex: string, brand: string, port: number) {
 async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: string, port: number) {
   const hex = data.toString('hex').toUpperCase();
   if (data.length < 4) return;
+
+  // A Active 8W v8 responde à consulta passiva 7B/0x4D com 7A/.../0x24.
+  // O byte 0x24 ocupa uma posição semelhante ao Contact ID, mas este é um
+  // quadro de estado proprietário, não um evento de alarme. Ele não pode abrir
+  // ocorrência, alterar Arme/Desarme nem herdar o sistema identificado.
+  if (brand === "JFL" && isJflActive8wV8StatusReply(data)) {
+    console.log("[RECIP] JFL Active 8W v8 | resposta passiva de estado 7A/0x24 recebida; ignorada como evento Contact ID.");
+    return;
+  }
 
   const seq = data[2];
   const isJflActive8wV8ConnectionFrame = brand === "JFL" && isJflActive8wV8Connection(data);

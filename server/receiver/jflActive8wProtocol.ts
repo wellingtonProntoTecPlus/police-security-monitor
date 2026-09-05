@@ -13,6 +13,15 @@ export function isJflActive8wV8Connection(frame: Buffer) {
 }
 
 /**
+ * Resposta de estado observada após a consulta passiva 7B/0x4D. Embora traga
+ * 0x24 no quarto byte, ela pertence ao formato Active 8W 7A e não é um
+ * Contact ID 7B. Interpretá-la como evento cria códigos fictícios R211 etc.
+ */
+export function isJflActive8wV8StatusReply(frame: Buffer) {
+  return frame[0] === 0x7a && frame.length >= 6 && frame[3] === 0x24 && frame[5] === 0x24;
+}
+
+/**
  * A Active 8W v8 usa cabeçalho 7A e mantém o contador recebido no byte 3.
  * A confirmação é um quadro JFL 7B de infraestrutura, com sequência local 1,
  * como nas conexões Active que entregam Contact ID em seguida.

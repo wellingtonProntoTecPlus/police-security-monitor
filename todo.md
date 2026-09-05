@@ -46,6 +46,7 @@
 - [ ] Validar um evento manual da conta 0029 após a conexão dupla Online, confirmando associação por serial/MAC e exibição no Dashboard
 - [ ] Analisar o vídeo de diagnóstico da Active 8W para confirmar se a ordem dos destinos revela limitação de protocolo ou apenas comportamento de teste
 - [x] Corrigir a divergência crítica comprovada no vídeo: o card mostra Nilva, mas o modal abre Alvorada; card e tratamento agora usam IDs persistidos de sistema e cliente, sem fallback ambíguo por conta
+- [ ] Rastrear a origem real dos eventos JFL R211, R213, R214, R215, R231 e R234 mostrados indevidamente como conta 0022 e bloquear associação sem prova física por evento
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras
