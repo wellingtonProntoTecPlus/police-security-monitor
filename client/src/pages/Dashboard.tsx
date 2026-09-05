@@ -18,6 +18,7 @@ import HLSPlayer from "@/components/HLSPlayer";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { isVetti24HourZone } from "@shared/vettiZoneRules";
 import { formatContactIdArgument } from "@shared/contactIdArgumentContext";
+import { resolveQueueEventClient, resolveQueueEventSystem } from "@/lib/queueEventIdentity";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -35,6 +36,8 @@ const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = 
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
   incidentId?: number;
+  incidentClientId?: number | null;
+  incidentSystemId?: number | null;
   incidentNotes?: string | null;
   queueStatus: QueueStatus;
   queuedAt: number;
@@ -293,8 +296,8 @@ export default function Dashboard() {
       const evKey = `${ev.account}-${ev.eventCode}-${ev.timestamp || Date.now()}`;
       if (!processedIds.current.has(evKey)) {
         processedIds.current.add(evKey);
-        const system = (systemData || []).find((s: any) => s.account === ev.account);
-        const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
+        const system = resolveQueueEventSystem(ev, systemData || []);
+        const client = resolveQueueEventClient(ev, system, clientData || []);
         newEvents.push({
           ...ev,
           queueStatus: "waiting",
@@ -320,8 +323,8 @@ export default function Dashboard() {
       const signature = persistedQueue.map((ev: any) => `${ev.incidentId}:${ev.incidentStatus}:${ev.observationUntil || ""}:${ev.receivedAt}`).join("|");
       if (signature === persistedQueueSignatureRef.current) return;
       const initial: QueueEvent[] = persistedQueue.map((ev: any) => {
-        const system = (systemData || []).find((s: any) => s.account === ev.account);
-        const client = system ? (clientData || []).find((c: any) => c.id === system.clientId) : null;
+        const system = resolveQueueEventSystem(ev, systemData || []);
+        const client = resolveQueueEventClient(ev, system, clientData || []);
         const evKey = `${ev.account}-${ev.eventCode}-${ev.receivedAt}`;
         processedIds.current.add(evKey);
         return {
@@ -570,26 +573,13 @@ export default function Dashboard() {
   // Encontrar cliente/sistema
   const selectedSystem = useMemo(() => {
     if (!selectedEvent) return null;
-    const systems = systemData || [];
-    const normalizeAccount = (value?: string | null) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const eventAccount = normalizeAccount(selectedEvent.account);
-    const eventBrand = normalizeAccount(selectedEvent.brand);
-    return systems.find((system: any) => system.id === selectedEvent.alarmSystemId)
-      || systems.find((system: any) => normalizeAccount(system.account) === eventAccount)
-      || systems.find((system: any) => {
-        const systemAccount = normalizeAccount(system.account);
-        const accountsMatchBySuffix = eventAccount.length >= 4
-          && systemAccount.length >= 4
-          && systemAccount.slice(-4) === eventAccount.slice(-4);
-        return accountsMatchBySuffix && (!eventBrand || normalizeAccount(system.brand) === eventBrand);
-      })
-      || null;
+    return resolveQueueEventSystem(selectedEvent, systemData || []);
   }, [selectedEvent, systemData]);
 
   const selectedClient = useMemo(() => {
-    if (!selectedSystem) return null;
-    return (clientData || []).find((c: any) => c.id === selectedSystem.clientId);
-  }, [selectedSystem, clientData]);
+    if (!selectedEvent) return null;
+    return resolveQueueEventClient(selectedEvent, selectedSystem, clientData || []);
+  }, [selectedEvent, selectedSystem, clientData]);
 
   const selectedPartner = useMemo(() => {
     if (!selectedClient?.partnerCompanyId) return null;
@@ -1038,8 +1028,8 @@ export default function Dashboard() {
     const pri = PRIORITY_LABELS[ev.priority] || PRIORITY_LABELS.medium;
     const time = ev.receivedAt ? new Date(ev.receivedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "--:--";
     const isNew = ev.queueStatus === "waiting" && Date.now() - ev.queuedAt < 90_000;
-    const eventSystem = (systemData || []).find((system: any) => system.id === ev.alarmSystemId || system.account === ev.account);
-    const eventClient = eventSystem ? (clientData || []).find((client: any) => client.id === eventSystem.clientId) : null;
+    const eventSystem = resolveQueueEventSystem(ev, systemData || []);
+    const eventClient = resolveQueueEventClient(ev, eventSystem, clientData || []);
     const eventPartner = eventClient?.partnerCompanyId
       ? partnerCompanyData.find((partner: any) => partner.id === eventClient.partnerCompanyId)
       : null;

@@ -33,6 +33,8 @@ vi.mock("@/lib/trpc", () => ({
             id: 701,
             incidentId: 91,
             incidentStatus: "waiting",
+            incidentClientId: 4,
+            incidentSystemId: 6,
             account: "0001",
             brand: "COMPATEC",
             qualifier: "E",
@@ -50,10 +52,16 @@ vi.mock("@/lib/trpc", () => ({
       login: { useMutation: () => standardMutation },
       logout: { useMutation: () => standardMutation },
     },
-    monitoredClient: { list: { useQuery: () => ({ data: [{ id: 4, name: "Cliente de Teste", partnerCompanyId: 8 }] }) } },
+    monitoredClient: { list: { useQuery: () => ({ data: [
+      { id: 5, name: "Cliente incorreto", partnerCompanyId: 8 },
+      { id: 4, name: "Cliente de Teste", partnerCompanyId: 8 },
+    ] }) } },
     partnerCompany: { list: { useQuery: () => ({ data: [{ id: 8, name: "Parceira de Teste" }] }) } },
     alarmSystem: {
-      list: { useQuery: () => ({ data: [{ id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X" }] }) },
+      list: { useQuery: () => ({ data: [
+        { id: 7, account: "0001", clientId: 5, brand: "COMPATEC", model: "Outro" },
+        { id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X" },
+      ] }) },
       startMaintenance: { useMutation: () => standardMutation },
       endMaintenance: { useMutation: () => standardMutation },
     },
@@ -177,6 +185,20 @@ describe("Dashboard — Ocorrência Manual", () => {
 
     expect(screen.getByRole("heading", { name: "Programar Manutenção do Sistema" })).toBeTruthy();
     expect(screen.getAllByLabelText(/início|fim/i)).toHaveLength(2);
+  });
+
+  it("mantém no card e no modal o cliente apontado pelos IDs persistidos quando a conta é repetida", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    expect((await screen.findAllByText("Cliente de Teste")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Cliente incorreto")).toBeNull();
+
+    await user.click(screen.getByText("Disparo de alarme"));
+
+    expect(screen.getByText("Tratamento de ocorrência")).toBeTruthy();
+    expect(screen.getByText("Cliente de Teste")).toBeTruthy();
+    expect(screen.queryByText("Cliente incorreto")).toBeNull();
   });
 
   it("exibe a confirmação de Arme ou Desarme recebida e finalizada automaticamente", () => {

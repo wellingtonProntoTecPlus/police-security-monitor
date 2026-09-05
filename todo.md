@@ -39,6 +39,13 @@
 - [ ] Corrigir a associação dos eventos JFL Active 8W da conta 0029 que chegam na conta técnica 0000 apesar de a central estar Online
 - [x] Identificar por captura segura o serial e MAC das centrais JFL que enviam R211, R213, R214, R231 e R234 com conta recebida 00 (Sistema 54, conta 0022, serial 2835359229, MAC FAE1B4)
 - [x] Corrigir eventos JFL já identificados pelo sistema físico para exibir a conta cadastrada, preservando a conta bruta transmitida para auditoria
+- [x] Diagnosticar por que a Active 8W da conta 0029, serial 2835361274 e MAC 298874 não permanece Online apesar do Keep Alive (Keep Alive confirmado; espera do programador resolvida pela ordem dos destinos)
+- [ ] Confirmar por teste controlado se a Active 8W v8 mantém o PoliceCentral Online quando configurado como Conexão 1; a solução validada para a 0029 é FullArm no IP1 e PoliceCentral no IP2
+- [x] Comparar os quadros e a comunicação das Active 8W 0022 e 0029 para identificar por que somente a Conexão 1 da 0029 permanece em Espera (0022: FullArm IP1/PoliceCentral IP2; 0029 foi ajustada para a mesma ordem e ficou Online nas duas conexões)
+- [x] Alinhar a ordem dos destinos da conta 0029 com a configuração validada da 0022: FullArm no IP1 e PoliceCentral no IP2, mantendo Modo duplo e portas 9061
+- [ ] Validar um evento manual da conta 0029 após a conexão dupla Online, confirmando associação por serial/MAC e exibição no Dashboard
+- [ ] Analisar o vídeo de diagnóstico da Active 8W para confirmar se a ordem dos destinos revela limitação de protocolo ou apenas comportamento de teste
+- [x] Corrigir a divergência crítica comprovada no vídeo: o card mostra Nilva, mas o modal abre Alvorada; card e tratamento agora usam IDs persistidos de sistema e cliente, sem fallback ambíguo por conta
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras
