@@ -298,9 +298,10 @@ export default function ClientDetail() {
                 <DialogTrigger asChild>
                   <Button size="sm" onClick={() => setSystemForm({ ...INITIAL_SYSTEM_FORM })}><Plus className="h-4 w-4 mr-1" /> {systems.length > 0 ? "Adicionar outro sistema" : "Adicionar sistema"}</Button>
                 </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>Novo Sistema de Alarme</DialogTitle><p className="text-sm text-muted-foreground">Após salvar, o sistema fica cadastrado imediatamente. O status Online só aparece quando a central fizer a primeira comunicação.</p></DialogHeader>
-                  <div className="grid grid-cols-2 gap-3">
+                <DialogContent className="flex max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-3xl flex-col overflow-hidden p-0">
+                  <DialogHeader className="shrink-0 border-b border-border px-5 pb-3 pt-5"><DialogTitle>Novo Sistema de Alarme</DialogTitle><p className="text-sm text-muted-foreground">Após salvar, o sistema fica cadastrado imediatamente. O status Online só aparece quando a central fizer a primeira comunicação.</p></DialogHeader>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div><Label>Conta (Contact ID) *</Label><Input placeholder="0001" value={systemForm.account} onChange={(e) => setSystemForm({ ...systemForm, account: e.target.value })} /></div>
                     <div>
                       <Label>Marca da central</Label>
@@ -329,7 +330,7 @@ export default function ClientDetail() {
                     <div><Label>MAC Ethernet (últimos 6)</Label><Input maxLength={6} placeholder="A1B2C3" value={systemForm.macAddress} onChange={(e) => setSystemForm({ ...systemForm, macAddress: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     <div><Label>IMEI GPRS (últimos 6)</Label><Input maxLength={6} placeholder="123456" value={systemForm.imeiGprs} onChange={(e) => setSystemForm({ ...systemForm, imeiGprs: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} /></div>
                     {(systemForm.communicationType === "gprs" || systemForm.communicationType === "both") && <><div><Label>Número do SIM Card</Label><Input placeholder="ICCID do chip" value={systemForm.simCardNumber} onChange={(e) => setSystemForm({ ...systemForm, simCardNumber: e.target.value })} /></div><div><Label>Número da linha</Label><Input placeholder="(00) 00000-0000" value={systemForm.simPhoneNumber} onChange={(e) => setSystemForm({ ...systemForm, simPhoneNumber: maskPhone(e.target.value) })} /></div></>}
-                    {systemForm.brand === "JFL" && <div className="col-span-2"><Label>Número de série {requiresJflVersion5OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) ? "* (JFL v5 ou superior)" : "(opcional abaixo da v5)"}</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos, ex.: 2801936621" value={systemForm.serialNumber} onChange={(e) => setSystemForm({ ...systemForm, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><p className="mt-1 text-[11px] text-amber-300">Informe sempre que disponível. A partir da versão 5.0, os 10 dígitos são obrigatórios.</p></div>}
+                    {systemForm.brand === "JFL" && <div className="sm:col-span-2"><Label>Número de série {requiresJflVersion5OrLaterSerial(systemForm.brand, systemForm.firmwareVersion) ? "* (JFL v5 ou superior)" : "(opcional abaixo da v5)"}</Label><Input inputMode="numeric" maxLength={10} placeholder="10 dígitos, ex.: 2801936621" value={systemForm.serialNumber} onChange={(e) => setSystemForm({ ...systemForm, serialNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })} /><p className="mt-1 text-[11px] text-amber-300">Informe sempre que disponível. A partir da versão 5.0, os 10 dígitos são obrigatórios.</p></div>}
                     {systemForm.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input value="Gerado ao salvar: 4 dígitos hexadecimais" disabled /></div>}
                     <div>
                       <Label>Porta receptora</Label>
@@ -349,23 +350,27 @@ export default function ClientDetail() {
                         <input type="checkbox" checked={systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveMonitoringEnabled: event.target.checked })} /> Monitorar
                       </label>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div><Label>Frequência técnica (segundos)</Label><Input type="number" min={1} max={86400} disabled={!systemForm.keepAliveMonitoringEnabled} value={systemForm.keepAliveExpectedIntervalSeconds} onChange={(event) => setSystemForm({ ...systemForm, keepAliveExpectedIntervalSeconds: Math.max(1, Number(event.target.value) || 60) })} /><p className="mt-1 text-[11px] text-muted-foreground">Padrão: 60 segundos. Informe a frequência configurada na central.</p></div>
                       <div><Label>Painel desconectado após (minutos)</Label><Input type="number" min={1} max={1440} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} value={systemForm.keepAliveOfflineAfterMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveOfflineAfterMinutes: Math.max(1, Number(event.target.value) || 5) })} /><p className="mt-1 text-[11px] text-muted-foreground">Prazo operacional sem Keep Alive antes de considerar Offline.</p></div>
-                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveFailureEventEnabled} disabled={!systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveFailureEventEnabled: event.target.checked })} /> Gerar evento de falha de Keep Alive quando a supervisão expirar</label>
-                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveDisconnectAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveDisconnectAlertEnabled: event.target.checked })} /> Gerar alerta de painel desconectado após o prazo configurado</label>
-                      <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveRepeatAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
-                      {systemForm.keepAliveRepeatAlertEnabled && <div className="col-span-2"><Label>Repetir alerta a cada (minutos)</Label><Input type="number" min={1} max={10080} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} value={systemForm.keepAliveRepeatAlertEveryMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
+                      <label className="sm:col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveFailureEventEnabled} disabled={!systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveFailureEventEnabled: event.target.checked })} /> Gerar evento de falha de Keep Alive quando a supervisão expirar</label>
+                      <label className="sm:col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveDisconnectAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveDisconnectAlertEnabled: event.target.checked })} /> Gerar alerta de painel desconectado após o prazo configurado</label>
+                      <label className="sm:col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveRepeatAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
+                      {systemForm.keepAliveRepeatAlertEnabled && <div className="sm:col-span-2"><Label>Repetir alerta a cada (minutos)</Label><Input type="number" min={1} max={10080} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} value={systemForm.keepAliveRepeatAlertEveryMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
                     </div>
                   </div>
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres hexadecimais (0–9 e A–F). Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
                   <p className="mt-3 text-xs text-muted-foreground">Após salvar, este novo sistema será selecionado automaticamente nas abas Contatos, Zonas e Usuários.</p>
-                  <Button className="mt-3" onClick={() => {
+                  </div>
+                  <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-background px-5 py-3">
+                  <Button variant="outline" onClick={() => setShowSystemForm(false)}>Cancelar</Button>
+                  <Button disabled={createSystem.isPending} onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     const identifierError = getAlarmSystemIdentifierValidationError(systemForm);
                     if (identifierError) { toast.error(identifierError); return; }
                     createSystem.mutate({ clientId, ...systemForm });
-                  }}>Salvar</Button>
+                  }}>{createSystem.isPending ? "Salvando..." : "Salvar sistema"}</Button>
+                  </div>
                 </DialogContent>
               </Dialog>
             </div>

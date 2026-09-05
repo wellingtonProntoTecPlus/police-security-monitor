@@ -33,6 +33,7 @@
 - [ ] Restaurar o cliente ID 54 como Shopping das Baterias / Mais Baterias, Pessoa Jurídica, Empresa, vinculado à Police Electronics LTDA
 - [ ] Exigir confirmação forte antes de excluir clientes que possuam sistemas, contatos ou outros dados vinculados
 - [x] Simplificar o fluxo de cadastro de sistemas a partir da dificuldade registrada em vídeo, preservando validações de identidade
+- [x] Ajustar o modal de cadastro de sistemas para caber em telas menores, com rolagem interna e ações sempre visíveis sem zoom
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras
