@@ -840,7 +840,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     // em um evento da mesma conexão, os próximos sinais usam esse vínculo seguro.
     if (system && socket) rememberSystem(socket, system, evento.receiverPort);
 
-    const accountResolution = resolveSystemAccount(evento.account, Boolean(system));
+    const accountResolution = resolveSystemAccount(evento.account, system ? { account: system.account } : undefined);
     const receivedAccount = accountResolution.receivedAccount;
     const effectiveAccount = accountResolution.account;
     if (accountResolution.isSystemAccount) {

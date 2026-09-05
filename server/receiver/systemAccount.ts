@@ -4,10 +4,19 @@ export type SystemAccountResolution = {
   isSystemAccount: boolean;
 };
 
-export function resolveSystemAccount(receivedAccount: string | null | undefined, systemFound: boolean): SystemAccountResolution {
-  const normalized = (receivedAccount || "").trim();
-  if (systemFound && normalized) {
-    return { account: normalized, receivedAccount: normalized, isSystemAccount: false };
+type IdentifiedSystemAccount = { account?: string | null } | null | undefined;
+
+export function resolveSystemAccount(receivedAccount: string | null | undefined, system: IdentifiedSystemAccount): SystemAccountResolution {
+  // Alguns quadros JFL incluem NUL antes da conta transmitida. A conta bruta
+  // continua auditável, mas caracteres de controle não devem aparecer no
+  // relatório nem decidir o sistema associado.
+  const normalized = (receivedAccount || "").replace(/\0/g, "").trim();
+  const registeredAccount = (system?.account || "").trim();
+  if (registeredAccount) {
+    // A identidade física (MAC, IMEI, serial ou ISEP) já foi confirmada pelo
+    // receptor. A conta de cadastro é a referência operacional; a conta do
+    // pacote é preservada em receivedAccount para auditoria.
+    return { account: registeredAccount, receivedAccount: normalized, isSystemAccount: false };
   }
   return { account: "0000", receivedAccount: normalized, isSystemAccount: true };
 }

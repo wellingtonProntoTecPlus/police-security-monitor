@@ -37,6 +37,8 @@
 - [x] Simplificar o fluxo de cadastro de sistemas a partir da dificuldade registrada em vídeo, preservando validações de identidade
 - [x] Ajustar o modal de cadastro de sistemas para caber em telas menores, com rolagem interna e ações sempre visíveis sem zoom
 - [ ] Corrigir a associação dos eventos JFL Active 8W da conta 0029 que chegam na conta técnica 0000 apesar de a central estar Online
+- [x] Identificar por captura segura o serial e MAC das centrais JFL que enviam R211, R213, R214, R231 e R234 com conta recebida 00 (Sistema 54, conta 0022, serial 2835359229, MAC FAE1B4)
+- [x] Corrigir eventos JFL já identificados pelo sistema físico para exibir a conta cadastrada, preservando a conta bruta transmitida para auditoria
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

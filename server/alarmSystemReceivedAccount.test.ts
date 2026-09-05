@@ -22,7 +22,7 @@ describe("resolução do sistema pelo evento recebido", () => {
     expect(system).toBeUndefined();
     expect(selectCalls).toBe(1);
     expect(updates).toHaveLength(0);
-    expect(resolveSystemAccount("0001", Boolean(system))).toEqual({
+    expect(resolveSystemAccount("0001", system)).toEqual({
       account: "0000",
       receivedAccount: "0001",
       isSystemAccount: true,
@@ -61,7 +61,7 @@ describe("resolução do sistema pelo evento recebido", () => {
 
     expect(system).toBeUndefined();
     expect(updates).toHaveLength(0);
-    expect(resolveSystemAccount("0044", Boolean(system))).toMatchObject({
+    expect(resolveSystemAccount("0044", system)).toMatchObject({
       account: "0000",
       receivedAccount: "0044",
       isSystemAccount: true,
