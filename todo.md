@@ -26,6 +26,13 @@
 - [x] Confirmar que a Active 8W MAC 298874 e serial 2835361274 está cadastrada e ativa na conta 0029
 - [x] Exigir confirmação explícita validada com conta, marca, modelo e identificador antes de excluir um sistema de alarme
 - [x] Cobrir em teste a frase completa de exclusão com conta, marca, modelo e identificador
+- [ ] Permitir pesquisar Clientes Monitorados pela conta, MAC ou serial de sistemas vinculados
+- [ ] Diagnosticar por que a conta 0029 não aparece na lista de sistemas Online apesar de estar cadastrada
+- [ ] Investigar sem alteração a ausência de zonas, contatos, usuários e sistemas exibidos após o recadastro da conta 0029
+- [ ] Recuperar com segurança o cadastro principal removido do cliente ID 54, preservando sistema 0029, contatos, zonas e usuários
+- [ ] Restaurar o cliente ID 54 como Shopping das Baterias / Mais Baterias, Pessoa Jurídica, Empresa, vinculado à Police Electronics LTDA
+- [ ] Exigir confirmação forte antes de excluir clientes que possuam sistemas, contatos ou outros dados vinculados
+- [x] Simplificar o fluxo de cadastro de sistemas a partir da dificuldade registrada em vídeo, preservando validações de identidade
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

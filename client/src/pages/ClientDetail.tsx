@@ -21,6 +21,14 @@ import { getRemoteCommandCredentialProfiles } from "@shared/remoteCommandCredent
 
 const CONTACTS_PER_PAGE = 20;
 
+const INITIAL_SYSTEM_FORM = {
+  account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
+  firmwareVersion: "", macAddress: "", imeiGprs: "", simCardNumber: "", simPhoneNumber: "", serialNumber: "", viawebCode: "", receiverPort: 9061,
+  keepAliveMonitoringEnabled: true, keepAliveExpectedIntervalSeconds: 60, keepAliveFailureEventEnabled: false,
+  keepAliveOfflineAfterMinutes: 5, keepAliveDisconnectAlertEnabled: true, keepAliveRepeatAlertEnabled: false,
+  keepAliveRepeatAlertEveryMinutes: 60,
+};
+
 function portsForBrand(brand: string) {
   return getAlarmSystemProfile(brand)?.receiverPorts || [];
 }
@@ -55,7 +63,13 @@ export default function ClientDetail() {
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
   const deleteContact = trpc.clientContact.delete.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato excluído!"); } });
   const updateContact = trpc.clientContact.update.useMutation({ onSuccess: () => { refetchContacts(); setEditingContact(null); toast.success("Contato atualizado!"); } });
-  const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: () => { refetchSystems(); setShowSystemForm(false); toast.success("Sistema cadastrado!"); }, onError: (error) => toast.error(error.message) });
+  const createSystem = trpc.alarmSystem.create.useMutation({ onSuccess: async (createdSystem) => {
+    setOperationalSystemId(createdSystem.id);
+    await refetchSystems();
+    setShowSystemForm(false);
+    setSystemForm({ ...INITIAL_SYSTEM_FORM });
+    toast.success("Sistema cadastrado!", { description: "O cadastro foi salvo. Ele ficará como Aguardando comunicação até a primeira conexão da central." });
+  }, onError: (error) => toast.error(error.message) });
   const deleteSystem = trpc.alarmSystem.delete.useMutation({ onSuccess: () => { refetchSystems(); setSystemPendingDeletion(null); setSystemDeletionConfirmation(""); toast.success("Sistema excluído!"); }, onError: (error) => toast.error(error.message) });
   const updateSystem = trpc.alarmSystem.update.useMutation({ onSuccess: () => { refetchSystems(); setEditingSystem(null); toast.success("Sistema atualizado!"); } });
   const setRemoteCredential = trpc.alarmSystem.setRemoteCommandCredential.useMutation({
@@ -103,13 +117,7 @@ export default function ClientDetail() {
   const [systemDeletionConfirmation, setSystemDeletionConfirmation] = useState("");
   const [contactPage, setContactPage] = useState(0);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", whatsapp: "", email: "", role: "", password: "", counterPassword: "", coercionPassword: "" });
-  const [systemForm, setSystemForm] = useState({
-    account: "", brand: "JFL" as any, model: "", communicationType: "ethernet" as any,
-    firmwareVersion: "", macAddress: "", imeiGprs: "", simCardNumber: "", simPhoneNumber: "", serialNumber: "", viawebCode: "", receiverPort: 9061,
-    keepAliveMonitoringEnabled: true, keepAliveExpectedIntervalSeconds: 60, keepAliveFailureEventEnabled: false,
-    keepAliveOfflineAfterMinutes: 5, keepAliveDisconnectAlertEnabled: true, keepAliveRepeatAlertEnabled: false,
-    keepAliveRepeatAlertEveryMinutes: 60,
-  });
+  const [systemForm, setSystemForm] = useState({ ...INITIAL_SYSTEM_FORM });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
   const [zoneForm, setZoneForm] = useState({ zoneNumber: 1, name: "", type: "perimeter" as any, partition: 1 });
@@ -288,10 +296,10 @@ export default function ClientDetail() {
               </div>
               <Dialog open={showSystemForm} onOpenChange={setShowSystemForm}>
                 <DialogTrigger asChild>
-                  <Button size="sm"><Plus className="h-4 w-4 mr-1" /> {systems.length > 0 ? "Adicionar outro sistema" : "Adicionar sistema"}</Button>
+                  <Button size="sm" onClick={() => setSystemForm({ ...INITIAL_SYSTEM_FORM })}><Plus className="h-4 w-4 mr-1" /> {systems.length > 0 ? "Adicionar outro sistema" : "Adicionar sistema"}</Button>
                 </DialogTrigger>
                 <DialogContent>
-                  <DialogHeader><DialogTitle>Novo Sistema de Alarme</DialogTitle></DialogHeader>
+                  <DialogHeader><DialogTitle>Novo Sistema de Alarme</DialogTitle><p className="text-sm text-muted-foreground">Após salvar, o sistema fica cadastrado imediatamente. O status Online só aparece quando a central fizer a primeira comunicação.</p></DialogHeader>
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label>Conta (Contact ID) *</Label><Input placeholder="0001" value={systemForm.account} onChange={(e) => setSystemForm({ ...systemForm, account: e.target.value })} /></div>
                     <div>
@@ -351,6 +359,7 @@ export default function ClientDetail() {
                     </div>
                   </div>
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres hexadecimais (0–9 e A–F). Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
+                  <p className="mt-3 text-xs text-muted-foreground">Após salvar, este novo sistema será selecionado automaticamente nas abas Contatos, Zonas e Usuários.</p>
                   <Button className="mt-3" onClick={() => {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     const identifierError = getAlarmSystemIdentifierValidationError(systemForm);
@@ -366,8 +375,9 @@ export default function ClientDetail() {
                   const connectionStatus = connectionStatusBySystemId.get(system.id) || "offline";
                   const isOnline = connectionStatus === "online";
                   const isNotMonitored = connectionStatus === "not_monitored";
+                  const isAwaitingInitialCommunication = connectionStatus === "offline" && !system.lastCommunication && !system.lastKeepAliveAt;
                   return (
-                  <Card key={system.id} className={`border-l-4 ${isOnline ? 'border-l-green-500' : isNotMonitored ? 'border-l-amber-500' : 'border-l-red-500'}`}>
+                  <Card key={system.id} className={`border-l-4 ${isOnline ? 'border-l-green-500' : isNotMonitored || isAwaitingInitialCommunication ? 'border-l-amber-500' : 'border-l-red-500'}`}>
                     <CardContent className="p-4 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Shield className="h-5 w-5 text-primary" />
@@ -378,8 +388,8 @@ export default function ClientDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant={isOnline ? "default" : isNotMonitored ? "secondary" : "destructive"}>
-                          {isOnline ? "Online" : isNotMonitored ? "Não monitorado" : "Offline"}
+                        <Badge variant={isOnline ? "default" : isNotMonitored || isAwaitingInitialCommunication ? "secondary" : "destructive"}>
+                          {isOnline ? "Online" : isNotMonitored ? "Não monitorado" : isAwaitingInitialCommunication ? "Aguardando comunicação" : "Offline"}
                         </Badge>
                         <span className="text-xs text-muted-foreground">Porta {system.receiverPort}</span>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-300" onClick={() => { setCredentialSystem(system); setRemoteCredentialValues({}); }} title="Credenciais técnicas do sistema">
