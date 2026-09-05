@@ -20,6 +20,12 @@ const standardMutation = {
   isPending: false,
 };
 
+const invalidateOpenQueue = vi.fn().mockResolvedValue(undefined);
+const invalidateConnectionStatus = vi.fn().mockResolvedValue(undefined);
+const invalidateArmDisarmStatus = vi.fn().mockResolvedValue(undefined);
+const invalidateRecentAutoFinalizedArmDisarm = vi.fn().mockResolvedValue(undefined);
+let mockedRealtimeEvents: any[] = [];
+
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     occurrence: { create: { useMutation: () => standardMutation } },
@@ -89,15 +95,20 @@ vi.mock("@/lib/trpc", () => ({
     },
     camera: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({
-      incident: { openQueue: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      incident: { openQueue: { invalidate: invalidateOpenQueue } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      dashboard: {
+        connectionStatus: { invalidate: invalidateConnectionStatus },
+        armDisarmStatus: { invalidate: invalidateArmDisarmStatus },
+        recentAutoFinalizedArmDisarm: { invalidate: invalidateRecentAutoFinalizedArmDisarm },
+      },
     }),
   },
 }));
 
 vi.mock("@/hooks/useSocket", () => ({
-  useSocket: () => ({ connected: true, realtimeEvents: [] }),
+  useSocket: () => ({ connected: true, realtimeEvents: mockedRealtimeEvents }),
 }));
 
 vi.mock("@/components/HLSPlayer", () => ({
@@ -131,6 +142,11 @@ describe("Dashboard — Ocorrência Manual", () => {
     manualMutation.mutateAsync.mockReset();
     standardMutation.mutate.mockReset();
     standardMutation.mutateAsync.mockReset();
+    invalidateOpenQueue.mockClear();
+    invalidateConnectionStatus.mockClear();
+    invalidateArmDisarmStatus.mockClear();
+    invalidateRecentAutoFinalizedArmDisarm.mockClear();
+    mockedRealtimeEvents = [];
     standardMutation.mutateAsync.mockResolvedValue({ success: true });
     Object.defineProperty(window, "AudioContext", {
       configurable: true,
@@ -158,6 +174,21 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByRole("heading", { name: "Nova Ocorrência Manual" })).toBeTruthy();
     expect(screen.getByPlaceholderText("Deixe em branco para a Conta do Sistema (0000)")).toBeTruthy();
     expect(screen.getByPlaceholderText("Descreva a ocorrência manual...")).toBeTruthy();
+  });
+
+  it("atualiza os indicadores imediatamente ao receber Keep Alive ou confirmação automática", async () => {
+    mockedRealtimeEvents = [
+      { kind: "keepalive", alarmSystemId: 55, account: "0029", brand: "JFL", timestamp: "2026-09-05T23:30:00.000Z" },
+      { kind: "arm_disarm_confirmation", alarmSystemId: 55, account: "0029", brand: "JFL", qualifier: "R", eventCode: "407", timestamp: "2026-09-05T23:30:01.000Z" },
+    ];
+
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(invalidateConnectionStatus).toHaveBeenCalledTimes(1);
+      expect(invalidateArmDisarmStatus).toHaveBeenCalledTimes(1);
+      expect(invalidateRecentAutoFinalizedArmDisarm).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("pede a senha em confirmação nativa ao desativar o áudio, sem montar um modal React", async () => {

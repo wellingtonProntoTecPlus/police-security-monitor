@@ -47,6 +47,8 @@
 - [ ] Analisar o vídeo de diagnóstico da Active 8W para confirmar se a ordem dos destinos revela limitação de protocolo ou apenas comportamento de teste
 - [x] Corrigir a divergência crítica comprovada no vídeo: o card mostra Nilva, mas o modal abre Alvorada; card e tratamento agora usam IDs persistidos de sistema e cliente, sem fallback ambíguo por conta
 - [ ] Rastrear a origem real dos eventos JFL R211, R213, R214, R215, R231 e R234 mostrados indevidamente como conta 0022 e bloquear associação sem prova física por evento
+- [ ] Verificar se o evento JFL R934 da conta 0029 é Contact ID real ou resposta técnica interpretada incorretamente
+- [x] Auditar e corrigir a precisão e atualização dos indicadores Armados, Desarmados, Online, Offline e Última confirmação automática do Dashboard
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

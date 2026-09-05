@@ -16,7 +16,7 @@ export interface AlarmEvent {
   timestamp: string;
   clientId?: number;
   alarmSystemId?: number;
-  kind?: "restoration_closed";
+  kind?: "restoration_closed" | "keepalive" | "arm_disarm_confirmation";
   originalEventId?: number;
 }
 

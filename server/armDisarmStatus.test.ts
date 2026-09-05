@@ -27,4 +27,21 @@ describe("status operacional de arme e desarme", () => {
       { account: "0336", qualifier: "R", receivedAt: new Date("2026-08-13T12:45:00.000Z"), alarmSystemId: 8 },
     ]);
   });
+
+  it("não mantém estado operacional para sistema inativo", () => {
+    const statuses = getLatestArmDisarmStatusBySystem([
+      { account: "0022", qualifier: "R", receivedAt: new Date("2026-09-05T20:00:00.000Z"), alarmSystemId: 54 },
+      { account: "0029", qualifier: "E", receivedAt: new Date("2026-09-05T20:01:00.000Z"), alarmSystemId: 55 },
+    ], [
+      { id: 54, account: "0022", isActive: false },
+      { id: 55, account: "0029", isActive: true },
+    ]);
+
+    expect(statuses).toEqual([{
+      account: "0029",
+      qualifier: "E",
+      receivedAt: new Date("2026-09-05T20:01:00.000Z"),
+      alarmSystemId: 55,
+    }]);
+  });
 });

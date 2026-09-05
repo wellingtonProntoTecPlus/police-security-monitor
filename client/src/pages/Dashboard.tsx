@@ -178,6 +178,8 @@ export default function Dashboard() {
   const pendingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pendingPopupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const persistedQueueSignatureRef = useRef("");
+  const processedOperationalRefreshesRef = useRef<Set<string>>(new Set());
+  const lastConnectionStatusRefreshAtRef = useRef(0);
   const [observationOpen, setObservationOpen] = useState(false);
   const [observationUntil, setObservationUntil] = useState(() => dateTimeLocalValue(new Date(Date.now() + 30 * 60_000)));
   const [observationNotes, setObservationNotes] = useState("");
@@ -275,6 +277,27 @@ export default function Dashboard() {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
     realtimeEvents.forEach((ev) => {
+      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation") {
+        const operationalKey = `${ev.kind}-${ev.alarmSystemId || "unknown"}-${ev.timestamp}`;
+        if (processedOperationalRefreshesRef.current.has(operationalKey)) return;
+        processedOperationalRefreshesRef.current.add(operationalKey);
+        if (processedOperationalRefreshesRef.current.size > 500) processedOperationalRefreshesRef.current.clear();
+
+        if (ev.kind === "keepalive") {
+          // Várias centrais podem confirmar ao mesmo tempo. Limitar a consulta
+          // preserva atualização rápida sem recriar o problema de excesso de
+          // requisições do proxy.
+          const now = Date.now();
+          if (now - lastConnectionStatusRefreshAtRef.current >= 10_000) {
+            lastConnectionStatusRefreshAtRef.current = now;
+            void utils.dashboard.connectionStatus.invalidate();
+          }
+        } else {
+          void utils.dashboard.armDisarmStatus.invalidate();
+          void utils.dashboard.recentAutoFinalizedArmDisarm.invalidate();
+        }
+        return;
+      }
       const persistedEvent = ev as typeof ev & { incidentId?: number };
       if (ev.kind === "restoration_closed") {
         const closeKey = `restoration-${ev.originalEventId}-${ev.id}`;

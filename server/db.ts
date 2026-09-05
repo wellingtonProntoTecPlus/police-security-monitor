@@ -455,7 +455,10 @@ export async function endSystemMaintenance(systemId: number) {
 }
 
 export async function listSystemsConnectionStatus(referenceTime = new Date()) {
-  const systems = await listAlarmSystems();
+  // A tela operacional não pode contar cadastros desativados como Online ou
+  // Offline. Eles continuam disponíveis nos cadastros e relatórios, mas não
+  // fazem parte da supervisão em tempo real.
+  const systems = (await listAlarmSystems()).filter((system) => system.isActive !== false);
   const db = await getDb();
   if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const, cutoffMs: null }));
 
@@ -1988,7 +1991,9 @@ export async function getArmDisarmStatus() {
     ))
     .orderBy(desc(alarmEvents.receivedAt));
   
-  const systems = await db.select().from(alarmSystems);
+  // Armado/Desarmado é o último estado conhecido de um painel ativo. Sistemas
+  // desativados não podem aumentar o contador nem aparecer nas listas.
+  const systems = (await db.select().from(alarmSystems)).filter((system) => system.isActive !== false);
   const systemsById = new Map(systems.map((system) => [system.id, system]));
   const latestStatuses = getLatestArmDisarmStatusBySystem(lastEvents, systems);
   
@@ -2036,6 +2041,9 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
   if (!db) return [];
 
   const armDisarmCodes = ["401", "407", "408", "409", "441", "701"];
+  const activeSystems = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isActive, true));
+  const activeSystemIds = activeSystems.map((system) => system.id);
+  if (activeSystemIds.length === 0) return [];
   const rows = await db.select({
     id: alarmEvents.id,
     account: alarmEvents.account,
@@ -2050,6 +2058,7 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
       inArray(alarmEvents.eventCode, armDisarmCodes),
       ne(alarmEvents.account, "0000"),
       isNotNull(alarmEvents.alarmSystemId),
+      inArray(alarmEvents.alarmSystemId, activeSystemIds),
     ))
     .orderBy(desc(alarmEvents.receivedAt))
     .limit(limit);

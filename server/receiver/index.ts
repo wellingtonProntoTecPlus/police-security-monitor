@@ -85,7 +85,18 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
   }
   if (brand === "JFL") refreshConfirmedJflEndpoint(socket.remoteAddress || "", port);
   const measurement = await recordSystemKeepAlive(known.id);
-  if (measurement) console.log(`[KEEPALIVE] ${brand} | Conta ${known.account} | ${signal} | ${formatKeepAliveInterval(measurement.intervalMs)}`);
+  if (measurement) {
+    console.log(`[KEEPALIVE] ${brand} | Conta ${known.account} | ${signal} | ${formatKeepAliveInterval(measurement.intervalMs)}`);
+    // Atualização de supervisão somente informativa. O Dashboard usa este
+    // sinal para atualizar seus indicadores, sem criar card de ocorrência.
+    eventCallback?.({
+      kind: "keepalive",
+      alarmSystemId: known.id,
+      account: known.account,
+      brand,
+      timestamp: new Date().toISOString(),
+    });
+  }
 }
 
 function calcularChecksum(buffer: Buffer<ArrayBuffer>): Buffer<ArrayBuffer> {
@@ -961,6 +972,20 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
           eventReceivedAt: new Date(),
         },
       });
+      // Arme e desarme são finalizados automaticamente e não entram na fila.
+      // Mesmo assim, o Dashboard precisa atualizar os indicadores no instante
+      // da confirmação, sem aguardar o próximo ciclo de consulta.
+      if (system && ["401", "407", "408", "409", "441", "701"].includes(evento.eventCode)) {
+        eventCallback?.({
+          kind: "arm_disarm_confirmation",
+          alarmSystemId: system.id,
+          account: effectiveAccount,
+          brand: evento.brand,
+          qualifier: evento.qualifier,
+          eventCode: evento.eventCode,
+          timestamp: new Date().toISOString(),
+        });
+      }
       console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | ${automaticFinalizationMessage}`);
       return true;
     }

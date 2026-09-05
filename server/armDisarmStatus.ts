@@ -8,6 +8,7 @@ export type ArmDisarmStatusEvent = {
 export type ArmDisarmStatusSystem = {
   id: number;
   account: string;
+  isActive?: boolean;
 };
 
 export type LatestArmDisarmStatus = {
@@ -32,6 +33,7 @@ export function getLatestArmDisarmStatusBySystem(
   for (const event of events) {
     if (!event.alarmSystemId || statusBySystem.has(event.alarmSystemId)) continue;
     const system = systemsById.get(event.alarmSystemId);
+    if (!system || system.isActive === false) continue;
     const canonicalAccount = system?.account?.trim() || event.account;
     if (!canonicalAccount || canonicalAccount === "0000") continue;
 
