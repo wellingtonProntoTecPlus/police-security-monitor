@@ -28,12 +28,15 @@
 - [x] Cobrir em teste a frase completa de exclusão com conta, marca, modelo e identificador
 - [ ] Permitir pesquisar Clientes Monitorados pela conta, MAC ou serial de sistemas vinculados
 - [ ] Diagnosticar por que a conta 0029 não aparece na lista de sistemas Online apesar de estar cadastrada
-- [ ] Investigar sem alteração a ausência de zonas, contatos, usuários e sistemas exibidos após o recadastro da conta 0029
-- [ ] Recuperar com segurança o cadastro principal removido do cliente ID 54, preservando sistema 0029, contatos, zonas e usuários
-- [ ] Restaurar o cliente ID 54 como Shopping das Baterias / Mais Baterias, Pessoa Jurídica, Empresa, vinculado à Police Electronics LTDA
+- [x] Investigar sem alteração a ausência de zonas, contatos, usuários e sistemas exibidos após o recadastro da conta 0029
+- [x] Recuperar com segurança o cadastro principal removido do cliente ID 54, preservando sistema 0029, contatos, zonas e usuários
+- [x] Restaurar o cliente ID 54 como Shopping das Baterias / Mais Baterias, Pessoa Jurídica, Empresa, vinculado à Police Electronics LTDA
+- [ ] Validar por consulta somente leitura que o cliente ID 54 foi restaurado com os dados informados e a parceira Police Electronics LTDA
+- [ ] Confirmar que o cliente restaurado exibe o sistema 0029, os 3 contatos, as 5 zonas e os 4 usuários sem recriação indevida
 - [ ] Exigir confirmação forte antes de excluir clientes que possuam sistemas, contatos ou outros dados vinculados
 - [x] Simplificar o fluxo de cadastro de sistemas a partir da dificuldade registrada em vídeo, preservando validações de identidade
 - [x] Ajustar o modal de cadastro de sistemas para caber em telas menores, com rolagem interna e ações sempre visíveis sem zoom
+- [ ] Corrigir a associação dos eventos JFL Active 8W da conta 0029 que chegam na conta técnica 0000 apesar de a central estar Online
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

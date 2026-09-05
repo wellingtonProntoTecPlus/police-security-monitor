@@ -9,6 +9,7 @@ import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
 import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
+import { buildJflActive8wConnectionAcknowledgement, buildJflStatusRequest, isJflActive8wV8Connection } from './jflActive8wProtocol';
 import { getConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
@@ -135,8 +136,8 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
   if (data.length < 4) return;
 
   const seq = data[2];
-  const isJflActive8wV8Connection = brand === "JFL" && data[0] === 0x7a && data.length >= 6 && data[5] === 0x21;
-  const cmd = isJflActive8wV8Connection ? 0x21 : data[3];
+  const isJflActive8wV8ConnectionFrame = brand === "JFL" && isJflActive8wV8Connection(data);
+  const cmd = isJflActive8wV8ConnectionFrame ? 0x21 : data[3];
 
   switch (cmd) {
     case 0x21: { // CONEXÃO
@@ -147,7 +148,7 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
           if (system) {
             rememberSystem(socket, system, port);
             console.log(`[RECIP] JFL conexão identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);
-            if (isJflActive8wV8Connection) {
+            if (isJflActive8wV8ConnectionFrame) {
               await recordKeepAlive(socket, brand, port, "Active 8W v8 identificação 0x21");
             }
           } else {
@@ -155,9 +156,17 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
           }
         }
       }
-      // A Active 8W v8.0 não utiliza o ACK do protocolo Contact ID 7B.
-      // Não responder com quadro legado evita alterar a conversa proprietária.
-      if (isJflActive8wV8Connection) break;
+      // A Active 8W v8.0 apresenta o painel em 7A/0x21, mas a confirmação e
+      // a consulta passiva de pendências usam quadros JFL 7B. Sem esse retorno
+      // a central fica Online, porém pode não entregar Contact ID ao receptor.
+      // Ambos os quadros abaixo são de infraestrutura; não controlam a central.
+      if (isJflActive8wV8ConnectionFrame) {
+        const acknowledgement = buildJflActive8wConnectionAcknowledgement(data);
+        if (acknowledgement) socket.write(acknowledgement);
+        socket.write(buildJflStatusRequest());
+        console.log(`[RECIP] JFL Active 8W v8 | confirmação e consulta passiva de status enviadas | Conta ${identifiedSystemBySocket.get(socket)?.account || "sem identificação"}`);
+        break;
+      }
       let resp = Buffer.from([0x7B, 0x07, seq, 0x21, 0x01, 0x05, 0x00]);
       resp = calcularChecksum(resp);
       socket.write(resp);
