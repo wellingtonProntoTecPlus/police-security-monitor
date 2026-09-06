@@ -975,7 +975,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       // Arme e desarme são finalizados automaticamente e não entram na fila.
       // Mesmo assim, o Dashboard precisa atualizar os indicadores no instante
       // da confirmação, sem aguardar o próximo ciclo de consulta.
-      if (system && ["401", "407", "408", "409", "441", "701"].includes(evento.eventCode)) {
+      if (system && ["401", "403", "407", "408", "409", "441"].includes(evento.eventCode)) {
         eventCallback?.({
           kind: "arm_disarm_confirmation",
           alarmSystemId: system.id,

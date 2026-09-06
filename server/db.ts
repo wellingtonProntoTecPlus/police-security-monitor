@@ -1981,7 +1981,7 @@ export async function getArmDisarmStatus() {
   if (!db) return { armed: [], disarmed: [] };
   
   // Buscar o último evento de arme/desarme de cada conta
-  const armDisarmCodes = ['401', '407', '408', '409', '441', '701'];
+  const armDisarmCodes = ['401', '403', '407', '408', '409', '441'];
   
   const lastEvents = await db.select().from(alarmEvents)
     .where(and(
@@ -2040,7 +2040,7 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
   const db = await getDb();
   if (!db) return [];
 
-  const armDisarmCodes = ["401", "407", "408", "409", "441", "701"];
+  const armDisarmCodes = ["401", "403", "407", "408", "409", "441"];
   const activeSystems = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isActive, true));
   const activeSystemIds = activeSystems.map((system) => system.id);
   if (activeSystemIds.length === 0) return [];

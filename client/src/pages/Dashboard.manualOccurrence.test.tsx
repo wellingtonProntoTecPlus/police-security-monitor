@@ -179,7 +179,7 @@ describe("Dashboard — Ocorrência Manual", () => {
   it("atualiza os indicadores imediatamente ao receber Keep Alive ou confirmação automática", async () => {
     mockedRealtimeEvents = [
       { kind: "keepalive", alarmSystemId: 55, account: "0029", brand: "JFL", timestamp: "2026-09-05T23:30:00.000Z" },
-      { kind: "arm_disarm_confirmation", alarmSystemId: 55, account: "0029", brand: "JFL", qualifier: "R", eventCode: "407", timestamp: "2026-09-05T23:30:01.000Z" },
+      { kind: "arm_disarm_confirmation", alarmSystemId: 55, account: "0029", brand: "JFL", qualifier: "R", eventCode: "403", timestamp: "2026-09-05T23:30:01.000Z" },
     ];
 
     render(<Dashboard />);
