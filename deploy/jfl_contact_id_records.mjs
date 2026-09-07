@@ -37,6 +37,7 @@ function pairedFault(code, description, restorationDescription) {
 
 export const jflContactIdRecords = [
   alarm("100", "Emergência médica"),
+  alarm("101", "Emergência médica"),
   alarm("110", "Incêndio"),
   alarm("120", "Pânico"),
   alarm("121", "Coação"),
@@ -96,8 +97,8 @@ export const jflContactIdRecords = [
   record("628", "R", "Saiu da programação", "sistema", "#8B5CF6", 0, 5, "system", "low", { fechaAutomatico: 1 }),
   arm("401", "R", "Arme"),
   arm("401", "E", "Desarme"),
-  arm("403", "R", "Autoarme por horário programado"),
-  arm("403", "E", "Autodesarme por horário programado"),
+  arm("403", "E", "Autoarme por horário programado"),
+  arm("403", "R", "Autodesarme por horário programado"),
   arm("404", "R", "Autoarme por não movimento"),
   arm("407", "R", "Armado por aplicativo"),
   arm("407", "E", "Desarmado por aplicativo"),
@@ -137,7 +138,7 @@ export const jflContactIdRecords = [
   analytics("723", "R", "Entrada de alarme desacionada", false),
   analytics("724", "E", "Disparo da zona pelo analítico", true, { fechaComRestauracao: 1, codigoRestauracao: "724" }),
   analytics("724", "R", "Restauração do disparo da zona pelo analítico", false),
-  analytics("730", "E", "Detecção de pessoa", false),
+  analytics("730", "E", "Detecção de pessoa", true),
   analytics("731", "E", "Início do alarme de movimento de pessoa", true, { fechaComRestauracao: 1, codigoRestauracao: "731" }),
   analytics("731", "R", "Fim do alarme de movimento de pessoa", false),
   analytics("732", "E", "Cruzamento de linha por pessoa A-B", true),

@@ -49,8 +49,11 @@
 - [ ] Rastrear a origem real dos eventos JFL R211, R213, R214, R215, R231 e R234 mostrados indevidamente como conta 0022 e bloquear associação sem prova física por evento
 - [ ] Verificar se o evento JFL R934 da conta 0029 é Contact ID real ou resposta técnica interpretada incorretamente
 - [x] Auditar e corrigir a precisão e atualização dos indicadores Armados, Desarmados, Online, Offline e Última confirmação automática do Dashboard
-- [ ] Conferir os códigos da tabela Contact ID fornecida contra os cadastros JFL, VIAWEB e Universal, sem alterar a base durante a auditoria
-- [ ] Atualizar os cadastros Contact ID específicos de JFL e VIAWEB conforme a tabela validada, preservando os códigos Universais
+- [x] Conferir os códigos da tabela Contact ID fornecida contra os cadastros JFL, VIAWEB e Universal, sem alterar a base durante a auditoria
+- [x] Aplicar a primeira atualização validada dos cadastros Contact ID específicos de JFL e VIAWEB, preservando os códigos Universais
+- [ ] Normalizar todos os códigos JFL e VIAWEB ainda divergentes da tabela validada, incluindo regras de abrir ou fechar tela dos códigos analíticos e CFTV
+- [ ] Executar e registrar conferência SQL completa pós-sincronização dos códigos JFL e VIAWEB, comprovando que a tabela Universal permaneceu inalterada
+- [x] Versionar a carga idempotente inicial dos códigos JFL e VIAWEB corrigidos para futuras atualizações da VPS
 
 ## Frontend - Cadastros
 - [x] Tornar CPF e CNPJ opcionais nos cadastros de clientes e parceiras

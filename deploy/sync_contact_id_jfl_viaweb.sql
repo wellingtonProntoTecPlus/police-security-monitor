@@ -38,10 +38,34 @@ UPDATE contact_id_codes SET
 WHERE fabricante = 'JFL' AND code = '407' AND qualifier = 'E';
 
 UPDATE contact_id_codes SET
+  description = 'Autoarme por horário programado', tipo = 'arme', cor = '#10B981',
+  abre_tela = 0, fecha_automatico = 1, fecha_com_restauracao = 0,
+  codigo_restauracao = '', tempo_espera_segundos = 0, prioridade = 5,
+  category = 'arm_disarm', priority = 'low'
+WHERE fabricante = 'JFL' AND code = '403' AND qualifier = 'E';
+
+UPDATE contact_id_codes SET
+  description = 'Autodesarme por horário programado', tipo = 'desarme', cor = '#F97316',
+  abre_tela = 0, fecha_automatico = 1, fecha_com_restauracao = 0,
+  codigo_restauracao = '', tempo_espera_segundos = 0, prioridade = 5,
+  category = 'arm_disarm', priority = 'low'
+WHERE fabricante = 'JFL' AND code = '403' AND qualifier = 'R';
+
+UPDATE contact_id_codes SET
+  description = 'Detecção de pessoa', tipo = 'analitico', cor = '#EF4444',
+  abre_tela = 1, fecha_automatico = 0, fecha_com_restauracao = 0,
+  codigo_restauracao = '', tempo_espera_segundos = 0, prioridade = 2,
+  category = 'analytics', priority = 'high'
+WHERE fabricante = 'JFL' AND code = '730' AND qualifier = 'E';
+
+UPDATE contact_id_codes SET
   description = 'Zona isolada (Bypass)'
 WHERE fabricante = 'JFL' AND code = '570' AND qualifier = 'E';
 
 -- Códigos ausentes e qualificadores corrigidos. Cada INSERT é repetível.
+INSERT INTO contact_id_codes (code, qualifier, fabricante, isUniversal, description, tipo, cor, abre_tela, fecha_automatico, fecha_com_restauracao, codigo_restauracao, tempo_espera_segundos, prioridade, category, priority)
+SELECT '101', 'E', 'JFL', 0, 'Emergência médica', 'alarme', '#EF4444', 1, 0, 0, '', 0, 1, 'alarm', 'critical' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM contact_id_codes WHERE code = '101' AND qualifier = 'E' AND fabricante = 'JFL');
 INSERT INTO contact_id_codes (code, qualifier, fabricante, isUniversal, description, tipo, cor, abre_tela, fecha_automatico, fecha_com_restauracao, codigo_restauracao, tempo_espera_segundos, prioridade, category, priority)
 SELECT '365', 'E', 'JFL', 0, 'Problema de módulo de Ethernet', 'tecnico', '#F59E0B', 1, 0, 1, '365', 0, 3, 'fault', 'medium' FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM contact_id_codes WHERE code = '365' AND qualifier = 'E' AND fabricante = 'JFL');
