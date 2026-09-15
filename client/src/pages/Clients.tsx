@@ -13,6 +13,7 @@ import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Tr
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
+import { deferViewTransition } from "@/lib/deferredViewTransition";
 
 // Máscaras
 function maskPhone(v: string) {
@@ -217,7 +218,7 @@ export default function Clients() {
       setEditingClient(null);
       setForm({ ...INITIAL_FORM });
     }
-    setView("create");
+    deferViewTransition(() => setView("create"));
   }
 
   // ===== VIEW: FORMULÁRIO DE CADASTRO =====

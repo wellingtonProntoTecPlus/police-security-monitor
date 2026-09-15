@@ -48,6 +48,11 @@
 - [x] Corrigir a divergência crítica comprovada no vídeo: o card mostra Nilva, mas o modal abre Alvorada; card e tratamento agora usam IDs persistidos de sistema e cliente, sem fallback ambíguo por conta
 - [ ] Rastrear a origem real dos eventos JFL R211, R213, R214, R215, R231 e R234 mostrados indevidamente como conta 0022 e bloquear associação sem prova física por evento
 - [ ] Verificar se o evento JFL R934 da conta 0029 é Contact ID real ou resposta técnica interpretada incorretamente
+- [x] Auditar os eventos recentes recebidos sem cliente ou sistema cadastrado, classificando conta, marca, IP e identificador físico disponível: a JFL 0004 foi confirmada como Moto Zema; permanece sem cadastro a JFL serial 2785041736 e MAC 2CB044
+- [x] Confirmar por consulta SQL a conta 0077 e o vínculo físico da JFL serial 2785041736/MAC 2CB044 antes de qualquer alteração, registrando cliente, sistema e status (Sistema 64, Condomínio Residencial Matheus Barbosa, ativo e Online)
+- [ ] Restaurar a exibição dos logos quebrados da Empresa Gestora e das Empresas Parceiras sem alterar os dados corporativos
+- [x] Corrigir o erro NotFoundError removeChild que ocorre ao clicar em Novo Cliente e impede abrir o formulário, com transição segura após fechamento de portais
+- [ ] Validar na VPS que Novo Cliente abre sem NotFoundError removeChild; se persistir, capturar a origem exata do portal responsável
 - [x] Auditar e corrigir a precisão e atualização dos indicadores Armados, Desarmados, Online, Offline e Última confirmação automática do Dashboard
 - [x] Conferir os códigos da tabela Contact ID fornecida contra os cadastros JFL, VIAWEB e Universal, sem alterar a base durante a auditoria
 - [x] Aplicar a primeira atualização validada dos cadastros Contact ID específicos de JFL e VIAWEB, preservando os códigos Universais
