@@ -1,5 +1,5 @@
 -- Execute: mysql police_monitor < deploy/verify_contact_id_load.sql
--- Base oficial importada: 26 códigos Compatec + 52 códigos Vetti + tabela JFL.
+-- Base oficial importada: 26 códigos Compatec + 52 códigos Vetti + 162 códigos JFL + 58 códigos Radioenge.
 -- UNIVERSAL é extensível: inclui os 6 padrões e todos os códigos personalizados cadastrados pelo operador.
 
 SELECT
@@ -14,6 +14,7 @@ FROM (
   SELECT 'COMPATEC' AS fabricante, 26 AS quantidade_minima
   UNION ALL SELECT 'VETTI', 52
   UNION ALL SELECT 'JFL', 162
+  UNION ALL SELECT 'RADIOENGE', 58
 ) AS expected
 LEFT JOIN (
   SELECT fabricante, COUNT(*) AS quantidade_atual
