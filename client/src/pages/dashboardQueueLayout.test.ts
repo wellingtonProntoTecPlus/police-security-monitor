@@ -49,4 +49,9 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("Registro do atendimento, contatos realizados e providências");
     expect(source).toContain("O tratamento será aberto em uma janela operacional segura.");
   });
+
+  it("permite abrir outra tela sem fechar o atendimento atual", () => {
+    expect(source).toContain("WorkspaceScreenMenu");
+    expect(source).toContain("Abrir outra tela sem fechar este atendimento");
+  });
 });

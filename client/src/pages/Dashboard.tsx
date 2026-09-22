@@ -19,6 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { isVetti24HourZone } from "@shared/vettiZoneRules";
 import { formatContactIdArgument } from "@shared/contactIdArgumentContext";
 import { resolveQueueEventClient, resolveQueueEventSystem } from "@/lib/queueEventIdentity";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
+import { getQuickFinalizationOptions } from "@/lib/quickFinalizationSearch";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -211,9 +213,15 @@ export default function Dashboard() {
   const passwordConfirmationMut = trpc.auth.login.useMutation();
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
+  const [finalizationSearch, setFinalizationSearch] = useState("");
   const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | null>(null);
   const [showProceduresModal, setShowProceduresModal] = useState(false);
   const utils = trpc.useUtils();
+
+  const quickFinalizationOptions = useMemo(
+    () => getQuickFinalizationOptions(finalizacoes, finalizationSearch),
+    [finalizacoes, finalizationSearch],
+  );
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -1185,7 +1193,9 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <WorkspaceScreenMenu label="Outras telas" className="hidden sm:inline-flex" />
+                <div className="sm:hidden"><WorkspaceScreenMenu compact label="Abrir outra tela sem fechar este atendimento" /></div>
                 <Timer startTime={attendStartTime} />
                 <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setSelectedEvent(null)} aria-label="Fechar tratamento"><X className="h-5 w-5" /></button>
               </div>
@@ -1207,7 +1217,7 @@ export default function Dashboard() {
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(event) => setSendEmail(event.target.checked)} /><Mail className="h-3 w-3" /> E-mail</label>
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
                     <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>Finalizar</Button>
-                    <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => setSelectedFinalization("open")}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
+                    <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
                     {queues.filter((item) => item.account === selectedEvent.account).length > 1 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa ({queues.filter((item) => item.account === selectedEvent.account).length})</Button>}
                   </div>
                 </div>
@@ -1509,7 +1519,7 @@ export default function Dashboard() {
                           Finalizar em massa ({queues.filter((item) => item.account === legacySelectedEvent.account).length})
                         </Button>
                       )}
-                      <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => setSelectedFinalization("open")}>
+                      <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}>
                         Finalização Rápida
                       </Button>
                     </div>
@@ -1885,9 +1895,18 @@ export default function Dashboard() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-xs text-muted-foreground mb-3">Clique em uma finalização para inserir nas observações:</p>
+            <p className="text-xs text-muted-foreground mb-3">Digite parte do título ou da descrição para localizar a finalização:</p>
+            <label htmlFor="quick-finalization-search" className="sr-only">Buscar finalização rápida</label>
+            <input
+              id="quick-finalization-search"
+              autoFocus
+              value={finalizationSearch}
+              onChange={(event) => setFinalizationSearch(event.target.value)}
+              placeholder="Buscar por título ou descrição..."
+              className="mb-3 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/30"
+            />
             <div className="space-y-2">
-              {finalizacoes.filter((f: any) => f.isActive).map((f: any) => (
+              {quickFinalizationOptions.map((f: any) => (
                 <button
                   key={f.id}
                   className="w-full text-left px-3 py-2 rounded border border-border hover:bg-primary/10 hover:border-primary/50 transition-colors"
@@ -1902,8 +1921,8 @@ export default function Dashboard() {
                   {f.description && <p className="text-xs text-muted-foreground mt-0.5">{f.description}</p>}
                 </button>
               ))}
-              {finalizacoes.filter((f: any) => f.isActive).length === 0 && (
-                <p className="text-center text-muted-foreground py-4">Nenhuma finalização cadastrada. Acesse o menu "Finalizações" para criar.</p>
+              {quickFinalizationOptions.length === 0 && (
+                <p className="py-4 text-center text-muted-foreground">{finalizationSearch.trim() ? "Nenhuma finalização encontrada para essa busca." : "Nenhuma finalização cadastrada. Acesse o menu \"Finalizações\" para criar."}</p>
               )}
             </div>
           </div>

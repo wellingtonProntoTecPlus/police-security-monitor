@@ -26,6 +26,7 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import WorkspaceScreenMenu from "./WorkspaceScreenMenu";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -210,12 +211,13 @@ function DashboardLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                  <span className="truncate font-semibold tracking-tight">
                     Police Central
                   </span>
+                  <WorkspaceScreenMenu compact label="Abrir outra tela em nova aba" />
                 </div>
-              ) : null}
+              ) : <WorkspaceScreenMenu compact label="Abrir outra tela em nova aba" />}
             </div>
           </SidebarHeader>
 
