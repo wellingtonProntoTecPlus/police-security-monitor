@@ -16,7 +16,7 @@ import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccoun
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
 import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
-import { extractIntelbrasIsecnetFrames, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
+import { extractIntelbrasIsecnetFrames, isIntelbrasIsecnetHeartbeat, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
 import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
@@ -220,6 +220,19 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
 
 // Driver Intelbras
 async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: number) {
+  if (isIntelbrasIsecnetHeartbeat(data)) {
+    const known = identifiedSystemBySocket.get(socket);
+    if (known) {
+      await recordKeepAlive(socket, "INTELBRAS", port, "ISECnet 0xF7");
+      console.log(`[RECIP] INTELBRAS ISECnet 0xF7 confirmado | Conta ${known.account}`);
+    } else {
+      console.warn(`[RECIP] INTELBRAS ISECnet 0xF7 recebido antes da identificação física; ACK de transporte enviado sem associação.`);
+    }
+    // A AMT-8000 encerra a sessão se não receber FE para o Heartbeat F7.
+    socket.write(Buffer.from([0xfe]));
+    return;
+  }
+
   const identification = parseIntelbrasIsecnetIdentification(data);
   if (identification) {
     // A associação é sempre por MAC físico; a conta transportada é conferida

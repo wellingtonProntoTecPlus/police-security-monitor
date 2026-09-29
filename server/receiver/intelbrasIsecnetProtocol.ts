@@ -13,6 +13,10 @@ export type IntelbrasIsecnetEvent = {
   command: "0xB0" | "0xB4";
 };
 
+export function isIntelbrasIsecnetHeartbeat(frame: Buffer) {
+  return frame.length === 1 && frame[0] === 0xf7;
+}
+
 function decodeContactIdNibble(nibble: number) {
   return nibble === 0x0a ? "0" : nibble.toString(16).toUpperCase();
 }
@@ -79,6 +83,11 @@ export function extractIntelbrasIsecnetFrames(payload: Buffer) {
   const frames: Buffer[] = [];
   let offset = 0;
   while (offset < payload.length) {
+    if (isIntelbrasIsecnetHeartbeat(payload.subarray(offset, offset + 1))) {
+      frames.push(payload.subarray(offset, offset + 1));
+      offset += 1;
+      continue;
+    }
     const contentLength = payload[offset];
     const frameLength = contentLength + 2;
     if (contentLength === 0 || frameLength > 512) {

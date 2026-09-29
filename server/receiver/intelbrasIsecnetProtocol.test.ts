@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractIntelbrasIsecnetFrames, hasValidIsecnetChecksum, normalizeIntelbrasContactIdEventCode, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from "./intelbrasIsecnetProtocol";
+import { extractIntelbrasIsecnetFrames, hasValidIsecnetChecksum, isIntelbrasIsecnetHeartbeat, normalizeIntelbrasContactIdEventCode, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from "./intelbrasIsecnetProtocol";
 
 function withIsecnetChecksum(frameWithoutChecksum: number[]) {
   const frame = Buffer.from([...frameWithoutChecksum, 0]);
@@ -31,6 +31,19 @@ describe("identificação ISECnet Intelbras 0x94", () => {
 
   it("recusa formatos ISECnet diferentes de 0x94 nesta etapa de homologação", () => {
     expect(parseIntelbrasIsecnetIdentification(Buffer.from("07B04500497B255F45", "hex"))).toBeUndefined();
+  });
+});
+
+describe("Heartbeat ISECnet Intelbras 0xF7", () => {
+  it("reconhece o frame curto que exige ACK FE", () => {
+    expect(isIntelbrasIsecnetHeartbeat(Buffer.from([0xf7]))).toBe(true);
+    expect(isIntelbrasIsecnetHeartbeat(Buffer.from([0xfe]))).toBe(false);
+  });
+
+  it("extrai F7 mesmo sem cabeçalho de tamanho", () => {
+    const result = extractIntelbrasIsecnetFrames(Buffer.from([0xf7]));
+    expect(result.frames).toEqual([Buffer.from([0xf7])]);
+    expect(result.remainder).toHaveLength(0);
   });
 });
 
