@@ -13,5 +13,6 @@ describe("telas abertas em nova aba", () => {
   it("oferece todas as telas administrativas para o administrador", () => {
     expect(getWorkspaceScreensForRole("admin").map((screen) => screen.path)).toContain("/reports");
     expect(getWorkspaceScreensForRole("admin").map((screen) => screen.path)).toContain("/settings");
+    expect(getWorkspaceScreensForRole("admin").map((screen) => screen.path)).toContain("/alarm-systems");
   });
 });

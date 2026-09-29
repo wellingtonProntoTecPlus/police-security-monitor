@@ -43,9 +43,9 @@ export default function WorkspaceScreenMenu({
           {!compact && <span>{label}</span>}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="z-[120] w-60">
+      <DropdownMenuContent align="end" className="z-[120] max-h-[70vh] w-60 overflow-y-auto">
         <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-          A tela atual continuará aberta
+          A tela de atendimento continuará aberta
         </div>
         {screens.map((screen) => (
           <DropdownMenuItem

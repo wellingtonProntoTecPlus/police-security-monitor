@@ -33,6 +33,7 @@ const menuItems = [
   { icon: Building2, label: "Empresa Gestora", path: "/managing-company" },
   { icon: Building2, label: "Empresa Parceira", path: "/partners" },
   { icon: Users, label: "Clientes", path: "/clients" },
+  { icon: Shield, label: "Sistemas de Alarme", path: "/alarm-systems" },
   { icon: Radio, label: "Relatórios", path: "/reports" },
   { icon: Shield, label: "Contact ID", path: "/contact-id" },
   { icon: LayoutDashboard, label: "Finalizações", path: "/finalizations" },

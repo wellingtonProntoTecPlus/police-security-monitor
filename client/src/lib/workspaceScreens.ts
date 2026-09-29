@@ -10,6 +10,7 @@ export const WORKSPACE_SCREENS: WorkspaceScreen[] = [
   { label: "Empresa Gestora", path: "/managing-company" },
   { label: "Empresa Parceira", path: "/partners" },
   { label: "Clientes", path: "/clients" },
+  { label: "Sistemas de Alarme", path: "/alarm-systems" },
   { label: "Relatórios", path: "/reports" },
   { label: "Contact ID", path: "/contact-id" },
   { label: "Finalizações", path: "/finalizations" },
