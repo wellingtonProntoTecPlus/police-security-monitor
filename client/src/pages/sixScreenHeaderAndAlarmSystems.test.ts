@@ -43,4 +43,15 @@ describe("tela de Sistemas de Alarme", () => {
     expect(pageSources.alarmSystems).toContain("navigate(`/clients/${sys.clientId}`)");
     expect(pageSources.alarmSystems).toContain("Salvar Alterações");
   });
+
+  it("cadastra um sistema diretamente pela tela e busca somente clientes do parceiro digitado", () => {
+    expect(pageSources.alarmSystems).toContain("trpc.alarmSystem.create.useMutation");
+    expect(pageSources.alarmSystems).toContain("onClick={() => openSystemForm()}");
+    expect(pageSources.alarmSystems).toContain("partnerSearch");
+    expect(pageSources.alarmSystems).toContain("matchingPartners");
+    expect(pageSources.alarmSystems).toContain("Busca só clientes do parceiro digitado");
+    expect(pageSources.alarmSystems).toContain("partnerIdsForClientSearch");
+    expect(pageSources.alarmSystems).toContain("client.partnerCompanyId");
+    expect(pageSources.alarmSystems).toContain("Digite o nome ou CNPJ do parceiro");
+  });
 });

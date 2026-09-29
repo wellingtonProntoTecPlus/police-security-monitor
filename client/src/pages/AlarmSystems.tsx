@@ -55,16 +55,28 @@ export default function AlarmSystems() {
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [selectedPartner, setSelectedPartner] = useState(0);
+  const [partnerSearch, setPartnerSearch] = useState("");
   const [editingSystem, setEditingSystem] = useState<any>(null);
 
   const { data: systems = [], refetch } = trpc.alarmSystem.list.useQuery(undefined);
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
   const { data: allClients = [] } = trpc.monitoredClient.list.useQuery(undefined);
 
-  // Filtrar clientes pela parceira selecionada
-  const filteredClients = selectedPartner
-    ? allClients.filter((c: any) => c.partnerCompanyId === selectedPartner)
-    : allClients;
+  const normalizedPartnerSearch = partnerSearch.trim().toLocaleLowerCase("pt-BR");
+  const matchingPartners = partners.filter((partner: any) => {
+    if (!normalizedPartnerSearch) return true;
+    return [partner.name, partner.cnpj, partner.city, partner.state]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("pt-BR")
+      .includes(normalizedPartnerSearch);
+  });
+  const partnerIdsForClientSearch = selectedPartner
+    ? [selectedPartner]
+    : normalizedPartnerSearch
+      ? matchingPartners.map((partner: any) => partner.id)
+      : [];
+  const filteredClients = allClients.filter((client: any) => partnerIdsForClientSearch.includes(client.partnerCompanyId));
 
   const createMutation = trpc.alarmSystem.create.useMutation({
     onSuccess: () => {
@@ -72,6 +84,7 @@ export default function AlarmSystems() {
       setView("list");
       setForm({ ...INITIAL_FORM });
       setSelectedPartner(0);
+      setPartnerSearch("");
       refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -83,6 +96,7 @@ export default function AlarmSystems() {
       setEditingSystem(null);
       setForm({ ...INITIAL_FORM });
       setSelectedPartner(0);
+      setPartnerSearch("");
       refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -92,7 +106,8 @@ export default function AlarmSystems() {
   const filteredSystems = systems.filter((s: any) => {
     if (!normalizedSearch) return true;
     const client = allClients.find((c: any) => c.id === s.clientId);
-    return [s.account, s.brand, s.model, s.firmwareVersion, s.serialNumber, s.macAddress, s.imeiGprs, s.ipAddress, s.isepId, client?.name, client?.fantasyName]
+    const partner = partners.find((item: any) => item.id === s.partnerCompanyId || item.id === client?.partnerCompanyId);
+    return [s.account, s.brand, s.model, s.firmwareVersion, s.serialNumber, s.macAddress, s.imeiGprs, s.ipAddress, s.isepId, client?.name, client?.fantasyName, partner?.name, partner?.cnpj]
       .filter(Boolean)
       .join(" ")
       .toLocaleLowerCase("pt-BR")
@@ -152,13 +167,16 @@ export default function AlarmSystems() {
     if (!system) {
       setEditingSystem(null);
       setSelectedPartner(0);
+      setPartnerSearch("");
       setForm({ ...INITIAL_FORM });
       setView("create");
       return;
     }
     const client = allClients.find((item: any) => item.id === system.clientId);
+    const partner = partners.find((item: any) => item.id === system.partnerCompanyId || item.id === client?.partnerCompanyId);
     setEditingSystem(system);
     setSelectedPartner(client?.partnerCompanyId || 0);
+    setPartnerSearch(partner?.name || "");
     setForm({
       ...INITIAL_FORM,
       clientId: system.clientId || 0,
@@ -216,27 +234,50 @@ export default function AlarmSystems() {
                       <h3 className="font-bold text-foreground">Empresa e Cliente</h3>
                     </div>
                     <div className="grid grid-cols-6 gap-4">
+                      <div className="col-span-6">
+                        <Label className="text-sm font-medium">Buscar parceiro</Label>
+                        <Input
+                          className="mt-1"
+                          placeholder="Digite o nome ou CNPJ do parceiro..."
+                          value={partnerSearch}
+                          onChange={(event) => {
+                            setPartnerSearch(event.target.value);
+                            setSelectedPartner(0);
+                            setForm({ ...form, clientId: 0 });
+                          }}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">Busca só clientes do parceiro digitado. Você também pode selecionar o parceiro na lista abaixo.</p>
+                      </div>
                       <div className="col-span-3">
                         <Label className="text-sm font-medium">Empresa Parceira *</Label>
-                        <Select value={selectedPartner ? String(selectedPartner) : undefined} onValueChange={(v) => { setSelectedPartner(Number(v)); setForm({ ...form, clientId: 0 }); }}>
+                        <Select value={selectedPartner ? String(selectedPartner) : undefined} onValueChange={(value) => {
+                          const partnerId = Number(value);
+                          const partner = partners.find((item: any) => item.id === partnerId);
+                          setSelectedPartner(partnerId);
+                          setPartnerSearch(partner?.name || "");
+                          setForm({ ...form, clientId: 0 });
+                        }}>
                           <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione a parceira..." /></SelectTrigger>
                           <SelectContent>
-                            {partners.map((p: any) => (
+                            {matchingPartners.map((p: any) => (
                               <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        {normalizedPartnerSearch && matchingPartners.length === 0 && <p className="mt-1 text-xs text-destructive">Nenhum parceiro encontrado para essa busca.</p>}
                       </div>
                       <div className="col-span-3">
                         <Label className="text-sm font-medium">Cliente *</Label>
-                        <Select value={form.clientId ? String(form.clientId) : undefined} onValueChange={(v) => generateAccount(Number(v))} disabled={!selectedPartner}>
-                          <SelectTrigger className="mt-1"><SelectValue placeholder={selectedPartner ? "Selecione o cliente..." : "Selecione a parceira primeiro"} /></SelectTrigger>
+                        <Select value={form.clientId ? String(form.clientId) : undefined} onValueChange={(v) => generateAccount(Number(v))} disabled={!partnerIdsForClientSearch.length}>
+                          <SelectTrigger className="mt-1"><SelectValue placeholder={partnerIdsForClientSearch.length ? "Selecione o cliente..." : "Digite ou selecione o parceiro primeiro"} /></SelectTrigger>
                           <SelectContent>
                             {filteredClients.map((c: any) => (
                               <SelectItem key={c.id} value={String(c.id)}>{c.fantasyName || c.name}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        {normalizedPartnerSearch && matchingPartners.length > 0 && !selectedPartner && <p className="mt-1 text-xs text-primary">{matchingPartners.length} parceiro(s) encontrado(s); exibindo somente clientes vinculados.</p>}
+                        {partnerIdsForClientSearch.length > 0 && filteredClients.length === 0 && <p className="mt-1 text-xs text-muted-foreground">Nenhum cliente cadastrado para este parceiro.</p>}
                       </div>
                     </div>
                   </CardContent>
