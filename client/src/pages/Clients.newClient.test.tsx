@@ -28,6 +28,10 @@ vi.mock("@/components/DashboardLayout", () => ({
   default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+vi.mock("@/components/WorkspaceScreenMenu", () => ({
+  default: () => <button type="button">Outras telas</button>,
+}));
+
 vi.mock("wouter", () => ({
   useLocation: () => ["/clients", vi.fn()],
 }));

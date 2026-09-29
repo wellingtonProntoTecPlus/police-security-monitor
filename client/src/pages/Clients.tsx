@@ -14,6 +14,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import { deferViewTransition } from "@/lib/deferredViewTransition";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
 // Máscaras
 function maskPhone(v: string) {
@@ -224,15 +225,18 @@ export default function Clients() {
   // ===== VIEW: FORMULÁRIO DE CADASTRO =====
   if (view === "create") {
     return (
-      <DashboardLayout>
+      <DashboardLayout workspaceMenuPlacement="page-header">
         <div className="h-full overflow-auto">
           <div className="p-6 max-w-[1400px] mx-auto">
             {/* Header */}
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center justify-between gap-4 mb-6">
+              <div className="flex items-center gap-4">
               <Button variant="ghost" size="sm" onClick={() => { setView("list"); setEditingClient(null); setForm({ ...INITIAL_FORM }); }}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
               </Button>
               <h1 className="text-xl font-bold text-foreground">{editingClient ? "Editar Cliente" : "Cadastrar Novo Cliente"}</h1>
+              </div>
+              <WorkspaceScreenMenu label="Outras telas" />
             </div>
 
             {/* Formulário em grid desktop */}
@@ -435,13 +439,16 @@ export default function Clients() {
 
   // ===== VIEW: LISTA DE CLIENTES =====
   return (
-    <DashboardLayout>
+    <DashboardLayout workspaceMenuPlacement="page-header">
       <div className="h-full overflow-auto p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <h1 className="text-2xl font-bold text-foreground">Clientes Monitorados</h1>
-          <Button onClick={() => openClientForm()}>
-            <Plus className="h-4 w-4 mr-2" /> Novo Cliente
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <WorkspaceScreenMenu label="Outras telas" />
+            <Button onClick={() => openClientForm()}>
+              <Plus className="h-4 w-4 mr-2" /> Novo Cliente
+            </Button>
+          </div>
         </div>
 
         {/* BUSCA E EMPRESA PARCEIRA */}

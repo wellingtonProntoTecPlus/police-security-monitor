@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Search, Shield, ArrowLeft, Save, Wifi, Radio, Clock, Camera, Users, Layers } from "lucide-react";
+import { Plus, Search, Shield, ArrowLeft, Save, Wifi, Radio, Clock, Camera, Users, Layers, Pencil, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { ALARM_SYSTEM_BRANDS, applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
 const BRANDS = ALARM_SYSTEM_BRANDS;
 
@@ -28,6 +30,7 @@ const INITIAL_FORM = {
   simCardNumber: "",
   simPhoneNumber: "",
   viawebCode: "",
+  isepId: "",
   receiverPort: 0,
   partitions: 1,
   ipAddress: "",
@@ -47,10 +50,12 @@ function requiresJflVersion5OrLaterSerial(brand: string, firmwareVersion: string
 }
 
 export default function AlarmSystems() {
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [selectedPartner, setSelectedPartner] = useState(0);
+  const [editingSystem, setEditingSystem] = useState<any>(null);
 
   const { data: systems = [], refetch } = trpc.alarmSystem.list.useQuery(undefined);
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
@@ -71,10 +76,28 @@ export default function AlarmSystems() {
     },
     onError: (err) => toast.error(err.message),
   });
+  const updateMutation = trpc.alarmSystem.update.useMutation({
+    onSuccess: () => {
+      toast.success("Sistema de alarme atualizado!");
+      setView("list");
+      setEditingSystem(null);
+      setForm({ ...INITIAL_FORM });
+      setSelectedPartner(0);
+      refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
-  const filteredSystems = systems.filter((s: any) =>
-    s.account.includes(search) || s.brand.toLowerCase().includes(search.toLowerCase())
-  );
+  const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+  const filteredSystems = systems.filter((s: any) => {
+    if (!normalizedSearch) return true;
+    const client = allClients.find((c: any) => c.id === s.clientId);
+    return [s.account, s.brand, s.model, s.firmwareVersion, s.serialNumber, s.macAddress, s.imeiGprs, s.ipAddress, s.isepId, client?.name, client?.fantasyName]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("pt-BR")
+      .includes(normalizedSearch);
+  });
 
   // Gerar número da conta automaticamente
   function generateAccount(clientId: number) {
@@ -107,6 +130,7 @@ export default function AlarmSystems() {
       imeiGprs: form.imeiGprs || undefined,
       simCardNumber: form.simCardNumber || undefined,
       simPhoneNumber: form.simPhoneNumber || undefined,
+      isepId: form.brand === "VIAWEB" ? form.isepId || undefined : undefined,
       receiverPort: form.receiverPort || undefined,
       partitions: form.partitions,
       ipAddress: form.ipAddress || undefined,
@@ -120,20 +144,65 @@ export default function AlarmSystems() {
       keepAliveRepeatAlertEnabled: form.keepAliveRepeatAlertEnabled,
       keepAliveRepeatAlertEveryMinutes: form.keepAliveRepeatAlertEveryMinutes,
     };
-    createMutation.mutate(payload);
+    if (editingSystem) updateMutation.mutate({ id: editingSystem.id, ...payload });
+    else createMutation.mutate(payload);
+  }
+
+  function openSystemForm(system?: any) {
+    if (!system) {
+      setEditingSystem(null);
+      setSelectedPartner(0);
+      setForm({ ...INITIAL_FORM });
+      setView("create");
+      return;
+    }
+    const client = allClients.find((item: any) => item.id === system.clientId);
+    setEditingSystem(system);
+    setSelectedPartner(client?.partnerCompanyId || 0);
+    setForm({
+      ...INITIAL_FORM,
+      clientId: system.clientId || 0,
+      account: system.account || "",
+      brand: system.brand || "",
+      model: system.model || "",
+      firmwareVersion: system.firmwareVersion || "",
+      serialNumber: system.serialNumber || "",
+      communicationType: system.communicationType || "ethernet",
+      macAddress: system.macAddress || "",
+      imeiGprs: system.imeiGprs || "",
+      simCardNumber: system.simCardNumber || "",
+      simPhoneNumber: system.simPhoneNumber || "",
+      isepId: system.isepId || "",
+      receiverPort: system.receiverPort || 0,
+      partitions: system.partitions || 1,
+      ipAddress: system.ipAddress || "",
+      installDate: system.installDate ? new Date(system.installDate).toISOString().slice(0, 10) : "",
+      batteryDate: system.batteryDate ? new Date(system.batteryDate).toISOString().slice(0, 10) : "",
+      keepAliveMonitoringEnabled: system.keepAliveMonitoringEnabled !== false,
+      keepAliveExpectedIntervalSeconds: system.keepAliveExpectedIntervalSeconds || 60,
+      keepAliveFailureEventEnabled: system.keepAliveFailureEventEnabled === true,
+      keepAliveOfflineAfterMinutes: system.keepAliveOfflineAfterMinutes || 5,
+      keepAliveDisconnectAlertEnabled: system.keepAliveDisconnectAlertEnabled !== false,
+      keepAliveRepeatAlertEnabled: system.keepAliveRepeatAlertEnabled === true,
+      keepAliveRepeatAlertEveryMinutes: system.keepAliveRepeatAlertEveryMinutes || 60,
+    });
+    setView("create");
   }
 
   // ===== VIEW: FORMULÁRIO =====
   if (view === "create") {
     return (
-      <DashboardLayout>
+      <DashboardLayout workspaceMenuPlacement="page-header">
         <div className="h-full overflow-auto">
           <div className="p-6 max-w-[1400px] mx-auto">
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center justify-between gap-4 mb-6">
+              <div className="flex items-center gap-4">
               <Button variant="ghost" size="sm" onClick={() => setView("list")}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
               </Button>
-              <h1 className="text-xl font-bold text-foreground">Cadastrar Sistema de Alarme</h1>
+              <h1 className="text-xl font-bold text-foreground">{editingSystem ? "Editar Sistema de Alarme" : "Cadastrar Sistema de Alarme"}</h1>
+              </div>
+              <WorkspaceScreenMenu label="Outras telas" />
             </div>
 
             <div className="grid grid-cols-12 gap-6">
@@ -149,7 +218,7 @@ export default function AlarmSystems() {
                     <div className="grid grid-cols-6 gap-4">
                       <div className="col-span-3">
                         <Label className="text-sm font-medium">Empresa Parceira *</Label>
-                        <Select onValueChange={(v) => { setSelectedPartner(Number(v)); setForm({ ...form, clientId: 0 }); }}>
+                        <Select value={selectedPartner ? String(selectedPartner) : undefined} onValueChange={(v) => { setSelectedPartner(Number(v)); setForm({ ...form, clientId: 0 }); }}>
                           <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione a parceira..." /></SelectTrigger>
                           <SelectContent>
                             {partners.map((p: any) => (
@@ -160,7 +229,7 @@ export default function AlarmSystems() {
                       </div>
                       <div className="col-span-3">
                         <Label className="text-sm font-medium">Cliente *</Label>
-                        <Select onValueChange={(v) => generateAccount(Number(v))} disabled={!selectedPartner}>
+                        <Select value={form.clientId ? String(form.clientId) : undefined} onValueChange={(v) => generateAccount(Number(v))} disabled={!selectedPartner}>
                           <SelectTrigger className="mt-1"><SelectValue placeholder={selectedPartner ? "Selecione o cliente..." : "Selecione a parceira primeiro"} /></SelectTrigger>
                           <SelectContent>
                             {filteredClients.map((c: any) => (
@@ -211,7 +280,7 @@ export default function AlarmSystems() {
                         <Label className="text-sm font-medium">Partições (até 8)</Label>
                         <Input className="mt-1" type="number" min={1} max={8} value={form.partitions} onChange={(e) => setForm({ ...form, partitions: Number(e.target.value) })} />
                       </div>
-                      {form.brand === "VIAWEB" && <div className="col-span-2 rounded border border-orange-500/30 bg-orange-500/5 p-3 text-sm text-orange-200">O ID ISEP de quatro caracteres será gerado automaticamente ao salvar este sistema.</div>}
+                      {form.brand === "VIAWEB" && <div className="col-span-2"><Label className="text-sm font-medium text-orange-200">ID ISEP (4 caracteres HEX)</Label><Input className="mt-1 font-mono uppercase" maxLength={4} placeholder="F301" value={form.isepId} onChange={(e) => setForm({ ...form, isepId: e.target.value.toUpperCase().replace(/[^0-9A-F]/g, "").slice(0, 4) })} /><span className="text-xs text-muted-foreground">{editingSystem ? "Identificador ViaWeb atual." : "Se deixar vazio, será gerado automaticamente ao salvar."}</span></div>}
                     </div>
                   </CardContent>
                 </Card>
@@ -321,9 +390,9 @@ export default function AlarmSystems() {
                 </Card>
 
                 {/* Botão Salvar */}
-                <Button onClick={handleSubmit} disabled={createMutation.isPending} className="w-full h-12 text-base font-bold">
+                <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="w-full h-12 text-base font-bold">
                   <Save className="h-5 w-5 mr-2" />
-                  {createMutation.isPending ? "Salvando..." : "Cadastrar Sistema"}
+                  {createMutation.isPending || updateMutation.isPending ? "Salvando..." : editingSystem ? "Salvar Alterações" : "Cadastrar Sistema"}
                 </Button>
               </div>
             </div>
@@ -335,22 +404,26 @@ export default function AlarmSystems() {
 
   // ===== VIEW: LISTA =====
   return (
-    <DashboardLayout>
+    <DashboardLayout workspaceMenuPlacement="page-header">
       <div className="h-full overflow-auto p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <h1 className="text-2xl font-bold text-foreground">Sistemas de Alarme</h1>
-          <Button onClick={() => setView("create")}>
-            <Plus className="h-4 w-4 mr-2" /> Novo Sistema
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <WorkspaceScreenMenu label="Outras telas" />
+            <Button onClick={() => openSystemForm()}>
+              <Plus className="h-4 w-4 mr-2" /> Novo Sistema
+            </Button>
+          </div>
         </div>
 
-        <div className="relative max-w-lg mb-6">
+        <div className="relative max-w-2xl mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por conta ou marca..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar por conta, cliente, marca, modelo, serial, MAC, IMEI, ISEP ou IP..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[100px_100px_1fr_100px_100px_80px_100px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+        <div className="overflow-x-auto bg-card border border-border rounded-lg">
+          <div className="min-w-[960px] overflow-hidden">
+          <div className="grid grid-cols-[100px_100px_1fr_100px_100px_80px_100px_100px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
             <span>Conta</span>
             <span>Marca</span>
             <span>Modelo</span>
@@ -358,12 +431,13 @@ export default function AlarmSystems() {
             <span>MAC</span>
             <span>Part.</span>
             <span>Status</span>
+            <span>Ações</span>
           </div>
           {filteredSystems.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">Nenhum sistema de alarme encontrado</div>
           ) : (
             filteredSystems.map((sys: any) => (
-              <div key={sys.id} className="grid grid-cols-[100px_100px_1fr_100px_100px_80px_100px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center">
+              <div key={sys.id} className="grid grid-cols-[100px_100px_1fr_100px_100px_80px_100px_100px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors items-center">
                 <span className="font-mono font-bold text-foreground">{sys.account}</span>
                 <Badge variant="outline" className="text-xs justify-center">{sys.brand}</Badge>
                 <span className="text-sm text-foreground">{sys.model || "—"}</span>
@@ -373,9 +447,18 @@ export default function AlarmSystems() {
                 <Badge variant={sys.isActive ? "default" : "destructive"} className="text-xs justify-center">
                   {sys.isActive ? "Ativo" : "Inativo"}
                 </Badge>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" title="Abrir cliente" onClick={() => navigate(`/clients/${sys.clientId}`)}>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-400" title="Editar sistema" onClick={() => openSystemForm(sys)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             ))
           )}
+          </div>
         </div>
       </div>
     </DashboardLayout>

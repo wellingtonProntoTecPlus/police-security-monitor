@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Users as UsersIcon, Plus, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -76,15 +77,18 @@ export default function UsersPage() {
     else createMut.mutate({ name, email, password, role, ...(role === "partner" ? { partnerId } : {}) });
   };
 
-  return (<DashboardLayout>
+  return (<DashboardLayout workspaceMenuPlacement="page-header">
     <div className="p-6 space-y-6 overflow-auto h-full">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <UsersIcon className="w-6 h-6" /> Usuários do Sistema
         </h1>
-        <Button onClick={() => openUserForm()}>
-          <Plus className="w-4 h-4 mr-2" /> Novo Usuário
-        </Button>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <WorkspaceScreenMenu label="Outras telas" />
+          <Button onClick={() => openUserForm()}>
+            <Plus className="w-4 h-4 mr-2" /> Novo Usuário
+          </Button>
+        </div>
       </div>
 
       {showForm && (

@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Pencil, Trash2, Plus, Globe } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
 const FABRICANTES = ["COMPATEC", "VETTI", "JFL", "INTELBRAS", "RADIOENGE", "VIAWEB"];
 const ABAS_CONTACT_ID = ["UNIVERSAL", ...FABRICANTES];
@@ -115,13 +116,16 @@ export default function ContactId() {
   const fabricanteCodes = (eventos || []).filter((ev: any) => !ev.isUniversal);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout workspaceMenuPlacement="page-header">
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-foreground">Tabela Contact ID</h1>
-          <Button onClick={abrirNovo} className="gap-2">
-            <Plus className="h-4 w-4" /> Novo Evento
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <WorkspaceScreenMenu label="Outras telas" />
+            <Button onClick={abrirNovo} className="gap-2">
+              <Plus className="h-4 w-4" /> Novo Evento
+            </Button>
+          </div>
         </div>
 
         {/* Abas por fabricante */}

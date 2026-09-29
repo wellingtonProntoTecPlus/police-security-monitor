@@ -55,8 +55,10 @@ const MAX_WIDTH = 360;
 
 export default function DashboardLayout({
   children,
+  workspaceMenuPlacement = "global",
 }: {
   children: React.ReactNode;
+  workspaceMenuPlacement?: "global" | "page-header";
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
@@ -105,7 +107,7 @@ export default function DashboardLayout({
         } as CSSProperties
       }
     >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
+      <DashboardLayoutContent setSidebarWidth={setSidebarWidth} workspaceMenuPlacement={workspaceMenuPlacement}>
         {children}
       </DashboardLayoutContent>
     </SidebarProvider>
@@ -115,11 +117,13 @@ export default function DashboardLayout({
 type DashboardLayoutContentProps = {
   children: React.ReactNode;
   setSidebarWidth: (width: number) => void;
+  workspaceMenuPlacement: "global" | "page-header";
 };
 
 function DashboardLayoutContent({
   children,
   setSidebarWidth,
+  workspaceMenuPlacement,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location] = useLocation();
@@ -346,13 +350,15 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <div className="flex h-12 shrink-0 items-center justify-end border-b border-primary/25 bg-card px-4">
-          <WorkspaceScreenMenu
-            label="Outras telas"
-            className="border-primary/60 bg-primary/10 font-semibold text-primary shadow-sm hover:bg-primary/20"
-          />
-        </div>
-        <main className="h-[calc(100dvh-6.5rem)] min-h-0 flex-1 overflow-hidden md:h-[calc(100dvh-3rem)]">{children}</main>
+        {workspaceMenuPlacement === "global" && (
+          <div className="flex h-12 shrink-0 items-center justify-end border-b border-primary/25 bg-card px-4">
+            <WorkspaceScreenMenu
+              label="Outras telas"
+              className="border-primary/60 bg-primary/10 font-semibold text-primary shadow-sm hover:bg-primary/20"
+            />
+          </div>
+        )}
+        <main className={`min-h-0 flex-1 overflow-hidden ${workspaceMenuPlacement === "global" ? "h-[calc(100dvh-6.5rem)] md:h-[calc(100dvh-3rem)]" : "h-[calc(100dvh-3.5rem)] md:h-[100dvh]"}`}>{children}</main>
       </SidebarInset>
     </>
   );

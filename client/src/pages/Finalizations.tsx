@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Pencil, Trash2, Plus, CheckCircle, ListChecks } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
 // Categorias de finalização
 const CATEGORIAS = [
@@ -70,15 +71,18 @@ export default function Finalizations() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout workspaceMenuPlacement="page-header">
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <ListChecks className="h-6 w-6" /> Finalizações Automáticas
           </h1>
-          <Button onClick={abrirNovo} className="gap-2">
-            <Plus className="h-4 w-4" /> Nova Finalização
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <WorkspaceScreenMenu label="Outras telas" />
+            <Button onClick={abrirNovo} className="gap-2">
+              <Plus className="h-4 w-4" /> Nova Finalização
+            </Button>
+          </div>
         </div>
 
         <p className="text-sm text-muted-foreground">

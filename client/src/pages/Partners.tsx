@@ -11,6 +11,7 @@ import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Calendar
 import { toast } from "sonner";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import LogoUploadField from "@/components/LogoUploadField";
+import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
 function maskCnpj(v: string) {
   const n = v.replace(/\D/g, "").slice(0, 14);
@@ -157,14 +158,17 @@ export default function Partners() {
   // ===== VIEW: FORMULÁRIO =====
   if (view === "create") {
     return (
-      <DashboardLayout>
+      <DashboardLayout workspaceMenuPlacement="page-header">
         <div className="h-full overflow-auto">
           <div className="p-6 max-w-[1200px] mx-auto">
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center justify-between gap-4 mb-6">
+              <div className="flex items-center gap-4">
               <Button variant="ghost" size="sm" onClick={() => { setView("list"); setEditingPartner(null); setForm({ ...INITIAL_FORM }); }}>
                 <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
               </Button>
               <h1 className="text-xl font-bold text-foreground">{editingPartner ? "Editar Empresa Parceira" : "Cadastrar Empresa Parceira"}</h1>
+              </div>
+              <WorkspaceScreenMenu label="Outras telas" />
             </div>
 
             <div className="grid grid-cols-12 gap-6">
@@ -277,13 +281,16 @@ export default function Partners() {
 
   // ===== VIEW: LISTA =====
   return (
-    <DashboardLayout>
+    <DashboardLayout workspaceMenuPlacement="page-header">
       <div className="h-full overflow-auto p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <h1 className="text-2xl font-bold text-foreground">Empresas Parceiras</h1>
-          <Button onClick={() => openPartnerForm()}>
-            <Plus className="h-4 w-4 mr-2" /> Nova Parceira
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <WorkspaceScreenMenu label="Outras telas" />
+            <Button onClick={() => openPartnerForm()}>
+              <Plus className="h-4 w-4 mr-2" /> Nova Parceira
+            </Button>
+          </div>
         </div>
 
         <div className="relative max-w-lg mb-6">
