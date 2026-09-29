@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Upload, Calendar, Trash2, Pencil, Shield } from "lucide-react";
+import { Plus, Search, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Calendar, Trash2, Pencil, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
+import LogoUploadField from "@/components/LogoUploadField";
 
 function maskCnpj(v: string) {
   const n = v.replace(/\D/g, "").slice(0, 14);
@@ -87,6 +88,7 @@ export default function Partners() {
     },
     onError: (err) => toast.error(err.message),
   });
+  const uploadLogoMut = trpc.partnerCompany.uploadLogo.useMutation();
   const createHolidayMut = trpc.partnerHoliday.create.useMutation({ onSuccess: () => { refetchHolidays(); setHolidayName(""); setHolidayDate(""); toast.success("Feriado adicionado!"); } });
   const updateHolidayMut = trpc.partnerHoliday.update.useMutation({ onSuccess: () => { refetchHolidays(); setEditingHoliday(null); toast.success("Feriado atualizado!"); } });
   const deleteHolidayMut = trpc.partnerHoliday.delete.useMutation({ onSuccess: () => { refetchHolidays(); toast.success("Feriado removido!"); } });
@@ -170,20 +172,20 @@ export default function Partners() {
                 {/* Logo */}
                 <Card>
                   <CardContent className="p-5">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Upload className="h-5 w-5 text-primary" />
-                      <h3 className="font-bold text-foreground">Logo</h3>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {form.logoUrl ? (
-                        <img src={form.logoUrl} alt="Logo" className="h-14 w-auto rounded border border-border bg-black/20 p-1" />
-                      ) : (
-                        <div className="h-14 w-14 rounded border border-dashed border-border flex items-center justify-center bg-secondary/30">
-                          <Upload className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <Input value={form.logoUrl} onChange={(e) => setForm({ ...form, logoUrl: e.target.value })} placeholder="URL do logo" className="flex-1" />
-                    </div>
+                    <LogoUploadField
+                      value={form.logoUrl}
+                      onChange={(logoUrl) => setForm(prev => ({ ...prev, logoUrl }))}
+                      onUpload={(dataBase64, mimeType) => {
+                        if (!editingPartner?.id) return Promise.reject(new Error("Salve a parceira antes de enviar a logo."));
+                        return uploadLogoMut.mutateAsync({ id: editingPartner.id, dataBase64, mimeType }).then(result => {
+                          void refetch();
+                          return result.url;
+                        });
+                      }}
+                      uploadDisabled={!editingPartner?.id || uploadLogoMut.isPending}
+                      uploadDisabledReason={!editingPartner?.id ? "Salve a parceira antes de enviar a logo." : undefined}
+                      title="Logo da Parceira"
+                    />
                   </CardContent>
                 </Card>
 

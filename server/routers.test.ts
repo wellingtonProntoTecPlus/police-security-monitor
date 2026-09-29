@@ -156,6 +156,20 @@ describe("appRouter", () => {
     });
   });
 
+  describe("company logo upload", () => {
+    it("bloqueia sessão sem perfil administrativo no envio da logo da gestora", async () => {
+      const caller = appRouter.createCaller(createUnauthContext());
+      await expect(caller.managingCompany.uploadLogo({ id: 1, dataBase64: "aA==", mimeType: "image/png" }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("bloqueia operador no upload de logo da parceira", async () => {
+      const caller = appRouter.createCaller(createOperatorContext());
+      await expect(caller.partnerCompany.uploadLogo({ id: 1, dataBase64: "aA==", mimeType: "image/png" }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
   describe("hierarquias", () => {
     it("permite que Administrador consulte os usuários", async () => {
       const caller = appRouter.createCaller(createAdminContext());

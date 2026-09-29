@@ -48,9 +48,11 @@
 - [x] Corrigir a divergência crítica comprovada no vídeo: o card mostra Nilva, mas o modal abre Alvorada; card e tratamento agora usam IDs persistidos de sistema e cliente, sem fallback ambíguo por conta
 - [ ] Rastrear a origem real dos eventos JFL R211, R213, R214, R215, R231 e R234 mostrados indevidamente como conta 0022 e bloquear associação sem prova física por evento
 - [ ] Verificar se o evento JFL R934 da conta 0029 é Contact ID real ou resposta técnica interpretada incorretamente
-- [x] Auditar os eventos recentes recebidos sem cliente ou sistema cadastrado, classificando conta, marca, IP e identificador físico disponível: a JFL 0004 foi confirmada como Moto Zema; permanece sem cadastro a JFL serial 2785041736 e MAC 2CB044
+- [x] Auditar os eventos recentes recebidos sem cliente ou sistema cadastrado, classificando conta, marca, IP e identificador físico disponível: a JFL 0004 foi confirmada como Moto Zema e a JFL 0077 (serial 2785041736/MAC 2CB044) como Condomínio Residencial Matheus Barbosa; não criar associação automática baseada somente na conta bruta recebida
 - [x] Confirmar por consulta SQL a conta 0077 e o vínculo físico da JFL serial 2785041736/MAC 2CB044 antes de qualquer alteração, registrando cliente, sistema e status (Sistema 64, Condomínio Residencial Matheus Barbosa, ativo e Online)
-- [ ] Restaurar a exibição dos logos quebrados da Empresa Gestora e das Empresas Parceiras sem alterar os dados corporativos
+- [x] Implementar fallback seguro e envio direto PNG/JPG/WebP ao armazenamento do sistema nos cadastros de Gestora e Parceiras, preservando a URL anterior se o envio falhar
+- [ ] Validar na interface o upload real de uma logo da Gestora e de uma Parceira, confirmando persistência em logoUrl e exibição após recarregar
+- [ ] Substituir as URLs Supabase quebradas pelos novos arquivos enviados da Gestora e da Police Electronics LTDA, sem alterar os demais dados corporativos
 - [x] Corrigir o erro NotFoundError removeChild que ocorre ao clicar em Novo Cliente e impede abrir o formulário, com transição segura após fechamento de portais
 - [ ] Validar na VPS que Novo Cliente abre sem NotFoundError removeChild; se persistir, capturar a origem exata do portal responsável
 - [x] Auditar e corrigir a precisão e atualização dos indicadores Armados, Desarmados, Online, Offline e Última confirmação automática do Dashboard

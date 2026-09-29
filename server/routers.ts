@@ -14,6 +14,7 @@ import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfi
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
 import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
+import { uploadCompanyLogo } from "./companyLogo";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -148,6 +149,22 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateManagingCompany(id, data);
     }),
+    uploadLogo: adminProcedure.input(z.object({
+      id: z.number(),
+      dataBase64: z.string().min(1),
+      mimeType: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      const company = await db.getManagingCompany(input.id);
+      if (!company) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa gestora não encontrada" });
+      const uploaded = await uploadCompanyLogo({
+        ownerType: "managing",
+        ownerId: input.id,
+        dataBase64: input.dataBase64,
+        mimeType: input.mimeType,
+      });
+      await db.updateManagingCompany(input.id, { logoUrl: uploaded.url });
+      return uploaded;
+    }),
   }),
 
   // ============================================================
@@ -196,6 +213,26 @@ export const appRouter = router({
     })).mutation(({ input }) => {
       const { id, ...data } = input;
       return db.updatePartnerCompany(id, data);
+    }),
+    uploadLogo: protectedProcedure.input(z.object({
+      id: z.number(),
+      dataBase64: z.string().min(1),
+      mimeType: z.string().min(1),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin" && ctx.user.role !== "partner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Somente a gestora ou a própria parceira pode enviar esta logo" });
+      }
+      await assertPartnerCompanyScope(ctx, input.id);
+      const company = await db.getPartnerCompany(input.id);
+      if (!company) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa parceira não encontrada" });
+      const uploaded = await uploadCompanyLogo({
+        ownerType: "partner",
+        ownerId: input.id,
+        dataBase64: input.dataBase64,
+        mimeType: input.mimeType,
+      });
+      await db.updatePartnerCompany(input.id, { logoUrl: uploaded.url });
+      return uploaded;
     }),
   }),
 

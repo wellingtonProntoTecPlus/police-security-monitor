@@ -5,14 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, Save, Loader2, Upload } from "lucide-react";
+import { Building2, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone, maskCnpj } from "@/lib/masks";
+import LogoUploadField from "@/components/LogoUploadField";
 
 export default function ManagingCompany() {
   const { data: companies = [], refetch } = trpc.managingCompany.list.useQuery(undefined);
   const createMut = trpc.managingCompany.create.useMutation({ onSuccess: () => { refetch(); toast.success("Empresa salva!"); }, onError: (err) => toast.error(`Erro ao salvar: ${err.message}`) });
   const updateMut = trpc.managingCompany.update.useMutation({ onSuccess: () => { refetch(); toast.success("Empresa atualizada!"); }, onError: (err) => toast.error(`Erro ao atualizar: ${err.message}`) });
+  const uploadLogoMut = trpc.managingCompany.uploadLogo.useMutation();
 
   const company = companies[0]; // Só existe uma gestora
 
@@ -98,25 +100,20 @@ export default function ManagingCompany() {
             <CardTitle className="text-lg">Dados da Empresa</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Logo */}
-            <div>
-              <Label>Logo da Empresa</Label>
-              <div className="flex items-center gap-4 mt-1">
-                {form.logoUrl ? (
-                  <img src={form.logoUrl} alt="Logo" className="h-16 w-auto rounded border border-border bg-black/20 p-1" />
-                ) : (
-                  <div className="h-16 w-16 rounded border border-dashed border-border flex items-center justify-center bg-secondary/30">
-                    <Upload className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                )}
-                <Input
-                  value={form.logoUrl}
-                  onChange={(e) => setForm(prev => ({ ...prev, logoUrl: e.target.value }))}
-                  placeholder="URL do logo (ex: https://...)"
-                  className="flex-1"
-                />
-              </div>
-            </div>
+            <LogoUploadField
+              value={form.logoUrl}
+              onChange={(logoUrl) => setForm(prev => ({ ...prev, logoUrl }))}
+              onUpload={(dataBase64, mimeType) => {
+                if (!company?.id) return Promise.reject(new Error("Salve a empresa antes de enviar a logo."));
+                return uploadLogoMut.mutateAsync({ id: company.id, dataBase64, mimeType }).then(result => {
+                  void refetch();
+                  return result.url;
+                });
+              }}
+              uploadDisabled={!company?.id || uploadLogoMut.isPending}
+              uploadDisabledReason={!company?.id ? "Salve a empresa antes de enviar a logo." : undefined}
+              title="Logo da Empresa"
+            />
 
             {/* Dados principais */}
             <div className="grid grid-cols-2 gap-4">
