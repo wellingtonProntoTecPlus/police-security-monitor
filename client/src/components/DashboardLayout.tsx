@@ -133,6 +133,7 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+  const showGlobalWorkspaceMenu = location !== "/dashboard";
   const visibleMenuItems = user ? menuItems.filter((item) => (ROLE_MENU_ITEMS[user.role] || ROLE_MENU_ITEMS.operator).includes(item.path)) : menuItems;
   const changeOwnPasswordMut = trpc.auth.changeOwnPassword.useMutation();
 
@@ -332,12 +333,14 @@ function DashboardLayoutContent({
       </div>
 
       <SidebarInset>
-        <div className="pointer-events-none absolute right-4 top-16 z-40 sm:top-3">
-          <WorkspaceScreenMenu
-            label="Outras telas"
-            className="pointer-events-auto border-primary/60 bg-primary/10 font-semibold text-primary shadow-md hover:bg-primary/20"
-          />
-        </div>
+        {showGlobalWorkspaceMenu && (
+          <div className="pointer-events-none absolute right-4 top-16 z-40 sm:top-3">
+            <WorkspaceScreenMenu
+              label="Outras telas"
+              className="pointer-events-auto border-primary/60 bg-primary/10 font-semibold text-primary shadow-md hover:bg-primary/20"
+            />
+          </div>
+        )}
         {isMobile && (
           <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
