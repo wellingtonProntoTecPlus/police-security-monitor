@@ -13,4 +13,10 @@ describe("links da navegação lateral", () => {
     expect(dashboardLayoutSource).toContain("asChild");
     expect(dashboardLayoutSource).toContain('<Link href={item.path}>');
   });
+
+  it("mantém o ícone Outras telas em posição global visível", () => {
+    expect(dashboardLayoutSource).toContain("absolute right-4 top-16 z-40 sm:top-3");
+    expect(dashboardLayoutSource).toContain('label="Outras telas"');
+    expect(dashboardLayoutSource).toContain("bg-primary/10");
+  });
 });

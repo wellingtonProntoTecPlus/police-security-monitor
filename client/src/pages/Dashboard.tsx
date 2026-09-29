@@ -21,6 +21,7 @@ import { formatContactIdArgument } from "@shared/contactIdArgumentContext";
 import { resolveQueueEventClient, resolveQueueEventSystem } from "@/lib/queueEventIdentity";
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 import { getQuickFinalizationOptions } from "@/lib/quickFinalizationSearch";
+import { shouldConfirmAttendanceNavigation } from "@/lib/attendanceExitGuard";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -230,6 +231,66 @@ export default function Dashboard() {
     () => getQuickFinalizationOptions(finalizacoes, finalizationSearch),
     [finalizacoes, finalizationSearch],
   );
+
+  const requestCloseAttendance = useCallback(() => {
+    if (!selectedEvent || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) {
+      setSelectedEvent(null);
+    }
+  }, [selectedEvent]);
+
+  // A confirmação nativa protege o atendimento contra fechar ou recarregar a aba.
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [selectedEvent]);
+
+  // O Wouter usa links reais, mas a navegação interna não dispara beforeunload.
+  // Interceptamos somente cliques normais para outra rota; botão direito, Ctrl/clique,
+  // nova janela e links externos continuam livres para consulta sem alerta.
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const handleInternalNavigation = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest("a[href]") as HTMLAnchorElement | null : null;
+      if (!target) return;
+      const shouldConfirm = shouldConfirmAttendanceNavigation({
+        hasActiveAttendance: true,
+        href: target.href,
+        currentPath: window.location.pathname,
+        baseHref: window.location.origin,
+        target: target.target,
+        button: event.button,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+      });
+      if (!shouldConfirm || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("click", handleInternalNavigation, true);
+    return () => document.removeEventListener("click", handleInternalNavigation, true);
+  }, [selectedEvent]);
+
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const currentUrl = window.location.href;
+    let restoringUrl = false;
+    const handleHistoryNavigation = () => {
+      if (restoringUrl || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) return;
+      restoringUrl = true;
+      window.history.pushState(window.history.state, "", currentUrl);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      window.setTimeout(() => { restoringUrl = false; }, 0);
+    };
+    window.addEventListener("popstate", handleHistoryNavigation, true);
+    return () => window.removeEventListener("popstate", handleHistoryNavigation, true);
+  }, [selectedEvent]);
 
   const { connected, realtimeEvents } = useSocket();
 
@@ -1154,7 +1215,7 @@ export default function Dashboard() {
       />}
 
       {selectedEvent && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/65 p-2 sm:items-center sm:p-5" onClick={() => setSelectedEvent(null)}>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/65 p-2 sm:items-center sm:p-5" onClick={requestCloseAttendance}>
           <div className="flex h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border border-primary/35 bg-card shadow-2xl sm:h-[min(780px,90dvh)] sm:w-[min(1080px,94vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-border bg-card px-5 py-4">
               <div className="flex items-start gap-3">
@@ -1189,7 +1250,7 @@ export default function Dashboard() {
                 <WorkspaceScreenMenu label="Outras telas" className="hidden sm:inline-flex" />
                 <div className="sm:hidden"><WorkspaceScreenMenu compact label="Abrir outra tela sem fechar este atendimento" /></div>
                 <Timer startTime={attendStartTime} />
-                <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setSelectedEvent(null)} aria-label="Fechar tratamento"><X className="h-5 w-5" /></button>
+                <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={requestCloseAttendance} aria-label="Fechar tratamento"><X className="h-5 w-5" /></button>
               </div>
             </div>
             {selectedEvent.queueStatus === "maintenance" ? (
