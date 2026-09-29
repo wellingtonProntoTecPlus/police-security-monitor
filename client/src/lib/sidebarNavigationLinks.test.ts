@@ -15,7 +15,7 @@ describe("links da navegação lateral", () => {
   });
 
   it("mantém o ícone Outras telas em posição global visível", () => {
-    expect(dashboardLayoutSource).toContain("absolute right-4 top-16 z-40 sm:top-3");
+    expect(dashboardLayoutSource).toContain("flex h-12 shrink-0 items-center justify-end border-b border-primary/25 bg-card px-4");
     expect(dashboardLayoutSource).toContain('label="Outras telas"');
     expect(dashboardLayoutSource).toContain("bg-primary/10");
   });

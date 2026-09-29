@@ -1391,10 +1391,6 @@ export default function Dashboard() {
           <Button type="button" variant="outline" size="sm" className="shrink-0 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10" onClick={openManualOccurrence}>
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Ocorrência Manual
           </Button>
-          <WorkspaceScreenMenu
-            label="Outras telas"
-            className="shrink-0 border-primary/60 bg-primary/10 font-semibold text-primary shadow-sm hover:bg-primary/20"
-          />
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5 md:flex-none md:overflow-visible">
             <Button
               size="sm"
