@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -871,6 +871,14 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
+    const repeatedTrackedIncident = automaticAction === "track_for_restoration" && system?.id
+      ? await findOpenTrackedIncident({
+        alarmSystemId: system.id,
+        account: effectiveAccount,
+        eventCode: evento.eventCode,
+        qualifier: evento.qualifier,
+      })
+      : undefined;
     const systemInMaintenance = isSystemInMaintenance(system);
     const maintenanceMessage = "Sistema em manutenção";
     if (systemInMaintenance) {
@@ -885,8 +893,10 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       automaticAction: deliveryAutomaticAction,
       systemInMaintenance,
     });
-    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance;
-    const automaticFinalizationMessage = accountResolution.isSystemAccount
+    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident;
+    const automaticFinalizationMessage = repeatedTrackedIncident
+      ? "Falha repetida registrada no relatório; ocorrência operacional já aberta aguardando restauração"
+      : accountResolution.isSystemAccount
       ? "Registrada na Conta do Sistema (0000) para conferência no relatório"
       : systemInMaintenance ? maintenanceMessage : isViawebInternalEvent ? "Evento interno ViaWeb registrado para auditoria" : "Finalizada automaticamente";
 
@@ -950,7 +960,31 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       return false;
     }
 
-    if (deliveryPlan.shouldPersistReport && !remoteCommandMatched) {
+    if (automaticAction === "try_restoration") {
+      const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: effectiveAccount, restorationCode: evento.eventCode });
+      if (pending) {
+        await finalizeIncidentWithRestoration(pending);
+        if (eventCallback) {
+          eventCallback({
+            id: savedEvent.id,
+            kind: "restoration_closed",
+            originalEventId: pending.event.id,
+            account: effectiveAccount,
+            brand: evento.brand,
+            qualifier: evento.qualifier,
+            eventCode: evento.eventCode,
+            description: "Finalizado com a restauração do evento",
+            priority,
+            receiverPort: evento.receiverPort,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | Finalizado com a restauração do evento`);
+        return true;
+      }
+    }
+
+    if ((deliveryPlan.shouldPersistReport || Boolean(repeatedTrackedIncident)) && !remoteCommandMatched) {
       const client = system?.clientId ? await getClient(system.clientId) : undefined;
       await persistAutomaticOccurrence({
         create: createOccurrence,
@@ -993,30 +1027,6 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     if (!hasPersistedOpenIncident(savedEvent?.id, incident?.id)) {
       console.error("[RECIP] Evento não emitido: ocorrência aberta sem persistência confirmada");
       return false;
-    }
-
-    if (automaticAction === "try_restoration") {
-      const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: effectiveAccount, restorationCode: evento.eventCode });
-      if (pending) {
-        await finalizeIncidentWithRestoration(pending);
-        if (eventCallback) {
-          eventCallback({
-            id: savedEvent.id,
-            kind: "restoration_closed",
-            originalEventId: pending.event.id,
-            account: effectiveAccount,
-            brand: evento.brand,
-            qualifier: evento.qualifier,
-            eventCode: evento.eventCode,
-            description: "Finalizado com a restauração do evento",
-            priority,
-            receiverPort: evento.receiverPort,
-            timestamp: new Date().toISOString(),
-          });
-        }
-        console.log(`[RECIP] ${evento.brand} | Conta ${effectiveAccount} | ${evento.qualifier}${evento.eventCode} | Finalizado com a restauração do evento`);
-        return true;
-      }
     }
 
     // Emitir para o dashboard via callback

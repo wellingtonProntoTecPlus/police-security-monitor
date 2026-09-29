@@ -1255,6 +1255,35 @@ export async function createAlarmEventWithOpenIncident(input: {
   });
 }
 
+/**
+ * Evita que a mesma falha técnica, repetida antes da restauração, crie milhares
+ * de cartões para o operador. Cada pacote continua sendo salvo em alarm_events;
+ * somente a ocorrência operacional é mantida única até chegar o R correspondente.
+ */
+export async function findOpenTrackedIncident(input: {
+  alarmSystemId: number;
+  account: string;
+  eventCode: string;
+  qualifier: string;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select({ incident: incidents, event: alarmEvents })
+    .from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(and(
+      eq(incidents.alarmSystemId, input.alarmSystemId),
+      eq(alarmEvents.account, input.account),
+      eq(alarmEvents.eventCode, input.eventCode),
+      eq(alarmEvents.qualifier, input.qualifier),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]),
+    ))
+    .orderBy(desc(incidents.createdAt))
+    .limit(1);
+  return result[0];
+}
+
 export async function listAlarmEvents(limit = 50, offset = 0) {
   const db = await getDb();
   if (!db) return [];
@@ -1408,6 +1437,79 @@ export async function listOpenQueueEvents() {
     incidentNotes: incident.notes,
     observationUntil: incident.observationUntil,
   }));
+}
+
+export async function bulkFinalizeOpenIncidents(input: {
+  account: string;
+  alarmSystemId?: number | null;
+  clientId?: number | null;
+  clientName?: string | null;
+  partnerCompanyId?: number | null;
+  operatorId?: number | null;
+  operatorName?: string | null;
+  observations: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const finalizedAt = new Date();
+  const resolution = input.observations.trim() || "Finalização em massa pelo operador";
+
+  return db.transaction(async (tx) => {
+    const conditions: any[] = [
+      eq(alarmEvents.account, input.account),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]),
+    ];
+    if (input.alarmSystemId) conditions.push(eq(incidents.alarmSystemId, input.alarmSystemId));
+
+    const openRows = await tx
+      .select({ incident: incidents, event: alarmEvents })
+      .from(incidents)
+      .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+      .where(and(...conditions))
+      .orderBy(desc(alarmEvents.receivedAt));
+
+    if (openRows.length === 0) return { count: 0 };
+
+    const log = JSON.stringify([
+      `[${finalizedAt.toLocaleTimeString("pt-BR")}] Finalização em massa: ${openRows.length} eventos da conta ${input.account}`,
+    ]);
+    const occurrenceRows = openRows.map(({ incident, event }) => ({
+      account: event.account,
+      eventCode: event.eventCode,
+      qualifier: event.qualifier,
+      partition: event.partition,
+      zoneUser: event.zoneUser,
+      description: event.description,
+      priority: event.priority,
+      brand: event.brand,
+      clientId: input.clientId ?? incident.clientId ?? null,
+      clientName: input.clientName ?? null,
+      systemId: input.alarmSystemId ?? incident.alarmSystemId ?? null,
+      partnerCompanyId: input.partnerCompanyId ?? null,
+      operatorId: input.operatorId ?? null,
+      operatorName: input.operatorName ?? "Operador",
+      observations: resolution,
+      logs: log,
+      attendingTimeMs: Math.max(0, finalizedAt.getTime() - incident.createdAt.getTime()),
+      sendEmail: false,
+      sendPush: false,
+      eventReceivedAt: event.receivedAt,
+      startedAt: incident.createdAt,
+      finalizedAt,
+    }));
+
+    for (let offset = 0; offset < occurrenceRows.length; offset += 500) {
+      await tx.insert(occurrences).values(occurrenceRows.slice(offset, offset + 500));
+    }
+
+    await tx.update(incidents).set({
+      status: "closed",
+      resolution,
+      closedAt: finalizedAt,
+    }).where(inArray(incidents.id, openRows.map(({ incident }) => incident.id)));
+
+    return { count: openRows.length };
+  });
 }
 
 export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string }) {
@@ -1588,6 +1690,10 @@ export async function getContactIdDescription(code: string, qualifier?: string, 
       )
     ).limit(1);
     if (universalResult.length > 0) return universalResult[0];
+    // Com fabricante informado, ausência de registro específico ou Universal
+    // deve permanecer não cadastrado. Nunca reutilizar a primeira descrição de
+    // outra marca, pois isso cria fila e relatório falsos.
+    return undefined;
   }
   // Mantém a compatibilidade com as consultas administrativas sem fabricante.
   if (qualifier) {

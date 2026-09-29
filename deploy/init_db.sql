@@ -332,6 +332,8 @@ INSERT IGNORE INTO contact_id_codes (code, qualifier, fabricante, isUniversal, d
 VALUES
 ('401','E','UNIVERSAL',1,'Desarme','desarme','#F97316',0,1,0,'',0,3,'arm_disarm','low'),
 ('401','R','UNIVERSAL',1,'Arme','arme','#10B981',0,1,0,'',0,3,'arm_disarm','low'),
+('361','E','UNIVERSAL',1,'Falha de Keep Alive IP','tecnico','#F59E0B',1,0,1,'361',0,3,'fault','medium'),
+('361','R','UNIVERSAL',1,'Keep Alive restaurado IP','restauracao','#3B82F6',0,0,0,'',0,5,'restore','low'),
 ('130','E','UNIVERSAL',1,'Disparo de Alarme - Zona/Setor','alarme','#EF4444',1,0,1,'130',0,1,'alarm','critical'),
 ('130','R','UNIVERSAL',1,'Restauração de Alarme - Zona/Setor','restauracao','#3B82F6',0,0,0,'',0,5,'restore','low'),
 ('602','E','UNIVERSAL',1,'Teste Periódico','teste','#6B7280',0,1,0,'',0,5,'test','low'),

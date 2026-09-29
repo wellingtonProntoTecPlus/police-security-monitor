@@ -14,6 +14,10 @@ describe("decisões de finalização automática", () => {
     expect(getAutomaticEventAction("R", {})).toBe("try_restoration");
   });
 
+  it("tenta fechar restauração mesmo quando o cadastro marca abre_tela como zero", () => {
+    expect(getAutomaticEventAction("R", { abreTela: 0 })).toBe("try_restoration");
+  });
+
   it("envia eventos comuns para a fila", () => {
     expect(getAutomaticEventAction("E", { abreTela: 1, fechaComRestauracao: 0 })).toBe("queue");
   });

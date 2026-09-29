@@ -130,6 +130,13 @@ function queueStatusToIncidentStatus(status: QueueStatus) {
   return status as "waiting" | "attending" | "observing";
 }
 
+function isSameBulkScope(item: QueueEvent, selected: QueueEvent) {
+  const selectedSystemId = selected.alarmSystemId ?? selected.incidentSystemId;
+  const itemSystemId = item.alarmSystemId ?? item.incidentSystemId;
+  return item.account === selected.account
+    && (!selectedSystemId || itemSystemId === selectedSystemId);
+}
+
 // Cronômetro
 function Timer({ startTime }: { startTime: number }) {
   const [elapsed, setElapsed] = useState(0);
@@ -201,6 +208,7 @@ export default function Dashboard() {
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
   const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
   const updateIncidentMut = trpc.incident.update.useMutation();
+  const bulkFinalizeMut = trpc.incident.bulkFinalize.useMutation();
   const observeIncidentMut = trpc.incident.observe.useMutation();
   const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
@@ -809,44 +817,28 @@ export default function Dashboard() {
       toast.error("Preencha a descrição antes de finalizar os eventos em massa!");
       return;
     }
-    const relatedEvents = queues.filter((item) => item.account === ev.account);
+    const relatedEvents = queues.filter((item) => isSameBulkScope(item, ev));
     if (relatedEvents.length < 2) {
       toast.info("Não há outros eventos pendentes para esta conta.");
       return;
     }
 
-    const finalizedAt = new Date();
     try {
-      await Promise.all(relatedEvents.flatMap((item) => [createOccurrenceMut.mutateAsync({
-        incidentId: item.incidentId || undefined,
-        account: item.account,
-        eventCode: item.eventCode,
-        qualifier: item.qualifier || undefined,
-        partition: item.partition || undefined,
-        zoneUser: item.zoneUser || undefined,
-        description: item.description || undefined,
-        priority: item.priority || undefined,
-        brand: item.brand || item.systemModel || undefined,
+      const result = await bulkFinalizeMut.mutateAsync({
+        account: ev.account,
+        alarmSystemId: ev.alarmSystemId || ev.incidentSystemId || undefined,
         clientId: selectedClient?.id || undefined,
-        clientName: item.clientName || undefined,
-        systemId: selectedSystem?.id || undefined,
+        clientName: selectedClient?.name || ev.clientName || undefined,
         partnerCompanyId: (selectedClient as any)?.partnerCompanyId || undefined,
-        operatorId: user?.id || undefined,
-        operatorName: user?.name || undefined,
         observations: attendingNotes,
-        logs: JSON.stringify([`[${finalizedAt.toLocaleTimeString("pt-BR")}] Finalização em massa: ${relatedEvents.length} eventos da mesma conta`]),
-        attendingTimeMs: Math.max(0, finalizedAt.getTime() - attendStartTime),
-        sendEmail,
-        sendPush,
-        startedAt: new Date(attendStartTime),
-      })]));
+      });
       await utils.incident.openQueue.invalidate();
-      setQueues((previous) => previous.filter((item) => item.account !== ev.account));
+      setQueues((previous) => previous.filter((item) => !isSameBulkScope(item, ev)));
       setSelectedEvent(null);
       setAttendingNotes("");
       setLogs([]);
       setBulkFinalizeOpen(false);
-      toast.success(`${relatedEvents.length} eventos da conta ${ev.account} foram finalizados.`);
+      toast.success(`${result.count} eventos da conta ${ev.account} foram finalizados sem enviar e-mails ou notificações individuais.`);
     } catch (error: any) {
       toast.error("Não foi possível finalizar todos os eventos: " + error.message);
     }
@@ -1218,7 +1210,7 @@ export default function Dashboard() {
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
                     <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>Finalizar</Button>
                     <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
-                    {queues.filter((item) => item.account === selectedEvent.account).length > 1 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa ({queues.filter((item) => item.account === selectedEvent.account).length})</Button>}
+                    {queues.filter((item) => isSameBulkScope(item, selectedEvent)).length > 1 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa ({queues.filter((item) => isSameBulkScope(item, selectedEvent)).length})</Button>}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
@@ -1807,10 +1799,10 @@ export default function Dashboard() {
               <h3 className="font-bold text-lg text-orange-300">Finalizar eventos em massa</h3>
               <button onClick={() => setBulkFinalizeOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
-            <p className="text-sm text-muted-foreground">Serão finalizados <strong className="text-foreground">{queues.filter((item) => item.account === selectedEvent.account).length} eventos</strong> da conta <strong className="text-foreground">{selectedEvent.account}</strong> com a mesma descrição informada nas observações.</p>
+            <p className="text-sm text-muted-foreground">Serão finalizados <strong className="text-foreground">{queues.filter((item) => isSameBulkScope(item, selectedEvent)).length} eventos</strong> da conta <strong className="text-foreground">{selectedEvent.account}</strong> neste sistema. O histórico será preservado no relatório em uma única operação, sem enviar notificações individuais.</p>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setBulkFinalizeOpen(false)}>Cancelar</Button>
-              <Button className="bg-orange-600 hover:bg-orange-700" onClick={() => finalizeSameClientEvents(selectedEvent)}>Confirmar finalização</Button>
+              <Button className="bg-orange-600 hover:bg-orange-700" disabled={bulkFinalizeMut.isPending} onClick={() => void finalizeSameClientEvents(selectedEvent)}>{bulkFinalizeMut.isPending ? "Finalizando..." : "Confirmar finalização"}</Button>
             </div>
           </div>
         </div>

@@ -704,6 +704,18 @@ export const appRouter = router({
       if (data.status === 'attending' && !data.operatorId) (data as any).operatorId = ctx.user.id;
       return db.updateIncident(id, data);
     }),
+    bulkFinalize: operatorProcedure.input(z.object({
+      account: z.string().trim().min(1).max(20),
+      alarmSystemId: z.number().optional(),
+      clientId: z.number().optional(),
+      clientName: z.string().optional(),
+      partnerCompanyId: z.number().optional(),
+      observations: z.string().trim().min(1, "Informe a descrição da finalização"),
+    })).mutation(({ input, ctx }) => db.bulkFinalizeOpenIncidents({
+      ...input,
+      operatorId: ctx.user.id,
+      operatorName: ctx.user.name,
+    })),
     observe: operatorProcedure.input(z.object({
       incidentId: z.number(),
       until: z.date(),

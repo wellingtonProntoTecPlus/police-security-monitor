@@ -54,6 +54,6 @@ describe("tabela Contact ID JFL", () => {
       dbSource.indexOf("eq(contactIdCodes.isUniversal, true)"),
     );
     expect(receiverSource).toContain("const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);");
-    expect(receiverSource).toContain("const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance;");
+    expect(receiverSource).toContain("const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident;");
   });
 });
