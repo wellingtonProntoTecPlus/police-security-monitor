@@ -34,7 +34,11 @@ export function getOperationalDeliveryPlan(input: {
   automaticAction: "queue" | "report_only" | "track_for_restoration" | "try_restoration";
   systemInMaintenance: boolean;
 }) {
-  const shouldOpenAttendance = !input.isSystemAccount && input.automaticAction !== "report_only" && !input.systemInMaintenance;
+  // Restaurações são registradas no relatório e tentam fechar a falha E já
+  // aberta; elas nunca devem abrir uma segunda ocorrência própria na fila.
+  const shouldOpenAttendance = !input.isSystemAccount
+    && (input.automaticAction === "queue" || input.automaticAction === "track_for_restoration")
+    && !input.systemInMaintenance;
   return {
     shouldOpenAttendance,
     shouldPersistReport: !shouldOpenAttendance,

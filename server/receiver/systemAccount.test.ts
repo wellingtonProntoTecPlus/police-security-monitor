@@ -72,6 +72,18 @@ describe("Conta do Sistema", () => {
     });
   });
 
+  it("mantém restauração fora da fila para fechar somente a falha anterior", () => {
+    expect(getOperationalDeliveryPlan({
+      isSystemAccount: false,
+      automaticAction: "try_restoration",
+      systemInMaintenance: false,
+    })).toEqual({
+      shouldOpenAttendance: false,
+      shouldPersistReport: true,
+      shouldEmitDashboard: false,
+    });
+  });
+
   it("registra a conta técnica no relatório sem emitir card para o dashboard", () => {
     const receiver = readFileSync(resolve(process.cwd(), "server/receiver/index.ts"), "utf8");
 
