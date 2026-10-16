@@ -151,7 +151,8 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
   // quadro de estado proprietário, não um evento de alarme. Ele não pode abrir
   // ocorrência, alterar Arme/Desarme nem herdar o sistema identificado.
   if (brand === "JFL" && isJflActive8wV8StatusReply(data)) {
-    console.log("[RECIP] JFL Active 8W v8 | resposta passiva de estado 7A/0x24 recebida; ignorada como evento Contact ID.");
+    await recordKeepAlive(socket, brand, port, "Active 8W v8 resposta passiva de status");
+    console.log("[RECIP] JFL Active 8W v8 | resposta passiva de estado 7A/.../0x24 recebida; supervisão registrada e quadro ignorado como evento Contact ID.");
     return;
   }
 

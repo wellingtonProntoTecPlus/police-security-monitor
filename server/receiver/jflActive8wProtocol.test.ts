@@ -16,6 +16,8 @@ const ACTIVE_8W_0022_STATUS_REPLY = Buffer.from(
   "hex",
 );
 
+const ACTIVE_8W_0098_STATUS_REPLY = Buffer.from("7A0090B50024", "hex");
+
 const JFL_CONTACT_ID_EVENT = Buffer.from("7B1871243030303133343037303130393900000489020089", "hex");
 
 describe("infraestrutura de conexão da JFL Active 8W v8", () => {
@@ -31,6 +33,7 @@ describe("infraestrutura de conexão da JFL Active 8W v8", () => {
 
   it("reconhece a resposta 7A/0x24 de status e nunca a confunde com Contact ID", () => {
     expect(isJflActive8wV8StatusReply(ACTIVE_8W_0022_STATUS_REPLY)).toBe(true);
+    expect(isJflActive8wV8StatusReply(ACTIVE_8W_0098_STATUS_REPLY)).toBe(true);
     expect(isJflActive8wV8StatusReply(JFL_CONTACT_ID_EVENT)).toBe(false);
   });
 

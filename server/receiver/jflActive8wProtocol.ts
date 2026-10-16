@@ -13,12 +13,13 @@ export function isJflActive8wV8Connection(frame: Buffer) {
 }
 
 /**
- * Resposta de estado observada após a consulta passiva 7B/0x4D. Embora traga
- * 0x24 no quarto byte, ela pertence ao formato Active 8W 7A e não é um
- * Contact ID 7B. Interpretá-la como evento cria códigos fictícios R211 etc.
+ * Resposta de estado observada após a consulta passiva 7B/0x4D. As Active 8W
+ * variam o contador/estado no quarto byte (por exemplo 0x24 ou 0xB5), mas o
+ * sexto byte 0x24 identifica o quadro proprietário de status. Ele não é um
+ * Contact ID 7B; interpretá-lo como evento cria códigos fictícios R211 etc.
  */
 export function isJflActive8wV8StatusReply(frame: Buffer) {
-  return frame[0] === 0x7a && frame.length >= 6 && frame[3] === 0x24 && frame[5] === 0x24;
+  return frame[0] === 0x7a && frame.length >= 6 && frame[5] === 0x24;
 }
 
 /**

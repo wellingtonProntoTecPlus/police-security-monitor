@@ -51,7 +51,11 @@ async function startServer() {
   // Conectar receptor de eventos ao Socket.IO
   setEventCallback((event) => {
     io.emit("alarm:event", event);
-    console.log(`[Socket.IO] Evento emitido: ${event.brand} conta ${event.account} ${event.qualifier}${event.eventCode}`);
+    if (event.kind === "keepalive") {
+      console.log(`[Socket.IO] Supervisão emitida: ${event.brand} conta ${event.account}`);
+    } else {
+      console.log(`[Socket.IO] Evento emitido: ${event.brand} conta ${event.account} ${event.qualifier}${event.eventCode}`);
+    }
   });
 
   // Configure body parser with larger size limit for file uploads
