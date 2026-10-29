@@ -51,4 +51,30 @@ describe("persistência de Keep Alive", () => {
 
     expect(samples[0].intervalMs).toBe(30_000);
   });
+
+  it("preserva um intervalo longo após uma central ficar semanas desconectada", async () => {
+    const updates: any[] = [];
+    const samples: any[] = [];
+    let selectCount = 0;
+    const fakeDb: any = {
+      select: () => ({ from: () => ({ where: () => {
+        selectCount += 1;
+        return selectCount === 1
+          ? { limit: async () => [{
+            id: 1,
+            brand: "COMPATEC",
+            lastKeepAliveAt: new Date("2026-09-04T03:46:15.000Z"),
+          }] }
+          : Promise.resolve([]);
+      } }) }),
+      update: () => ({ set: (values: unknown) => ({ where: async () => updates.push(values) }) }),
+      insert: () => ({ values: async (values: unknown) => samples.push(values) }),
+    };
+    setDbForTesting(fakeDb);
+
+    await recordSystemKeepAlive(1, new Date("2026-10-29T03:55:09.000Z"));
+
+    expect(updates[0].lastKeepAliveIntervalMs).toBeGreaterThan(2_147_483_647);
+    expect(samples[0].intervalMs).toBe(updates[0].lastKeepAliveIntervalMs);
+  });
 });

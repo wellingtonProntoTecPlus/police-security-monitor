@@ -253,6 +253,13 @@
       "when": 1788443622207,
       "tag": "0035_sticky_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1793257031972,
+      "tag": "0036_true_wild_child",
+      "breakpoints": true
     }
   ]
 }

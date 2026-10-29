@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
+import { bigint, int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
 
 // ============================================================
 // USERS (base auth - já existente)
@@ -182,7 +182,7 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   isOnline: boolean("isOnline").default(false).notNull(),
   lastCommunication: timestamp("lastCommunication"),
   lastKeepAliveAt: timestamp("lastKeepAliveAt"),
-  lastKeepAliveIntervalMs: int("lastKeepAliveIntervalMs"),
+  lastKeepAliveIntervalMs: bigint("lastKeepAliveIntervalMs", { mode: "number" }),
   keepAliveMonitoringEnabled: boolean("keepAliveMonitoringEnabled").default(true).notNull(),
   keepAliveExpectedIntervalSeconds: int("keepAliveExpectedIntervalSeconds").default(60).notNull(),
   keepAliveFailureEventEnabled: boolean("keepAliveFailureEventEnabled").default(false).notNull(),
@@ -230,7 +230,7 @@ export const systemKeepAliveSamples = mysqlTable("system_keep_alive_samples", {
   alarmSystemId: int("alarmSystemId").notNull(),
   brand: varchar("brand", { length: 30 }).notNull(),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
-  intervalMs: int("intervalMs"),
+  intervalMs: bigint("intervalMs", { mode: "number" }),
 });
 
 export type SystemKeepAliveSample = typeof systemKeepAliveSamples.$inferSelect;
