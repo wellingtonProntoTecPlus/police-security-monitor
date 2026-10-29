@@ -718,6 +718,12 @@ export default function Dashboard() {
   const selectedCompatecDisarmEnabled = useMemo(() => {
     return selectedSystem?.brand === "COMPATEC" && selectedSystem.isActive !== false;
   }, [selectedSystem]);
+  const selectedCompatecAction = useMemo<"arm" | "disarm" | undefined>(() => {
+    if (!selectedCompatecDisarmEnabled) return undefined;
+    if (selectedArmDisarmState === "armed") return "disarm";
+    if (selectedArmDisarmState === "disarmed") return "arm";
+    return undefined;
+  }, [selectedCompatecDisarmEnabled, selectedArmDisarmState]);
 
   const selectedClient = useMemo(() => {
     if (!selectedEvent) return null;
@@ -1200,7 +1206,7 @@ export default function Dashboard() {
   }
 
   function submitCompatecBenchDisarmQuick() {
-    if (!selectedEvent?.alarmSystemId || !selectedCompatecDisarmEnabled) {
+    if (!selectedEvent?.alarmSystemId || !selectedCompatecDisarmEnabled || selectedArmDisarmState !== "armed") {
       toast.error("O Desarme físico está disponível somente para uma central Compatec ativa e cadastrada.");
       return;
     }
@@ -1218,6 +1224,31 @@ export default function Dashboard() {
         addLog("Desarme físico MicroBus confirmado pelo operador.");
         toast.success(result.status === "sent" ? "DESARME enviado para a Compatec. Aguarde a confirmação da central." : result.message || "Desarme registrado e aguardando a conexão autenticada da central.");
         void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+      },
+      onError: (error) => toast.error(error.message),
+    });
+  }
+
+  function submitCompatecArmQuick() {
+    if (!selectedEvent?.alarmSystemId || !selectedCompatecDisarmEnabled || selectedArmDisarmState !== "disarmed") {
+      toast.error("O Arme físico exige uma central Compatec ativa e com estado desarmado confirmado.");
+      return;
+    }
+    const reason = attendingNotes.trim() || `Arme físico confirmado pelo operador durante o atendimento da conta ${selectedEvent.account}.`;
+    const confirmed = window.confirm(
+      `CONFIRMAR ARME FÍSICO?\n\nConta ${selectedEvent.account} · ${selectedEvent.systemModel}\nMAC ${selectedSystem?.macAddress || "não informado"}\n\nEsta ação transmitirá o comando para esta central Compatec cadastrada.`,
+    );
+    if (!confirmed) return;
+    armCompatecAllMut.mutate({
+      alarmSystemId: selectedEvent.alarmSystemId,
+      incidentId: selectedEvent.incidentId,
+      reason,
+    }, {
+      onSuccess: (result) => {
+        addLog("Arme físico MicroBus confirmado pelo operador.");
+        toast.success(result.status === "sent" ? "ARMAR enviado para a Compatec. Aguarde a confirmação da central." : result.message || "Arme registrado e aguardando a conexão autenticada da central.");
+        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+        void utils.dashboard.armDisarmStatus.invalidate();
       },
       onError: (error) => toast.error(error.message),
     });
@@ -1349,7 +1380,7 @@ export default function Dashboard() {
                     {isPanelUserEvent(selectedEvent) && <span className="text-blue-200">Usuário da central: <strong className="text-foreground">{String(selectedEvent.zoneUser || "").padStart(2, "0")}{selectedPanelUser ? ` · ${selectedPanelUser.name}` : " · Não cadastrado"}</strong></span>}
                   </div>
                   <p className={`mt-1 font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>{selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}</p>
-                  {(selectedEvent.brand === "VETTI" || selectedEvent.brand === "COMPATEC") && selectedEvent.alarmSystemId && (
+                  {selectedRemoteBrand === "VETTI" && selectedEvent.alarmSystemId && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       {selectedArmDisarmState === "armed" ? (
                         <Button className="h-9 bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-700" onClick={() => openRemoteCommand("disarm")}>DESARMAR</Button>
@@ -1402,10 +1433,18 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
 	                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
 	                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
-                  {selectedCompatecDisarmEnabled ? (
+                  {selectedCompatecAction === "arm" ? (
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" onClick={submitCompatecArmQuick} disabled={armCompatecAllMut.isPending} aria-label="Arme físico da central Compatec">
+                      <Shield className="h-3.5 w-3.5" /> {armCompatecAllMut.isPending ? "ENVIANDO..." : "ARMAR"}
+                    </Button>
+                  ) : selectedCompatecAction === "disarm" ? (
                     <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={submitCompatecBenchDisarmQuick} disabled={disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec">
-	                      <Shield className="h-3.5 w-3.5" /> {disarmBenchAllMut.isPending ? "ENVIANDO..." : "DESARME"}
-	                    </Button>
+                      <Shield className="h-3.5 w-3.5" /> {disarmBenchAllMut.isPending ? "ENVIANDO..." : "DESARME"}
+                    </Button>
+                  ) : selectedCompatecDisarmEnabled ? (
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-amber-500/50 bg-amber-500/10 px-2.5 text-xs font-semibold text-amber-300 shadow-none" disabled aria-label="Estado da central Compatec não confirmado">
+                      <Shield className="h-3.5 w-3.5" /> ESTADO NÃO CONFIRMADO
+                    </Button>
                   ) : selectedRemoteSystemId && selectedRemoteBrand ? (
                     <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedRemoteBrand === "VETTI" ? "Vetti" : selectedRemoteBrand === "INTELBRAS" ? "Intelbras" : "Compatec"}</Button>
 	                  ) : (

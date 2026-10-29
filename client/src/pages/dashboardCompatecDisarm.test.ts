@@ -8,7 +8,10 @@ describe("Desarme Compatec no atendimento", () => {
   it("mostra um botão direto para toda central Compatec ativa e cadastrada", () => {
     expect(dashboardSource).toContain("selectedCompatecDisarmEnabled");
     expect(dashboardSource).toContain('selectedSystem?.brand === "COMPATEC" && selectedSystem.isActive !== false');
+    expect(dashboardSource).toContain('selectedCompatecAction === "arm"');
+    expect(dashboardSource).toContain('selectedCompatecAction === "disarm"');
     expect(dashboardSource).toContain(': "DESARME"');
+    expect(dashboardSource).toContain(': "ARMAR"');
   });
 
   it("confirma a ação antes de enviar e registra o operador sem exigir campos técnicos", () => {
@@ -33,7 +36,14 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain("item.alarmSystemId === systemId || item.systemId === systemId");
   });
 
-  it("mostra o quadro oficial AK4[4] para todas as centrais Compatec ativas", () => {
+  it("confirma o Arme rápido sem abrir o modal de comandos", () => {
+    expect(dashboardSource).toContain("submitCompatecArmQuick");
+    expect(dashboardSource).toContain("CONFIRMAR ARME FÍSICO?");
+    expect(dashboardSource).toContain("armCompatecAllMut.mutate");
+    expect(dashboardSource).toContain("Arme físico MicroBus confirmado pelo operador.");
+  });
+
+  it("mantém o quadro oficial AK4[4] no fluxo técnico de compatibilidade", () => {
     expect(dashboardSource).toContain("armCompatecAllMut");
     expect(dashboardSource).toContain("submitCompatecBenchArmAll");
     expect(dashboardSource).toContain("Armar central Compatec (MB=AK4[4])");
