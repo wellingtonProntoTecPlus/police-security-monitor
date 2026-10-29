@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { isVetti24HourZone } from "@shared/vettiZoneRules";
 import { formatContactIdArgument } from "@shared/contactIdArgumentContext";
 import { resolveQueueEventClient, resolveQueueEventSystem } from "@/lib/queueEventIdentity";
+import { resolveRemoteCommandIdentity } from "@/lib/remoteCommandIdentity";
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 import { getQuickFinalizationOptions } from "@/lib/quickFinalizationSearch";
 import { shouldConfirmAttendanceNavigation } from "@/lib/attendanceExitGuard";
@@ -316,8 +317,16 @@ export default function Dashboard() {
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
-  const selectedRemoteSystemId = selectedEvent && (selectedEvent.brand === "COMPATEC" || selectedEvent.brand === "VETTI" || selectedEvent.brand === "INTELBRAS") ? selectedEvent.alarmSystemId : undefined;
-  const selectedRemoteBrand = selectedEvent?.brand === "VETTI" ? "VETTI" : selectedEvent?.brand === "INTELBRAS" ? "INTELBRAS" : "COMPATEC";
+  const selectedSystem = useMemo(() => {
+    if (!selectedEvent) return null;
+    return resolveQueueEventSystem(selectedEvent, systemData || []);
+  }, [selectedEvent, systemData]);
+  const selectedRemoteIdentity = useMemo(
+    () => resolveRemoteCommandIdentity(selectedEvent, selectedSystem),
+    [selectedEvent, selectedSystem],
+  );
+  const selectedRemoteSystemId = selectedRemoteIdentity.systemId;
+  const selectedRemoteBrand = selectedRemoteIdentity.brand;
   const { data: remoteCommandPgms = [] } = trpc.alarmPgm.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0 }, { enabled: Boolean(selectedRemoteSystemId) });
   const { data: remoteCommandHistory = [] } = trpc.remoteCommand.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0, limit: 8 }, { enabled: Boolean(selectedRemoteSystemId) });
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
@@ -693,12 +702,6 @@ export default function Dashboard() {
     setActiveTab("cameras");
   }
 
-  // Encontrar cliente/sistema
-  const selectedSystem = useMemo(() => {
-    if (!selectedEvent) return null;
-    return resolveQueueEventSystem(selectedEvent, systemData || []);
-  }, [selectedEvent, systemData]);
-
   const selectedCompatecDisarmEnabled = useMemo(() => {
     return selectedSystem?.brand === "COMPATEC" && selectedSystem.isActive !== false;
   }, [selectedSystem]);
@@ -983,7 +986,7 @@ export default function Dashboard() {
   }
 
   function openRemoteCommand(commandType: RemoteCommandType) {
-    if (!selectedEvent?.alarmSystemId || (selectedEvent.brand !== "COMPATEC" && selectedEvent.brand !== "VETTI" && selectedEvent.brand !== "INTELBRAS")) {
+    if (!selectedEvent || !selectedRemoteSystemId || !selectedRemoteBrand) {
       toast.error("Comandos remotos em simulação estão disponíveis somente para centrais Compatec, Vetti e Intelbras identificadas.");
       return;
     }
@@ -995,14 +998,14 @@ export default function Dashboard() {
   }
 
   function submitRemoteCommandSimulation() {
-    if (!selectedEvent?.alarmSystemId) return;
+    if (!selectedEvent || !selectedRemoteSystemId) return;
     const zoneNumber = Number(remoteCommandZone);
     const pgmNumber = Number(remoteCommandPgm);
     if ((remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && (!Number.isInteger(zoneNumber) || zoneNumber < 1)) {
       toast.error("Informe a zona a ser isolada ou restaurada.");
       return;
     }
-    if (selectedEvent.brand === "VETTI" && remoteCommandType === "restore_zone" && !isVetti24HourZone(treatmentZones.find((zone: any) => zone.zoneNumber === zoneNumber))) {
+    if (selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" && !isVetti24HourZone(treatmentZones.find((zone: any) => zone.zoneNumber === zoneNumber))) {
       toast.error("Na Vetti, Restaurar Zona é usado somente em zonas classificadas como 24 horas.");
       return;
     }
@@ -1012,7 +1015,7 @@ export default function Dashboard() {
     }
 
     simulateRemoteCommandMut.mutate({
-      alarmSystemId: selectedEvent.alarmSystemId,
+      alarmSystemId: selectedRemoteSystemId,
       incidentId: selectedEvent.incidentId,
       commandType: remoteCommandType,
       reason: remoteCommandReason,
@@ -1024,7 +1027,7 @@ export default function Dashboard() {
         addLog(summary);
         toast.success(`${summary}. Nenhum comando foi enviado à central.`);
         setRemoteCommandOpen(false);
-        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedRemoteSystemId, limit: 8 });
       },
       onError: (error) => toast.error(error.message),
     });
@@ -1336,8 +1339,8 @@ export default function Dashboard() {
                     <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={submitCompatecBenchDisarmQuick} disabled={disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec">
 	                      <Shield className="h-3.5 w-3.5" /> {disarmBenchAllMut.isPending ? "ENVIANDO..." : "DESARME"}
 	                    </Button>
-                  ) : (selectedEvent.brand === "COMPATEC" || selectedEvent.brand === "VETTI" || selectedEvent.brand === "INTELBRAS") && selectedEvent.alarmSystemId ? (
-                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedEvent.brand === "VETTI" ? "Vetti" : selectedEvent.brand === "INTELBRAS" ? "Intelbras" : "Compatec"}</Button>
+                  ) : selectedRemoteSystemId && selectedRemoteBrand ? (
+                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedRemoteBrand === "VETTI" ? "Vetti" : selectedRemoteBrand === "INTELBRAS" ? "Intelbras" : "Compatec"}</Button>
 	                  ) : (
 	                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground" onClick={() => toast.info("Comandos remotos dependem do protocolo homologado para cada fabricante.")}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>
 	                  )}

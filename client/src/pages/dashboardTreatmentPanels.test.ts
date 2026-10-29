@@ -34,7 +34,8 @@ describe("painéis operacionais do tratamento", () => {
   });
 
   it("oferece o modal Intelbras somente com Arme e Desarme simulados", () => {
-    expect(dashboardSource).toContain('selectedEvent.brand === "INTELBRAS"');
+    expect(dashboardSource).toContain("selectedRemoteSystemId && selectedRemoteBrand");
+    expect(dashboardSource).toContain("resolveRemoteCommandIdentity");
     expect(dashboardSource).toContain("Comando remoto Intelbras AMT-8000");
     expect(dashboardSource).toContain('command === "arm" || command === "disarm"');
     expect(dashboardSource).toContain("Nenhum comando físico é transmitido");
