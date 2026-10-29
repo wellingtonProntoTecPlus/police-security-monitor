@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
+import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_TOGGLE_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
 
 function fakeSocket() {
   const writes: string[] = [];
@@ -13,6 +13,14 @@ function fakeSocket() {
 }
 
 describe("transporte MicroBus Compatec de bancada", () => {
+  it("mantém os quadros oficiais fixos separados do toggle total", () => {
+    expect(COMPATEC_MW1_ARM_ALL).toBe("MB=AK4[4]\r\n");
+    expect(COMPATEC_MW1_DISARM_ALL).toBe("MB=AK4[12]\r\n");
+    expect(COMPATEC_MW1_TOGGLE_ALL).toBe("MB=AK4[0]\r\n");
+    expect(COMPATEC_MW1_ARM_ALL).not.toBe(COMPATEC_MW1_TOGGLE_ALL);
+    expect(COMPATEC_MW1_DISARM_ALL).not.toBe(COMPATEC_MW1_TOGGLE_ALL);
+  });
+
   it("envia somente a consulta MW1 pela sessão previamente autenticada", () => {
     const socket = fakeSocket();
     rememberActiveCompatecSession(socket, { id: 9334, account: "0334" });
@@ -23,6 +31,17 @@ describe("transporte MicroBus Compatec de bancada", () => {
       account: "0334",
     });
     expect(socket.writes).toEqual(["MB=AK0\r\n"]);
+  });
+
+  it("não transmite o Arme oficial antes da homologação física específica", () => {
+    const socket = fakeSocket();
+    rememberActiveCompatecSession(socket, { id: 9338, account: "0338" });
+
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9338, commandId: 85, payload: COMPATEC_MW1_ARM_ALL })).toEqual({
+      sent: false,
+      message: "Comando MicroBus de bancada não autorizado.",
+    });
+    expect(socket.writes).toEqual([]);
   });
 
   it("registra a resposta da central somente para a consulta pendente da mesma sessão", () => {
@@ -48,9 +67,9 @@ describe("transporte MicroBus Compatec de bancada", () => {
     rememberActiveCompatecSession(socket, { id: 9337, account: "0334" });
 
     expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9337, commandId: 84, payload: COMPATEC_MW1_DISARM_ALL }).sent).toBe(true);
-    expect(socket.writes).toEqual(["MB=AK4[0,03FF]\r\n"]);
-    expect(getCompatecMw1StatusResponseLine(Buffer.from("MB=KA4[0,03FF]\r\n"))).toBe("MB=KA4[0,03FF]\r\n");
-    expect(consumeCompatecMw1StatusResponse(socket, "MB=KA4[0,03FF]\r\n")).toEqual({ commandId: 84, payload: COMPATEC_MW1_DISARM_ALL, response: "MB=KA4[0,03FF]\r\n" });
+    expect(socket.writes).toEqual(["MB=AK4[12]\r\n"]);
+    expect(getCompatecMw1StatusResponseLine(Buffer.from("MB=KA4[12]\r\n"))).toBe("MB=KA4[12]\r\n");
+    expect(consumeCompatecMw1StatusResponse(socket, "MB=KA4[12]\r\n")).toEqual({ commandId: 84, payload: COMPATEC_MW1_DISARM_ALL, response: "MB=KA4[12]\r\n" });
   });
 
 });

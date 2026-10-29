@@ -3,10 +3,13 @@ import type net from "net";
 export const COMPATEC_MW1_STATUS_QUERY = "MB=AK0\r\n";
 export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
 /**
- * Quadro observado na central de bancada MW1 em 26/08/2026.
- * Apesar de exemplos externos divergentes, a central executou DESARME para este quadro.
+ * Comandos fixos oficiais informados pela Compatec para o módulo Wi-Fi MW1
+ * em 29/10/2026. O PoliceCentral não usa o toggle AK4[0] para botões
+ * operacionais, porque a ação depende do estado atual do painel.
  */
-export const COMPATEC_MW1_DISARM_ALL = "MB=AK4[0,03FF]\r\n";
+export const COMPATEC_MW1_ARM_ALL = "MB=AK4[4]\r\n";
+export const COMPATEC_MW1_DISARM_ALL = "MB=AK4[12]\r\n";
+export const COMPATEC_MW1_TOGGLE_ALL = "MB=AK4[0]\r\n";
 
 type ActiveCompatecSession = {
   socket: net.Socket;
@@ -44,6 +47,9 @@ export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; comma
  * que a própria central Compatec abriu.
  */
 export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
+  // Arme fixo, partições e PGM permanecem fora da entrega física até a
+  // homologação correspondente. O Desarme abaixo já foi autorizado e
+  // possui teste físico anterior na mesma central MW1.
   const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_DISARM_ALL];
   if (!allowedPayloads.includes(input.payload)) {
     return { sent: false as const, message: "Comando MicroBus de bancada não autorizado." };

@@ -34,6 +34,8 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     const disarmRoute = source.slice(source.indexOf("disarmBenchAll: operatorProcedure"), source.indexOf("  }),\n  alarmPgm: router"));
     expect(disarmRoute).toContain('system.brand !== "COMPATEC" || system.isActive === false');
     expect(disarmRoute).not.toContain("isConfirmedCompatecBenchSystem(system)");
+    expect(disarmRoute).toContain('const payload = "MB=AK4[12]\\r\\n"');
+    expect(disarmRoute).not.toContain("MB=AK4[0,03FF]");
   });
 
   it("não mantém a rota de Desarme físico restrita exclusivamente ao administrador", () => {

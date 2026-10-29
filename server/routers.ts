@@ -1014,7 +1014,7 @@ export const appRouter = router({
       if (system.brand !== "COMPATEC" || system.isActive === false) {
         throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
-      const payload = "MB=AK4[0,03FF]\r\n";
+      const payload = "MB=AK4[12]\r\n";
       const created = await db.createAlarmRemoteCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "COMPATEC", commandType: "disarm", transportMode: "microbus_compatec", status: "queued",
@@ -1026,7 +1026,7 @@ export const appRouter = router({
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
         return { ...created, status: "waiting_connection" as const, message: dispatched.message };
       }
-      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Desarme MB=AK4[0,03FF] enviado; aguardando a confirmação da central.", executedAt: new Date() });
+      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Desarme MB=AK4[12] enviado; aguardando a confirmação da central.", executedAt: new Date() });
       return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
   }),

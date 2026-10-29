@@ -6,7 +6,7 @@ O operador já autenticado no Police Central é identificado no histórico, com 
 
 | Fabricante | Credencial técnica conhecida | Situação de integração |
 |---|---|---|
-| Compatec | Os exemplos MicroBus fornecidos não incluem senha no quadro `MB=`. A autorização aparenta depender da rota, da sessão ou da configuração do módulo. | Confirmar endereço, porta, sessão e resposta antes de qualquer transmissão física. |
+| Compatec | Os quadros MicroBus Wi-Fi oficiais fornecidos não incluem senha no quadro `MB=`. A autorização depende da rota, da sessão e da configuração do módulo. | A Compatec confirmou os quadros MW1 (`AK4[4]` Arme fixo e `AK4[12]` Desarme fixo); a nova transmissão ainda exige homologação física do quadro e da resposta na bancada. |
 | JFL Active | O manual oficial relaciona operações do aplicativo à senha de usuário mestre. | Exigir a documentação do protocolo de terceiros para saber como a senha deve ser apresentada no comando IP. |
 | Intelbras | A documentação oficial informa que a credencial de acesso remoto varia por modelo: em centrais monitoradas, o AMT Remoto Mobile usa senha remota de seis dígitos; em ANM 24 NET, usa senha Master. | O perfil deve solicitar a credencial apropriada ao modelo, não assumir senha Master para toda a marca. |
 | Vetti | Informação operacional do usuário: possui senha própria para comandos. | Aguardar manual/protocolo do fabricante antes de definir o formato e o campo exato. |

@@ -33,6 +33,18 @@ Atenciosamente,
 **Wellington Portes**  
 Police Security
 
+## Resposta recebida da Compatec — 29/10/2026
+
+A Compatec confirmou que, para o módulo Wi-Fi, o cabeçalho é `MB=AK` e forneceu os seguintes comandos:
+
+- Toggle total: `MB=AK4[0]\r\n`;
+- Somente Arme: `MB=AK4[4]\r\n`;
+- Somente Desarme: `MB=AK4[12]\r\n`;
+- Partições 1, 2 e 3: `MB=AK4[9]\r\n`, `MB=AK4[10]\r\n` e `MB=AK4[11]\r\n`;
+- PGM 1, 2 e 3: `MB=AK4[5]\r\n`, `MB=AK4[6]\r\n` e `MB=AK4[7]\r\n`.
+
+Para setores individuais, a máscara usa bit `0` para desarmar e bit `1` para armar. O PoliceCentral adotará `MB=AK4[12]\r\n` para o Desarme físico oficial. O Arme `MB=AK4[4]\r\n`, o Toggle, as partições, os setores e os PGMs permanecem sujeitos a homologação física específica antes de qualquer transmissão.
+
 ## Referências
 
 [1]: https://compatec.com.br/suporte/ "Suporte Compatec"

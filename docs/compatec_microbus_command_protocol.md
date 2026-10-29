@@ -135,3 +135,25 @@ Fontes visuais fornecidas pelo usuário: `Screenshot_20260825_072007_ContinenteP
 ## References
 
 [1]: file:///home/ubuntu/upload/IntegraçãoCompatec-Monitoramento-Parte2-Comandos.pdf "Integração das centrais de alarme Compatec monitoradas com os softwares de monitoramento — Parte 2 Comandos"
+
+## Atualização oficial Compatec — comandos Wi-Fi MW1 recebidos em 29/10/2026
+
+A Compatec confirmou diretamente os quadros destinados ao módulo Wi-Fi. Para a central **AW3 Pro com MW1**, o cabeçalho correto é `MB=AK` e os comandos oficiais são:
+
+| Ação | Quadro Wi-Fi oficial |
+|---|---|
+| Arme e Desarme total por alternância (Toggle) | `MB=AK4[0]\r\n` |
+| Somente Arme total | `MB=AK4[4]\r\n` |
+| Somente Desarme total | `MB=AK4[12]\r\n` |
+| Arme/Desarme da Partição 1 (Toggle) | `MB=AK4[9]\r\n` |
+| Arme/Desarme da Partição 2 (Toggle) | `MB=AK4[10]\r\n` |
+| Arme/Desarme da Partição 3 (Toggle) | `MB=AK4[11]\r\n` |
+| PGM 1 (Toggle) | `MB=AK4[5]\r\n` |
+| PGM 2 (Toggle) | `MB=AK4[6]\r\n` |
+| PGM 3 (Toggle) | `MB=AK4[7]\r\n` |
+
+Para setores individuais, a Compatec confirmou `MB=AK4[0,máscara]\r\n`: bit `0` desarma e bit `1` arma. Assim, dez setores armados usam a máscara `03FF`; em uma central com 23 setores, a máscara de todos armados é `007FFFFF`.
+
+O PoliceCentral passa a usar `MB=AK4[12]\r\n` no Desarme físico oficial. O quadro `MB=AK4[0,03FF]\r\n` permanece somente como evidência histórica do teste realizado na bancada; ele não é mais o quadro preferencial do software. O Toggle `MB=AK4[0]\r\n` não será usado nos botões ARMAR/DESARMAR, porque sua ação depende do estado atual e pode inverter o painel de forma inesperada.
+
+O quadro oficial de Arme `MB=AK4[4]\r\n` está documentado e coberto por teste de formato, mas continua bloqueado para transmissão até homologação física específica. Partições, setores e PGMs também permanecem bloqueados para transmissão física até que suas respostas sejam registradas e confirmadas na bancada. As consultas `MB=AK0\r\n` e `MB=AK1\r\n` continuam sendo usadas para leitura de estado geral e setores.
