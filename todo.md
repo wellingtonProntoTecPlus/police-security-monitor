@@ -703,6 +703,9 @@
 - [ ] Instalar a correção de três dígitos Intelbras na VPS e confirmar que o próximo evento E407 seja exibido com Usuário 198
 - [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
 - [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
+- [x] Implementar localmente Arme/Desarme físico exclusivo para Intelbras AMT-8000 via E7/0x16, com sessão 0x94 por MAC/conta, senha Master cifrada, trava de exclusividade, timeout e confirmação E7/0x96
+- [ ] Publicar na VPS o comando físico Intelbras AMT-8000 sem executar transmissão; confirmar que a Senha Master de 4 ou 6 dígitos pode ser cadastrada de forma cifrada
+- [ ] Homologar um único Arme ou Desarme físico em AMT-8000 de bancada autorizada, conferindo estado inicial, resposta E7/0x96, estado final e histórico auditável antes de qualquer uso em produção
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
