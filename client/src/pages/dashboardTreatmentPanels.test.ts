@@ -32,4 +32,11 @@ describe("painéis operacionais do tratamento", () => {
     expect(dashboardSource).toContain('lg:grid-cols-[0.82fr_1.18fr]');
     expect(dashboardSource).toContain("Zonas e setores");
   });
+
+  it("oferece o modal Intelbras somente com Arme e Desarme simulados", () => {
+    expect(dashboardSource).toContain('selectedEvent.brand === "INTELBRAS"');
+    expect(dashboardSource).toContain("Comando remoto Intelbras AMT-8000");
+    expect(dashboardSource).toContain('command === "arm" || command === "disarm"');
+    expect(dashboardSource).toContain("Nenhum comando físico é transmitido");
+  });
 });

@@ -5,6 +5,14 @@ const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
+  it("aceita Intelbras somente no fluxo de simulação inicial do SDK", () => {
+    expect(source).toContain('system.brand !== "INTELBRAS"');
+    expect(source).toContain("validateIntelbrasSimulationTarget(input)");
+    expect(source).toContain("buildIntelbrasSimulationPayload(input)");
+    expect(source).toContain("nenhum quadro ISECnet/E7 foi transmitido");
+    expect(receiverSource).not.toContain("buildIntelbrasIsecnetArmDisarmFrame");
+  });
+
   it("mantém consultas restritas à bancada e permite o Desarme somente para Compatec ativa", () => {
     expect(source).toContain("queryBenchStatus: operatorProcedure");
     expect(source).toContain("queryBenchSectors: operatorProcedure");

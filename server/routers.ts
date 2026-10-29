@@ -15,6 +15,7 @@ import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./ve
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
 import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
 import { uploadCompanyLogo } from "./companyLogo";
+import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -790,8 +791,12 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
-      if (system.brand !== "COMPATEC" && system.brand !== "VETTI") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos em simulação estão disponíveis somente para centrais Compatec e Vetti" });
-      const targetError = system.brand === "VETTI" ? validateVettiSimulationTarget(input) : validateRemoteCommandTarget(input);
+      if (system.brand !== "COMPATEC" && system.brand !== "VETTI" && system.brand !== "INTELBRAS") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos em simulação estão disponíveis para centrais Compatec, Vetti e Intelbras" });
+      const targetError = system.brand === "VETTI"
+        ? validateVettiSimulationTarget(input)
+        : system.brand === "INTELBRAS"
+          ? validateIntelbrasSimulationTarget(input)
+          : validateRemoteCommandTarget(input);
       if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
 
       if (system.brand === "VETTI" && input.commandType === "restore_zone") {
@@ -801,7 +806,11 @@ export const appRouter = router({
         }
       }
 
-      const commandPayload = system.brand === "VETTI" ? buildVettiSimulationPayload(input) : buildCompatecSimulationPayload(input);
+      const commandPayload = system.brand === "VETTI"
+        ? buildVettiSimulationPayload(input)
+        : system.brand === "INTELBRAS"
+          ? buildIntelbrasSimulationPayload(input)
+          : buildCompatecSimulationPayload(input);
       const created = await db.createAlarmRemoteCommand({
         alarmSystemId: system.id,
         incidentId: input.incidentId ?? null,
@@ -817,7 +826,9 @@ export const appRouter = router({
         commandPayload,
         responsePayload: system.brand === "VETTI"
           ? "SIMULAÇÃO CONCLUÍDA — nenhum frame VSec foi transmitido à central."
-          : "SIMULAÇÃO CONCLUÍDA — nenhum pacote MicroBus foi transmitido à central.",
+          : system.brand === "INTELBRAS"
+            ? "SIMULAÇÃO CONCLUÍDA — nenhum quadro ISECnet/E7 foi transmitido à central."
+            : "SIMULAÇÃO CONCLUÍDA — nenhum pacote MicroBus foi transmitido à central.",
         executedAt: new Date(),
       });
       return { ...created, status: "simulated" as const };
