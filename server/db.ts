@@ -894,8 +894,8 @@ export async function createConfirmedVettiDisarmEventWithOpenIncident(input: {
 
 /**
  * A Compatec abre conexões curtas para reportar identidade e Keep Alive. A
- * primeiro comando de bancada pode ficar aguardando até a próxima conexão
- * identificada; a seleção é restrita à central física que abriu a conexão.
+ * primeiro comando pode ficar aguardando até a próxima conexão identificada;
+ * a seleção é restrita à própria central que abriu a conexão.
  */
 export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   const db = await getDb();
@@ -907,7 +907,7 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
     eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
     eq(alarmRemoteCommands.brand, "COMPATEC"),
     inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "disarm"]),
-    eq(alarmRemoteCommands.transportMode, "microbus_bench"),
+    inArray(alarmRemoteCommands.transportMode, ["microbus_bench", "microbus_compatec"]),
     eq(alarmRemoteCommands.status, "waiting_connection"),
   )).orderBy(alarmRemoteCommands.id).limit(1);
   return result[0];

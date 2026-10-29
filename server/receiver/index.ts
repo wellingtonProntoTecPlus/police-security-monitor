@@ -716,19 +716,17 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
       const system = await getAlarmSystemByCapturedPanelIdentifier({ brand: "COMPATEC", frames: getSafeCaptureFrames(socket) });
       if (system) {
         rememberSystem(socket, system, port);
-        if (system.remoteCommandLabEnabled) {
-          rememberActiveCompatecSession(socket, system);
-          const pendingQuery = await getPendingCompatecBenchQuery(system.id);
-          if (pendingQuery) {
-            const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload });
-            if (dispatched.sent) {
-              await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
-                status: "sent",
-                responsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima conexão autenticada da central; aguardando resposta.`,
-                executedAt: new Date(),
-              });
-              console.log(`[MICROBUS] COMPATEC comando pendente enviado no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
-            }
+        rememberActiveCompatecSession(socket, system);
+        const pendingQuery = await getPendingCompatecBenchQuery(system.id);
+        if (pendingQuery) {
+          const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload });
+          if (dispatched.sent) {
+            await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
+              status: "sent",
+              responsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima conexão autenticada da central; aguardando resposta.`,
+              executedAt: new Date(),
+            });
+            console.log(`[MICROBUS] COMPATEC comando pendente enviado no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
           }
         }
         console.log(`[RECIP] COMPATEC identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);

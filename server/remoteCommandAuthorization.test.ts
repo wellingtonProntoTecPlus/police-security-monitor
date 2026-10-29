@@ -5,12 +5,15 @@ const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
-  it("permite operador autenticado nas ações de bancada sem abrir exceção para outros sistemas", () => {
+  it("mantém consultas restritas à bancada e permite o Desarme somente para Compatec ativa", () => {
     expect(source).toContain("queryBenchStatus: operatorProcedure");
     expect(source).toContain("queryBenchSectors: operatorProcedure");
     expect(source).toContain("disarmBenchAll: operatorProcedure");
     expect(source).toContain("isConfirmedCompatecBenchSystem(system)");
     expect(source).toContain("MAC C1BDCB");
+    const disarmRoute = source.slice(source.indexOf("disarmBenchAll: operatorProcedure"), source.indexOf("  }),\n  alarmPgm: router"));
+    expect(disarmRoute).toContain('system.brand !== "COMPATEC" || system.isActive === false');
+    expect(disarmRoute).not.toContain("isConfirmedCompatecBenchSystem(system)");
   });
 
   it("não mantém a rota de Desarme físico restrita exclusivamente ao administrador", () => {

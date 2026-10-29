@@ -936,15 +936,15 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
-      if (!isConfirmedCompatecBenchSystem(system)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme MicroBus real está habilitado somente para a central Compatec de bancada identificada pelo MAC C1BDCB" });
+      if (system.brand !== "COMPATEC" || system.isActive === false) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
       const payload = "MB=AK4[0,03FF]\r\n";
       const created = await db.createAlarmRemoteCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
-        brand: "COMPATEC", commandType: "disarm", transportMode: "microbus_bench", status: "queued",
+        brand: "COMPATEC", commandType: "disarm", transportMode: "microbus_compatec", status: "queued",
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
-        commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central de bancada.",
+        commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
       const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
