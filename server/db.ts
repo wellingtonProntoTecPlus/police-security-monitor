@@ -793,6 +793,32 @@ export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCo
   });
 }
 
+/** Reserva uma única ação física MicroBus na central Compatec de bancada. */
+export async function createExclusiveCompatecBenchCommand(data: InsertAlarmRemoteCommand) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    await tx.select({ id: alarmSystems.id })
+      .from(alarmSystems)
+      .where(eq(alarmSystems.id, data.alarmSystemId))
+      .for("update");
+    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
+      .from(alarmRemoteCommands)
+      .where(and(
+        eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
+        eq(alarmRemoteCommands.brand, "COMPATEC"),
+        eq(alarmRemoteCommands.transportMode, "microbus_compatec"),
+        inArray(alarmRemoteCommands.commandType, ["arm", "disarm"]),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "sent"]),
+      ))
+      .orderBy(alarmRemoteCommands.id)
+      .limit(1);
+    if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
+    const result = await tx.insert(alarmRemoteCommands).values(data);
+    return { created: true as const, id: Number(result[0].insertId) };
+  });
+}
+
 /**
  * Reserva uma única ação física AMT-8000 por central. O lock do cadastro do
  * sistema impede dois operadores de alternarem o painel ao mesmo tempo.
@@ -934,7 +960,7 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   }).from(alarmRemoteCommands).where(and(
     eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
     eq(alarmRemoteCommands.brand, "COMPATEC"),
-    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "disarm"]),
+    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm"]),
     inArray(alarmRemoteCommands.transportMode, ["microbus_bench", "microbus_compatec"]),
     eq(alarmRemoteCommands.status, "waiting_connection"),
   )).orderBy(alarmRemoteCommands.id).limit(1);

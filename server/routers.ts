@@ -1003,6 +1003,36 @@ export const appRouter = router({
       await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK1 enviada; aguardando a resposta dos setores.", executedAt: new Date() });
       return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
+    armBenchAll: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      incidentId: z.number().optional(),
+      reason: z.string().trim().min(5, "Informe o motivo operacional do Arme").max(2000),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+      if (!isConfirmedCompatecBenchSystem(system)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O Arme MicroBus real está habilitado somente para a central Compatec de bancada identificada pelo MAC C1BDCB e com modo de bancada ativo" });
+      }
+      const payload = "MB=AK4[4]\r\n";
+      const reservation = await db.createExclusiveCompatecBenchCommand({
+        alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
+        brand: "COMPATEC", commandType: "arm", transportMode: "microbus_compatec", status: "queued",
+        partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
+        commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec de bancada.",
+      });
+      if (!reservation.created) {
+        throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
+      }
+      const created = { id: reservation.id };
+      const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: created.id, payload });
+      if (!dispatched.sent) {
+        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
+        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
+      }
+      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Arme MB=AK4[4] enviado; aguardando a confirmação da central.", executedAt: new Date() });
+      return { ...created, status: "sent" as const, payload: dispatched.payload };
+    }),
     disarmBenchAll: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),

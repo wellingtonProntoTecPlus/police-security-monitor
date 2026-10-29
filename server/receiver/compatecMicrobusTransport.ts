@@ -47,10 +47,10 @@ export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; comma
  * que a própria central Compatec abriu.
  */
 export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
-  // Arme fixo, partições e PGM permanecem fora da entrega física até a
-  // homologação correspondente. O Desarme abaixo já foi autorizado e
-  // possui teste físico anterior na mesma central MW1.
-  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_DISARM_ALL];
+  // O Arme fixo só pode chegar aqui pela rota de bancada que exige MAC
+  // confirmado e modo de laboratório ativo. Toggle, partições, setores e
+  // PGM continuam fora da entrega física.
+  const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL];
   if (!allowedPayloads.includes(input.payload)) {
     return { sent: false as const, message: "Comando MicroBus de bancada não autorizado." };
   }

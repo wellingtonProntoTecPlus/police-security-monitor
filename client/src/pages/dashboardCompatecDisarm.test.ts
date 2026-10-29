@@ -26,3 +26,17 @@ describe("Desarme Compatec no atendimento", () => {
     expect(disarmRoute).not.toContain("isConfirmedCompatecBenchSystem(system)");
   });
 });
+
+describe("Arme Compatec de bancada", () => {
+  it("mostra o quadro oficial AK4[4] e exige o modo de bancada ativo", () => {
+    expect(dashboardSource).toContain("armBenchAllMut");
+    expect(dashboardSource).toContain("submitCompatecBenchArmAll");
+    expect(dashboardSource).toContain("Armar central Compatec (MB=AK4[4])");
+    expect(dashboardSource).toContain("!selectedSystem?.remoteCommandLabEnabled");
+  });
+
+  it("mantém Toggle, partições, setores e PGM fora do fluxo físico", () => {
+    expect(dashboardSource).toContain("O Toggle, partições, setores e PGM não serão usados");
+    expect(dashboardSource).toContain("Toggle, Zona e PGM permanecem bloqueados para transmissão");
+  });
+});

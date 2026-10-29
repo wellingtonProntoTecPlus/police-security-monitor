@@ -33,15 +33,16 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(socket.writes).toEqual(["MB=AK0\r\n"]);
   });
 
-  it("não transmite o Arme oficial antes da homologação física específica", () => {
+  it("aceita o Arme oficial somente quando o transporte recebe uma sessão já autorizada", () => {
     const socket = fakeSocket();
     rememberActiveCompatecSession(socket, { id: 9338, account: "0338" });
 
-    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9338, commandId: 85, payload: COMPATEC_MW1_ARM_ALL })).toEqual({
-      sent: false,
-      message: "Comando MicroBus de bancada não autorizado.",
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9338, commandId: 85, payload: COMPATEC_MW1_ARM_ALL })).toMatchObject({
+      sent: true,
+      payload: COMPATEC_MW1_ARM_ALL,
+      account: "0338",
     });
-    expect(socket.writes).toEqual([]);
+    expect(socket.writes).toEqual(["MB=AK4[4]\r\n"]);
   });
 
   it("registra a resposta da central somente para a consulta pendente da mesma sessão", () => {
