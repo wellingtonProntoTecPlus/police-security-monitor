@@ -28,6 +28,11 @@ describe("Desarme Compatec no atendimento", () => {
 });
 
 describe("Arme Compatec de bancada", () => {
+  it("relaciona o estado retornado pela API ao sistema da ocorrência", () => {
+    expect(dashboardSource).toContain("const systemId = selectedEvent?.alarmSystemId ?? selectedSystem?.id");
+    expect(dashboardSource).toContain("item.alarmSystemId === systemId || item.systemId === systemId");
+  });
+
   it("mostra o quadro oficial AK4[4] para todas as centrais Compatec ativas", () => {
     expect(dashboardSource).toContain("armCompatecAllMut");
     expect(dashboardSource).toContain("submitCompatecBenchArmAll");

@@ -2234,6 +2234,9 @@ export async function getArmDisarmStatus() {
       clientFantasyName,
       clientId,
       systemId,
+      // Mantém o nome usado pelos eventos e pelo Dashboard, sem remover o
+      // campo histórico systemId consumido pelas listas operacionais.
+      alarmSystemId: systemId,
     };
     
     if (status.qualifier === 'R') {

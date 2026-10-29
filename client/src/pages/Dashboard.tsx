@@ -343,11 +343,13 @@ export default function Dashboard() {
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
   const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
   const selectedArmDisarmState = useMemo<"armed" | "disarmed" | undefined>(() => {
-    if (!selectedEvent?.alarmSystemId) return undefined;
-    if ((armDisarmData?.armed || []).some((item: any) => item.alarmSystemId === selectedEvent.alarmSystemId)) return "armed";
-    if ((armDisarmData?.disarmed || []).some((item: any) => item.alarmSystemId === selectedEvent.alarmSystemId)) return "disarmed";
+    const systemId = selectedEvent?.alarmSystemId ?? selectedSystem?.id;
+    if (!systemId) return undefined;
+    const matchesSystem = (item: any) => item.alarmSystemId === systemId || item.systemId === systemId;
+    if ((armDisarmData?.armed || []).some(matchesSystem)) return "armed";
+    if ((armDisarmData?.disarmed || []).some(matchesSystem)) return "disarmed";
     return undefined;
-  }, [selectedEvent?.alarmSystemId, armDisarmData]);
+  }, [selectedEvent?.alarmSystemId, selectedSystem?.id, armDisarmData]);
   const selectedRemoteCommandNotes = useMemo(() => {
     const notes = selectedEvent?.incidentNotes || "";
     return notes.startsWith("[COMANDO REMOTO CONFIRMADO]") ? notes.split("\n").slice(1) : [];
