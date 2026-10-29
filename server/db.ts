@@ -793,8 +793,8 @@ export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCo
   });
 }
 
-/** Reserva uma única ação física MicroBus na central Compatec de bancada. */
-export async function createExclusiveCompatecBenchCommand(data: InsertAlarmRemoteCommand) {
+/** Reserva uma única ação física MicroBus na central Compatec identificada. */
+export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRemoteCommand) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
@@ -818,6 +818,9 @@ export async function createExclusiveCompatecBenchCommand(data: InsertAlarmRemot
     return { created: true as const, id: Number(result[0].insertId) };
   });
 }
+
+/** Compatibilidade para chamadas antigas que ainda usam o nome de bancada. */
+export const createExclusiveCompatecBenchCommand = createExclusiveCompatecPhysicalCommand;
 
 /**
  * Reserva uma única ação física AMT-8000 por central. O lock do cadastro do
@@ -951,7 +954,7 @@ export async function createConfirmedVettiDisarmEventWithOpenIncident(input: {
  * primeiro comando pode ficar aguardando até a próxima conexão identificada;
  * a seleção é restrita à própria central que abriu a conexão.
  */
-export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
+export async function getPendingCompatecCommand(alarmSystemId: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select({
@@ -966,6 +969,9 @@ export async function getPendingCompatecBenchQuery(alarmSystemId: number) {
   )).orderBy(alarmRemoteCommands.id).limit(1);
   return result[0];
 }
+
+/** Compatibilidade com o nome histórico usado pelo receptor MicroBus. */
+export const getPendingCompatecBenchQuery = getPendingCompatecCommand;
 
 /** A Vetti abre a conexão com a VPS; somente fluxos VSec explicitamente homologados na bancada podem aguardar essa sessão. */
 export async function getPendingVettiBenchStatusQuery(alarmSystemId: number) {

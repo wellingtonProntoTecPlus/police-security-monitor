@@ -38,12 +38,13 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(disarmRoute).not.toContain("MB=AK4[0,03FF]");
   });
 
-  it("libera o Arme físico somente na bancada Compatec confirmada e usa o quadro fixo AK4[4]", () => {
-    expect(source).toContain("armBenchAll: operatorProcedure");
-    const armRoute = source.slice(source.indexOf("armBenchAll: operatorProcedure"), source.indexOf("  }),\n    disarmBenchAll: operatorProcedure"));
-    expect(armRoute).toContain("isConfirmedCompatecBenchSystem(system)");
+  it("libera o Arme físico para toda Compatec ativa e cadastrada e usa o quadro fixo AK4[4]", () => {
+    expect(source).toContain("armCompatecAll: operatorProcedure");
+    const armRoute = source.slice(source.indexOf("armCompatecAll: operatorProcedure"), source.indexOf("  }),\n    disarmBenchAll: operatorProcedure"));
+    expect(armRoute).toContain('system.brand !== "COMPATEC" || system.isActive === false');
+    expect(armRoute).not.toContain("isConfirmedCompatecBenchSystem(system)");
     expect(armRoute).toContain('const payload = "MB=AK4[4]\\r\\n"');
-    expect(armRoute).toContain("createExclusiveCompatecBenchCommand");
+    expect(armRoute).toContain("createExclusiveCompatecPhysicalCommand");
     expect(armRoute).toContain('commandType: "arm"');
     expect(armRoute).toContain('transportMode: "microbus_compatec"');
   });

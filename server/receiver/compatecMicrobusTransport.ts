@@ -37,31 +37,34 @@ export function rememberActiveCompatecSession(socket: net.Socket, system: { id: 
  * pela própria central. Nenhuma nova conexão de saída é aberta pela VPS.
  */
 export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; commandId: number }) {
-  return sendCompatecMw1BenchQuery({ ...input, payload: COMPATEC_MW1_STATUS_QUERY });
+  return sendCompatecMw1PhysicalCommand({ ...input, payload: COMPATEC_MW1_STATUS_QUERY });
 }
 
 /**
- * Entrega somente quadros MicroBus homologados para a central de bancada.
+ * Entrega somente quadros MicroBus oficiais para a central Compatec identificada.
  * A VPS nunca abre uma conexão de saída: reutiliza exclusivamente a sessão autenticada
  * A VPS nunca abre uma conexão de saída: reutiliza exclusivamente a sessão autenticada
  * que a própria central Compatec abriu.
  */
-export function sendCompatecMw1BenchQuery(input: { alarmSystemId: number; commandId: number; payload: string }) {
-  // O Arme fixo só pode chegar aqui pela rota de bancada que exige MAC
-  // confirmado e modo de laboratório ativo. Toggle, partições, setores e
-  // PGM continuam fora da entrega física.
+export function sendCompatecMw1PhysicalCommand(input: { alarmSystemId: number; commandId: number; payload: string }) {
+  // O Arme e o Desarme fixos chegam somente pela rota Compatec autorizada e
+  // pela sessão TCP identificada da própria central. Toggle, partições,
+  // setores e PGM continuam fora da entrega física.
   const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL];
   if (!allowedPayloads.includes(input.payload)) {
-    return { sent: false as const, message: "Comando MicroBus de bancada não autorizado." };
+    return { sent: false as const, message: "Comando MicroBus Compatec não autorizado." };
   }
   const session = activeSessionBySystemId.get(input.alarmSystemId);
   if (!session || session.socket.destroyed || !session.socket.writable) {
-    return { sent: false as const, message: "A central de bancada não possui conexão ativa com a VPS neste momento." };
+    return { sent: false as const, message: "A central Compatec não possui conexão ativa com a VPS neste momento." };
   }
   pendingStatusCommandBySocket.set(session.socket, { commandId: input.commandId, payload: input.payload });
   session.socket.write(input.payload);
   return { sent: true as const, payload: input.payload, account: session.account };
 }
+
+/** Compatibilidade com o nome histórico usado pelas consultas de bancada. */
+export const sendCompatecMw1BenchQuery = sendCompatecMw1PhysicalCommand;
 
 export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: string) {
   const pending = pendingStatusCommandBySocket.get(socket);

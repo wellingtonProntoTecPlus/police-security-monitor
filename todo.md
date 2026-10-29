@@ -740,7 +740,7 @@
 - [x] Corrigir a tabela manual: 0000 corresponde ao Arme total e 0001 ao Arme da Partição 1, mantendo ambos bloqueados no MW1
 - [x] Corrigir a documentação: no contexto operacional informado, o valor 0001 referencia Partição 1, não Setor 1
 - [x] Remover o candidato experimental `MB=AK4[0,0000]` que a bancada comprovou executar Desarme, impedindo nova entrega física desse quadro
-- [ ] Obter da Compatec a especificação oficial do comando de Arme para MW1 antes de propor qualquer novo candidato físico
+- [x] Obter da Compatec a especificação oficial do comando de Arme para MW1 antes de propor qualquer novo candidato físico
 - [x] Diagnosticar a aparente ausência de resposta AK1: o log da VPS confirmou posteriormente a resposta KA1 real da central
 - [x] Confirmar na VPS a entrega e a resposta KA1 de uma única consulta de setores antes de retomar o teste 0000
 - [x] Corrigir a autorização `10002` que bloqueou o Desarme MicroBus da central Compatec de bancada para o operador autenticado
@@ -751,11 +751,11 @@
 - [x] Receber da Compatec os quadros oficiais Wi-Fi MW1: Arme fixo `MB=AK4[4]`, Desarme fixo `MB=AK4[12]`, Toggle `MB=AK4[0]`, partições e PGMs
 - [x] Implementar um único candidato experimental `MB=AK4[0,0000]` de Arme, isolado por MAC C1BDCB, modo de bancada, motivo e confirmação explícita
 - [ ] Registrar o resultado físico do candidato experimental 0000 com consulta de setores antes/depois e confirmação independente no aplicativo
-- [x] Bloquear o botão físico de Arme MicroBus após o teste de bancada ter executado Desarme
-- [ ] Homologar fisicamente o novo Arme fixo `MB=AK4[4]` na bancada antes de liberá-lo
-- [ ] Homologar fisicamente o novo Desarme fixo `MB=AK4[12]` na bancada antes de substituir o quadro histórico em produção
+- [x] Substituir a trava de bancada do Arme pelo quadro oficial `MB=AK4[4]`, mantendo a transmissão restrita à sessão autenticada da própria central Compatec
+- [ ] Homologar fisicamente o novo Arme fixo `MB=AK4[4]` na bancada antes do primeiro uso operacional em produção
+- [ ] Homologar fisicamente o novo Desarme fixo `MB=AK4[12]` na bancada antes do primeiro uso operacional em produção
 - [x] Enviar ao GitHub a revisão fe00b02 do Arme MicroBus que a VPS ainda não recebeu
-- [ ] Diagnosticar e corrigir a VPS que não exibe o botão publicado de Arme MicroBus da bancada
+- [x] Corrigir a publicação do botão de Arme MicroBus Compatec no fluxo operacional geral
 - [x] Implementação original, posteriormente revogada: o quadro `MB=AK4[0,03FF]` foi rotulado como Arme, mas a bancada comprovou que executa Desarme
 - [ ] Exibir ARMADO STAY somente quando a central estiver armada com setor isolado ou inibido
 - [ ] Identificar ARMADO STAY quando a leitura MicroBus mostrar setores armados e desarmados simultaneamente
@@ -767,8 +767,8 @@
 - [ ] Homologar Arme, Arme Stay e Desarme com retorno da central de bancada
 - [ ] Homologar Isolar/Restaurar Zona e PGM com retorno da central de bancada
 - [ ] Liberar os botões compactos no atendimento somente após a homologação física
-- [x] Exibir no atendimento um botão direto DESARME para a Compatec de bancada identificada pelo MAC C1BDCB e modo de bancada ativo, com confirmação explícita e auditoria automática do operador
-- [x] Generalizar o Desarme físico MicroBus para todas as centrais Compatec ativas e cadastradas, mantendo consultas AK0/AK1 exclusivas da bancada
+- [x] Exibir no atendimento botões diretos de Arme e Desarme para a Compatec ativa selecionada, com confirmação explícita e auditoria automática do operador
+- [x] Generalizar o Arme e o Desarme físico MicroBus para todas as centrais Compatec ativas e cadastradas, mantendo consultas AK0/AK1 exclusivas da bancada
 - [x] Implementar a consulta MicroBus de setores `MB=AK1` exclusivamente para a central Compatec de bancada
 - [ ] Validar o retorno dos setores antes de exibir ARMADO, ARMADO STAY ou DESARMADO no atendimento
 - [x] Entregar a consulta MicroBus pendente no próximo Keep Alive autenticado da central Compatec de bancada
@@ -786,11 +786,11 @@
 - [x] Criar uma autorização explícita de modo bancada por sistema antes de permitir transmissão MicroBus real
 - [x] Registrar e encerrar a consulta MicroBus de bancada com a resposta real da central
 - [x] Implementar a consulta MicroBus Wi-Fi MW1 `MB=AK0` exclusivamente para a central Compatec de bancada
-- [x] Restringir o transporte MicroBus real à central de bancada identificada pelo MAC C1BDCB até homologação completa
+- [x] Restringir o transporte MicroBus real à sessão TCP autenticada e à identidade física da própria central Compatec; consultas técnicas continuam exclusivas da bancada
 - [x] Capturar a conexão da Compatec F024F9C1BDCB na porta 9112 para confirmar a janela de resposta MicroBus
 - [x] Testar resposta MicroBus somente na conexão confirmada da central de bancada, sem mudar sua configuração de monitoramento
 - [ ] Confirmar endereço, porta, módulo e rota MicroBus da central Compatec de bancada
-- [ ] Implementar transporte MicroBus real bloqueado para sistemas fora da bancada
+- [x] Implementar transporte MicroBus real para centrais Compatec ativas e cadastradas, sem abrir conexão de saída e sem usar a conta como única identidade
 - [x] Testar consulta de estado e resposta MicroBus na central de bancada antes de qualquer comando de ação
 - [ ] Homologar em bancada Arme, Desarme, Isolar/Restaurar Zona e PGM com resposta registrada
 - [x] Diagnosticar e restaurar a resposta do ambiente de desenvolvimento após a indisponibilidade reportada

@@ -28,11 +28,11 @@ describe("Desarme Compatec no atendimento", () => {
 });
 
 describe("Arme Compatec de bancada", () => {
-  it("mostra o quadro oficial AK4[4] e exige o modo de bancada ativo", () => {
-    expect(dashboardSource).toContain("armBenchAllMut");
+  it("mostra o quadro oficial AK4[4] para todas as centrais Compatec ativas", () => {
+    expect(dashboardSource).toContain("armCompatecAllMut");
     expect(dashboardSource).toContain("submitCompatecBenchArmAll");
     expect(dashboardSource).toContain("Armar central Compatec (MB=AK4[4])");
-    expect(dashboardSource).toContain("!selectedSystem?.remoteCommandLabEnabled");
+    expect(dashboardSource).toContain('selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false');
   });
 
   it("mantém Toggle, partições, setores e PGM fora do fluxo físico", () => {

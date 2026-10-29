@@ -13,7 +13,7 @@ import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialPro
 import { buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
-import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery, sendIntelbrasPhysicalCommand } from "./receiver";
+import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery, sendIntelbrasPhysicalCommand } from "./receiver";
 import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 import { buildIntelbrasPhysicalPayload } from "./receiver/intelbrasIsecProgramTransport";
@@ -995,7 +995,7 @@ export const appRouter = router({
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central de bancada.",
       });
-      const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: created.id, payload });
+      const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
         return { ...created, status: "waiting_connection" as const, message: dispatched.message };
@@ -1003,7 +1003,7 @@ export const appRouter = router({
       await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK1 enviada; aguardando a resposta dos setores.", executedAt: new Date() });
       return { ...created, status: "sent" as const, payload: dispatched.payload };
     }),
-    armBenchAll: operatorProcedure.input(z.object({
+    armCompatecAll: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
       reason: z.string().trim().min(5, "Informe o motivo operacional do Arme").max(2000),
@@ -1011,21 +1011,21 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
-      if (!isConfirmedCompatecBenchSystem(system)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "O Arme MicroBus real está habilitado somente para a central Compatec de bancada identificada pelo MAC C1BDCB e com modo de bancada ativo" });
+      if (system.brand !== "COMPATEC" || system.isActive === false) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O Arme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
       const payload = "MB=AK4[4]\r\n";
-      const reservation = await db.createExclusiveCompatecBenchCommand({
+      const reservation = await db.createExclusiveCompatecPhysicalCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "COMPATEC", commandType: "arm", transportMode: "microbus_compatec", status: "queued",
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
-        commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec de bancada.",
+        commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
       if (!reservation.created) {
         throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
       }
       const created = { id: reservation.id };
-      const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: created.id, payload });
+      const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
         return { ...created, status: "waiting_connection" as const, message: dispatched.message };
@@ -1051,7 +1051,7 @@ export const appRouter = router({
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
-      const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: created.id, payload });
+      const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
         return { ...created, status: "waiting_connection" as const, message: dispatched.message };

@@ -43,7 +43,7 @@ A Compatec confirmou que, para o módulo Wi-Fi, o cabeçalho é `MB=AK` e fornec
 - Partições 1, 2 e 3: `MB=AK4[9]\r\n`, `MB=AK4[10]\r\n` e `MB=AK4[11]\r\n`;
 - PGM 1, 2 e 3: `MB=AK4[5]\r\n`, `MB=AK4[6]\r\n` e `MB=AK4[7]\r\n`.
 
-Para setores individuais, a máscara usa bit `0` para desarmar e bit `1` para armar. O PoliceCentral adotará `MB=AK4[12]\r\n` para o Desarme físico oficial. O Arme `MB=AK4[4]\r\n`, o Toggle, as partições, os setores e os PGMs permanecem sujeitos a homologação física específica antes de qualquer transmissão.
+Para setores individuais, a máscara usa bit `0` para desarmar e bit `1` para armar. O PoliceCentral adotará `MB=AK4[4]\r\n` para o Arme físico e `MB=AK4[12]\r\n` para o Desarme físico oficial em todas as centrais Compatec ativas e cadastradas. A entrega ocorrerá somente pela sessão TCP autenticada da própria central. O Toggle, as partições, os setores e os PGMs permanecem fora dos botões operacionais até homologação específica.
 
 ## Referências
 

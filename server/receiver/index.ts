@@ -19,7 +19,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractIntelbrasIsecnetFrames, isIntelbrasIsecnetHeartbeat, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
-import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
@@ -40,7 +40,7 @@ const RECEIVERS_CONFIG = [
 
 type EventCallback = (event: any) => void;
 
-export { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+export { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 export { sendVettiBenchStatusQuery } from './vettiBenchTransport';
 export { sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 
@@ -727,7 +727,7 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
         rememberActiveCompatecSession(socket, system);
         const pendingQuery = await getPendingCompatecBenchQuery(system.id);
         if (pendingQuery) {
-          const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload });
+          const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload });
           if (dispatched.sent) {
             await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
               status: "sent",
