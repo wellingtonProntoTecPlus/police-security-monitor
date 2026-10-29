@@ -761,6 +761,7 @@
 - [ ] Homologar Arme, Arme Stay e Desarme com retorno da central de bancada
 - [ ] Homologar Isolar/Restaurar Zona e PGM com retorno da central de bancada
 - [ ] Liberar os botões compactos no atendimento somente após a homologação física
+- [x] Exibir no atendimento um botão direto DESARME para a Compatec de bancada identificada pelo MAC C1BDCB e modo de bancada ativo, com confirmação explícita e auditoria automática do operador
 - [x] Implementar a consulta MicroBus de setores `MB=AK1` exclusivamente para a central Compatec de bancada
 - [ ] Validar o retorno dos setores antes de exibir ARMADO, ARMADO STAY ou DESARMADO no atendimento
 - [x] Entregar a consulta MicroBus pendente no próximo Keep Alive autenticado da central Compatec de bancada
