@@ -676,6 +676,13 @@ export default function Dashboard() {
     return resolveQueueEventSystem(selectedEvent, systemData || []);
   }, [selectedEvent, systemData]);
 
+  const selectedCompatecBenchEnabled = useMemo(() => {
+    const normalizedMac = String(selectedSystem?.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    return selectedSystem?.brand === "COMPATEC"
+      && Boolean(selectedSystem.remoteCommandLabEnabled)
+      && normalizedMac.endsWith("C1BDCB");
+  }, [selectedSystem]);
+
   const selectedClient = useMemo(() => {
     if (!selectedEvent) return null;
     return resolveQueueEventClient(selectedEvent, selectedSystem, clientData || []);
@@ -1106,6 +1113,30 @@ export default function Dashboard() {
     });
   }
 
+  function submitCompatecBenchDisarmQuick() {
+    if (!selectedEvent?.alarmSystemId || !selectedCompatecBenchEnabled) {
+      toast.error("O Desarme físico está disponível somente para a Compatec de bancada autorizada.");
+      return;
+    }
+    const reason = attendingNotes.trim() || `Desarme físico confirmado pelo operador durante o atendimento da conta ${selectedEvent.account}.`;
+    const confirmed = window.confirm(
+      `CONFIRMAR DESARME FÍSICO?\n\nConta ${selectedEvent.account} · ${selectedEvent.systemModel}\nMAC ${selectedSystem?.macAddress || "C1BDCB"}\n\nEsta ação transmitirá o comando somente para a central Compatec de bancada autorizada.`,
+    );
+    if (!confirmed) return;
+    disarmBenchAllMut.mutate({
+      alarmSystemId: selectedEvent.alarmSystemId,
+      incidentId: selectedEvent.incidentId,
+      reason,
+    }, {
+      onSuccess: (result) => {
+        addLog("Desarme físico MicroBus confirmado pelo operador.");
+        toast.success(result.status === "sent" ? "DESARME enviado para a Compatec de bancada. Aguarde a confirmação da central." : result.message || "Desarme registrado e aguardando a conexão da central.");
+        void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
+      },
+      onError: (error) => toast.error(error.message),
+    });
+  }
+
   // Card do evento
   function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
@@ -1281,7 +1312,15 @@ export default function Dashboard() {
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
 	                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
 	                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
-                  {(selectedEvent.brand === "COMPATEC" || selectedEvent.brand === "VETTI") && selectedEvent.alarmSystemId ? <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedEvent.brand === "VETTI" ? "Vetti" : "Compatec"}</Button> : <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground" onClick={() => toast.info("Comandos remotos dependem do protocolo homologado para cada fabricante.")}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>}
+	                  {selectedCompatecBenchEnabled ? (
+	                    <Button size="sm" className="gap-1.5 bg-red-600 text-xs font-bold text-white shadow-sm hover:bg-red-700" onClick={submitCompatecBenchDisarmQuick} disabled={disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec de bancada">
+	                      <Shield className="h-3.5 w-3.5" /> {disarmBenchAllMut.isPending ? "ENVIANDO..." : "DESARME"}
+	                    </Button>
+	                  ) : (selectedEvent.brand === "COMPATEC" || selectedEvent.brand === "VETTI") && selectedEvent.alarmSystemId ? (
+	                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedEvent.brand === "VETTI" ? "Vetti" : "Compatec"}</Button>
+	                  ) : (
+	                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground" onClick={() => toast.info("Comandos remotos dependem do protocolo homologado para cada fabricante.")}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>
+	                  )}
 	                </div>
                 <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[0.82fr_1.18fr]">
                   <div className="space-y-4">
