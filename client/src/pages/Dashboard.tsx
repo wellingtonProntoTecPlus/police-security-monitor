@@ -1313,7 +1313,7 @@ export default function Dashboard() {
 	                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
 	                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
 	                  {selectedCompatecBenchEnabled ? (
-	                    <Button size="sm" className="gap-1.5 bg-red-600 text-xs font-bold text-white shadow-sm hover:bg-red-700" onClick={submitCompatecBenchDisarmQuick} disabled={disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec de bancada">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={submitCompatecBenchDisarmQuick} disabled={disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec de bancada">
 	                      <Shield className="h-3.5 w-3.5" /> {disarmBenchAllMut.isPending ? "ENVIANDO..." : "DESARME"}
 	                    </Button>
 	                  ) : (selectedEvent.brand === "COMPATEC" || selectedEvent.brand === "VETTI") && selectedEvent.alarmSystemId ? (
