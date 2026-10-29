@@ -11,6 +11,7 @@ import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSa
 import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
 import { buildJflActive8wConnectionAcknowledgement, buildJflStatusRequest, isJflActive8wV8Connection, isJflActive8wV8StatusReply } from './jflActive8wProtocol';
 import { getConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
+import { clearIntelbrasSession, consumeIntelbrasPhysicalResponse, deliverPendingIntelbrasPhysicalCommand, rememberActiveIntelbrasSession, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
@@ -41,6 +42,7 @@ type EventCallback = (event: any) => void;
 
 export { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 export { sendVettiBenchStatusQuery } from './vettiBenchTransport';
+export { sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 
 let eventCallback: EventCallback | null = null;
 const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
@@ -221,6 +223,8 @@ async function handleJflRadioenge(socket: net.Socket, data: Buffer, brand: strin
 
 // Driver Intelbras
 async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: number) {
+  if (await consumeIntelbrasPhysicalResponse(socket, data)) return;
+
   if (isIntelbrasIsecnetHeartbeat(data)) {
     const known = identifiedSystemBySocket.get(socket);
     if (known) {
@@ -242,6 +246,7 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
     if (system && system.account === identification.account) {
       rememberSystem(socket, system, port);
       rememberConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, { id: system.id, account: system.account, brand: system.brand });
+      rememberActiveIntelbrasSession(socket, { id: system.id, account: system.account, brand: system.brand });
       await recordKeepAlive(socket, "INTELBRAS", port, `ISECnet 0x94 (${identification.channel})`);
       console.log(`[RECIP] INTELBRAS ISECnet 0x94 identificado por MAC ${identification.macSuffix} | Conta ${system.account}`);
     } else if (system) {
@@ -252,6 +257,9 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
     // ACK oficial do comando de identificação. Não é resposta de evento nem
     // habilita controle remoto.
     socket.write(Buffer.from([0xfe]));
+    if (system && system.account === identification.account) {
+      await deliverPendingIntelbrasPhysicalCommand(system, socket);
+    }
     return;
   }
 
@@ -1107,6 +1115,7 @@ export function startReceivers() {
         });
 
         socket.on('close', () => {
+          if (brand === 'INTELBRAS') clearIntelbrasSession(socket);
           console.log(`[RECIP] Conexão encerrada ${brand} porta ${port}`);
         });
       });

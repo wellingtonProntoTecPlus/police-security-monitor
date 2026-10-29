@@ -10,12 +10,13 @@ import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 import { createLocalSessionToken } from "./_core/localSession";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
-import { buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
-import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./receiver";
+import { sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery, sendIntelbrasPhysicalCommand } from "./receiver";
 import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
+import { buildIntelbrasPhysicalPayload } from "./receiver/intelbrasIsecProgramTransport";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -832,6 +833,63 @@ export const appRouter = router({
         executedAt: new Date(),
       });
       return { ...created, status: "simulated" as const };
+    }),
+    sendIntelbrasPhysical: operatorProcedure.input(intelbrasPhysicalCommandInputSchema).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
+      if (!isPhysicalIntelbrasSystem(system)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O comando físico está disponível somente para uma central Intelbras ativa, cadastrada e identificada por MAC" });
+      }
+      const targetError = validateIntelbrasPhysicalTarget(input);
+      if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
+
+      const credentials = await db.getAlarmRemoteCredentialStatus(system.id);
+      if (!credentials.credentials.some((credential) => credential.credentialKind === "intelbras_master")) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a Senha Master Intelbras de 4 ou 6 dígitos antes de transmitir o comando físico" });
+      }
+      const masterCredential = await db.getAlarmRemoteCredentialForTransport(system.id, "intelbras_master");
+      if (!masterCredential || !/^\d{4}(\d{2})?$/.test(masterCredential)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A Senha Master Intelbras cadastrada é inválida; informe exatamente 4 ou 6 dígitos numéricos" });
+      }
+
+      const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
+      const expectedQualifier = input.commandType === "arm" ? "E" : "R";
+      if (!currentState || currentState.qualifier !== expectedQualifier) {
+        throw new TRPCError({ code: "CONFLICT", message: `Comando bloqueado: o último estado confirmado da central não permite ${input.commandType === "arm" ? "Armar" : "Desarmar"} com segurança` });
+      }
+
+      const reservation = await db.createExclusiveIntelbrasPhysicalCommand({
+        alarmSystemId: system.id,
+        incidentId: input.incidentId ?? null,
+        operatorId: ctx.user.id,
+        brand: "INTELBRAS",
+        commandType: input.commandType,
+        transportMode: "intelbras_amt8000_e7",
+        status: "queued",
+        partition: input.partition ?? 0,
+        zoneNumber: null,
+        pgmNumber: null,
+        reason: input.reason,
+        commandPayload: buildIntelbrasPhysicalPayload(input),
+        responsePayload: "Aguardando a sessão Intelbras identificada por MAC e conta.",
+        executedAt: null,
+      });
+      if (!reservation.created) {
+        throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Intelbras em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
+      }
+
+      const dispatched = await sendIntelbrasPhysicalCommand({ alarmSystemId: system.id, commandId: reservation.id });
+      if (!dispatched.sent) {
+        const waitingForConnection = dispatched.message.includes("aguardando uma conexão identificada");
+        await db.updateAlarmRemoteCommandDelivery(reservation.id, {
+          status: waitingForConnection ? "waiting_connection" : "failed",
+          responsePayload: dispatched.message,
+          executedAt: waitingForConnection ? null : new Date(),
+        });
+        return { id: reservation.id, status: waitingForConnection ? "waiting_connection" as const : "failed" as const, message: dispatched.message };
+      }
+      return { id: reservation.id, status: "sent" as const, message: dispatched.message };
     }),
     queryVettiBenchStatus: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),

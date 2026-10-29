@@ -5,12 +5,24 @@ const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
-  it("aceita Intelbras somente no fluxo de simulação inicial do SDK", () => {
+  it("preserva a simulação Intelbras legada sem transformar seu quadro em transmissão física", () => {
     expect(source).toContain('system.brand !== "INTELBRAS"');
     expect(source).toContain("validateIntelbrasSimulationTarget(input)");
     expect(source).toContain("buildIntelbrasSimulationPayload(input)");
     expect(source).toContain("nenhum quadro ISECnet/E7 foi transmitido");
     expect(receiverSource).not.toContain("buildIntelbrasIsecnetArmDisarmFrame");
+  });
+
+  it("mantém o comando físico Intelbras separado e exige estado, credencial e sessão identificada", () => {
+    expect(source).toContain("sendIntelbrasPhysical: operatorProcedure");
+    expect(source).toContain("isPhysicalIntelbrasSystem(system)");
+    expect(source).toContain('credential.credentialKind === "intelbras_master"');
+    expect(source).toContain("getLatestArmDisarmStatusForSystem");
+    expect(source).toContain('transportMode: "intelbras_amt8000_e7"');
+    expect(source).not.toContain('transportMode: "intelbras_e9"');
+    expect(receiverSource).toContain("rememberActiveIntelbrasSession");
+    expect(receiverSource).toContain("consumeIntelbrasPhysicalResponse");
+    expect(receiverSource).toContain("deliverPendingIntelbrasPhysicalCommand");
   });
 
   it("mantém consultas restritas à bancada e permite o Desarme somente para Compatec ativa", () => {

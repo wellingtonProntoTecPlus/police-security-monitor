@@ -15,6 +15,16 @@ export const remoteCommandSimulationInputSchema = z.object({
   pgmNumber: z.number().int().min(1).max(255).optional(),
 });
 
+export const intelbrasPhysicalCommandInputSchema = z.object({
+  alarmSystemId: z.number(),
+  incidentId: z.number().optional(),
+  commandType: z.enum(["arm", "disarm"]),
+  reason: z.string().trim().min(5, "Informe o motivo operacional do comando físico").max(2000),
+  partition: z.number().int().min(0).max(4).optional(),
+});
+
+export type IntelbrasPhysicalCommandType = "arm" | "disarm";
+
 const COMPATEC_LINE_END = "\r\n";
 const COMPATEC_ALL_SECTORS_MASK = "03FF";
 const COMPATEC_ZONE_ISOLATION_FLAG = "0008";
@@ -53,6 +63,33 @@ export function validateRemoteCommandTarget(input: { commandType: RemoteCommandT
     return "Informe a PGM a acionar";
   }
   return undefined;
+}
+
+export function validateIntelbrasPhysicalTarget(input: {
+  commandType: IntelbrasPhysicalCommandType;
+  partition?: number | null;
+}) {
+  if (input.commandType !== "arm" && input.commandType !== "disarm") {
+    return "A AMT-8000 aceita somente Arme ou Desarme físico nesta etapa";
+  }
+  if (input.partition !== undefined && input.partition !== null && (!Number.isInteger(input.partition) || input.partition < 0 || input.partition > 4)) {
+    return "A partição Intelbras deve ser 0 (central completa) ou de 1 a 4";
+  }
+  return undefined;
+}
+
+export function isPhysicalIntelbrasSystem(system: {
+  brand?: string | null;
+  model?: string | null;
+  macAddress?: string | null;
+  isActive?: boolean | null;
+}) {
+  const normalizedMac = (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const normalizedModel = (system.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  return system.brand?.trim().toUpperCase() === "INTELBRAS"
+    && normalizedModel.includes("AMT8000")
+    && system.isActive !== false
+    && normalizedMac.length >= 6;
 }
 
 export function isKnownCompatecBenchSystem(system: { brand?: string | null; macAddress?: string | null }) {

@@ -793,6 +793,34 @@ export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCo
   });
 }
 
+/**
+ * Reserva uma única ação física AMT-8000 por central. O lock do cadastro do
+ * sistema impede dois operadores de alternarem o painel ao mesmo tempo.
+ */
+export async function createExclusiveIntelbrasPhysicalCommand(data: InsertAlarmRemoteCommand) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    await tx.select({ id: alarmSystems.id })
+      .from(alarmSystems)
+      .where(eq(alarmSystems.id, data.alarmSystemId))
+      .for("update");
+    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
+      .from(alarmRemoteCommands)
+      .where(and(
+        eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
+        eq(alarmRemoteCommands.brand, "INTELBRAS"),
+        eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "sent"]),
+      ))
+      .orderBy(alarmRemoteCommands.id)
+      .limit(1);
+    if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
+    const result = await tx.insert(alarmRemoteCommands).values(data);
+    return { created: true as const, id: Number(result[0].insertId) };
+  });
+}
+
 export async function updateAlarmRemoteCommandDelivery(id: number, data: {
   status: string;
   responsePayload?: string | null;
@@ -930,6 +958,25 @@ export async function getPendingVettiBenchStatusQuery(alarmSystemId: number) {
   return result[0];
 }
 
+/** Entrega somente a próxima ação física da própria central identificada. */
+export async function getPendingIntelbrasPhysicalCommand(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select({
+    id: alarmRemoteCommands.id,
+    commandType: alarmRemoteCommands.commandType,
+    partition: alarmRemoteCommands.partition,
+    commandPayload: alarmRemoteCommands.commandPayload,
+  }).from(alarmRemoteCommands).where(and(
+    eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
+    eq(alarmRemoteCommands.brand, "INTELBRAS"),
+    inArray(alarmRemoteCommands.commandType, ["arm", "disarm"]),
+    eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
+    inArray(alarmRemoteCommands.status, ["queued", "waiting_connection"]),
+  )).orderBy(alarmRemoteCommands.id).limit(1);
+  return result[0];
+}
+
 export async function setAlarmSystemRemoteCommandLabEnabled(alarmSystemId: number, enabled: boolean) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -979,7 +1026,7 @@ export async function getAlarmRemoteCredentialStatus(alarmSystemId: number) {
 }
 
 /** Uso exclusivo do transporte físico homologado; o segredo decifrado jamais atravessa a API. */
-export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer" | "vetti_command_user") {
+export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer" | "vetti_command_user" | "intelbras_master") {
   const db = await getDb();
   if (!db) return undefined;
   const [credential] = await db.select({ encryptedSecret: alarmRemoteCredentials.encryptedSecret })
@@ -1005,6 +1052,9 @@ export async function getAlarmRemoteCredentialTechnicalUserCode(alarmSystemId: n
 export async function setAlarmRemoteCredential(input: { alarmSystemId: number; credentialKind: string; credential: string; updatedBy: number }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
+  if (input.credentialKind === "intelbras_master" && !/^\d{4}(\d{2})?$/.test(input.credential.trim())) {
+    throw new Error("A Senha Master Intelbras deve ter exatamente 4 ou 6 dígitos numéricos");
+  }
   const encryptedSecret = encryptRemoteCommandCredential(input.credential);
   const technicalUserCode = input.credentialKind === "vetti_command_user"
     ? deriveVettiCommandUser(input.credential)
@@ -2082,6 +2132,22 @@ export async function deleteSystemUser(id: number) {
 // ============================================================
 // ARM/DISARM STATUS (Armados/Desarmados)
 // ============================================================
+export async function getLatestArmDisarmStatusForSystem(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select({
+    qualifier: alarmEvents.qualifier,
+    eventCode: alarmEvents.eventCode,
+    brand: alarmEvents.brand,
+    receivedAt: alarmEvents.receivedAt,
+    alarmSystemId: alarmEvents.alarmSystemId,
+  }).from(alarmEvents).where(and(
+    eq(alarmEvents.alarmSystemId, alarmSystemId),
+    inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701"]),
+  )).orderBy(desc(alarmEvents.receivedAt));
+  return rows.find((event) => isArmDisarmStatusEvent(event));
+}
+
 export async function getArmDisarmStatus() {
   const db = await getDb();
   if (!db) return { armed: [], disarmed: [] };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
   it("libera a consulta física inicial somente para o MAC da bancada habilitada", () => {
@@ -67,5 +67,16 @@ describe("contrato de comandos remotos Compatec", () => {
       "MB=AJ2[0000,0008,0000,0000,0000,0000,0000,0000,0000,0000]\r\n",
       "MB=AJ1[0000,0008,0000,0000,0000,0000,0000,0000,0000,0000]\r\n",
     ]);
+  });
+
+  it("aceita somente central Intelbras ativa com MAC e somente Arme/Desarme físico", () => {
+    expect(isPhysicalIntelbrasSystem({ brand: "intelbras", model: "AMT-8000", macAddress: "7B:25:5F", isActive: true })).toBe(true);
+    expect(isPhysicalIntelbrasSystem({ brand: "INTELBRAS", model: "AMT-8000", macAddress: "", isActive: true })).toBe(false);
+    expect(isPhysicalIntelbrasSystem({ brand: "INTELBRAS", model: "AMT-2018", macAddress: "7B255F", isActive: true })).toBe(false);
+    expect(isPhysicalIntelbrasSystem({ brand: "JFL", model: "AMT-8000", macAddress: "7B255F", isActive: true })).toBe(false);
+    expect(validateIntelbrasPhysicalTarget({ commandType: "arm", partition: 0 })).toBeUndefined();
+    expect(validateIntelbrasPhysicalTarget({ commandType: "disarm", partition: 4 })).toBeUndefined();
+    expect(validateIntelbrasPhysicalTarget({ commandType: "arm", partition: 5 })).toContain("partição");
+    expect(intelbrasPhysicalCommandInputSchema.parse({ alarmSystemId: 49, commandType: "arm", reason: "Teste físico controlado", partition: 0 })).toMatchObject({ alarmSystemId: 49, commandType: "arm" });
   });
 });
