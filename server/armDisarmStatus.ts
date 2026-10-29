@@ -3,6 +3,7 @@ export type ArmDisarmStatusEvent = {
   qualifier: string;
   receivedAt: Date | null;
   alarmSystemId: number | null;
+  brand?: string | null;
 };
 
 export type ArmDisarmStatusSystem = {
@@ -17,6 +18,15 @@ export type LatestArmDisarmStatus = {
   receivedAt: Date | null;
   alarmSystemId: number;
 };
+
+export const STANDARD_ARM_DISARM_EVENT_CODES = ["401", "403", "407", "408", "409", "441"] as const;
+
+/** O 701 é Arme por aplicativo somente no protocolo Compatec; em outras marcas
+ * pode representar eventos não operacionais e não deve alimentar este indicador. */
+export function isArmDisarmStatusEvent(event: Pick<ArmDisarmStatusEvent, "brand"> & { eventCode: string }) {
+  return STANDARD_ARM_DISARM_EVENT_CODES.includes(event.eventCode as typeof STANDARD_ARM_DISARM_EVENT_CODES[number])
+    || (event.brand === "COMPATEC" && event.eventCode === "701");
+}
 
 /**
  * Os indicadores operacionais representam o estado do sistema cadastrado,

@@ -33,7 +33,7 @@ import { finalizations, InsertFinalization } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { findCapturedPanelCandidates, resolveUniqueCapturedPanelCandidate, type SafeCaptureFrame } from "./receiver/safeCapture";
 import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
-import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
+import { getLatestArmDisarmStatusBySystem, isArmDisarmStatusEvent, STANDARD_ARM_DISARM_EVENT_CODES } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
@@ -2087,7 +2087,7 @@ export async function getArmDisarmStatus() {
   if (!db) return { armed: [], disarmed: [] };
   
   // Buscar o último evento de arme/desarme de cada conta
-  const armDisarmCodes = ['401', '403', '407', '408', '409', '441'];
+  const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701"];
   
   const lastEvents = await db.select().from(alarmEvents)
     .where(and(
@@ -2101,7 +2101,10 @@ export async function getArmDisarmStatus() {
   // desativados não podem aumentar o contador nem aparecer nas listas.
   const systems = (await db.select().from(alarmSystems)).filter((system) => system.isActive !== false);
   const systemsById = new Map(systems.map((system) => [system.id, system]));
-  const latestStatuses = getLatestArmDisarmStatusBySystem(lastEvents, systems);
+  const latestStatuses = getLatestArmDisarmStatusBySystem(
+    lastEvents.filter((event) => isArmDisarmStatusEvent(event)),
+    systems,
+  );
   
   const armed: any[] = [];
   const disarmed: any[] = [];
@@ -2109,6 +2112,7 @@ export async function getArmDisarmStatus() {
   for (const status of latestStatuses) {
     const { account } = status;
     let clientName = `Conta ${account}`;
+    let clientFantasyName: string | null = null;
     let clientId: number | null = null;
     let systemId = status.alarmSystemId;
     
@@ -2118,6 +2122,7 @@ export async function getArmDisarmStatus() {
         const clientInfo = await db.select().from(clients).where(eq(clients.id, systemInfo.clientId)).limit(1);
         if (clientInfo.length > 0) {
           clientName = clientInfo[0].name;
+          clientFantasyName = clientInfo[0].fantasyName;
           clientId = clientInfo[0].id;
         }
       }
@@ -2128,6 +2133,7 @@ export async function getArmDisarmStatus() {
       qualifier: status.qualifier,
       lastEvent: status.receivedAt,
       clientName,
+      clientFantasyName,
       clientId,
       systemId,
     };
@@ -2146,7 +2152,7 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
   const db = await getDb();
   if (!db) return [];
 
-  const armDisarmCodes = ["401", "403", "407", "408", "409", "441"];
+  const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701"];
   const activeSystems = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isActive, true));
   const activeSystemIds = activeSystems.map((system) => system.id);
   if (activeSystemIds.length === 0) return [];
@@ -2169,7 +2175,7 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
     .orderBy(desc(alarmEvents.receivedAt))
     .limit(limit);
 
-  return rows.map((event) => ({
+  return rows.filter((event) => isArmDisarmStatusEvent(event)).map((event) => ({
     ...event,
     stateLabel: event.qualifier === "R" ? "ARMADO" : "DESARMADO",
   }));

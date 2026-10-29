@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useSocket, AlarmEvent } from "@/hooks/useSocket";
 import {
-  Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X,
+  Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X, Search,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
   ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2,
   LogOut, Volume2, VolumeX, CarFront, Headphones,
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import HLSPlayer from "@/components/HLSPlayer";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,6 +23,8 @@ import { resolveQueueEventClient, resolveQueueEventSystem } from "@/lib/queueEve
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 import { getQuickFinalizationOptions } from "@/lib/quickFinalizationSearch";
 import { shouldConfirmAttendanceNavigation } from "@/lib/attendanceExitGuard";
+import { matchesOperationalStatusSearch } from "@/lib/operationalStatusSearch";
+import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -173,6 +176,8 @@ export default function Dashboard() {
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
   const [connectionStatusModal, setConnectionStatusModal] = useState<'online' | 'offline' | null>(null);
+  const [blockedClientsModal, setBlockedClientsModal] = useState(false);
+  const [operationalStatusSearch, setOperationalStatusSearch] = useState("");
   const [manualOccurrenceOpen, setManualOccurrenceOpen] = useState(false);
   const [manualAccount, setManualAccount] = useState("");
   const [manualDescription, setManualDescription] = useState("");
@@ -348,6 +353,24 @@ export default function Dashboard() {
 
   const onlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "online"), [connectionSystems]);
   const offlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "offline"), [connectionSystems]);
+  const clientsById = useMemo(() => new Map((clientData || []).map((client: any) => [client.id, client])), [clientData]);
+  const blockedClients = useMemo(() => (clientData || []).filter((client: any) => getEffectiveClientMonitoringStatus(client) !== "active"), [clientData]);
+  const operationalSearchMatches = useCallback((item: any, client?: any) => matchesOperationalStatusSearch({
+    ...item,
+    clientName: item.clientName || client?.name,
+    clientFantasyName: item.clientFantasyName || client?.fantasyName,
+    name: client?.name,
+    fantasyName: client?.fantasyName,
+  }, operationalStatusSearch), [operationalStatusSearch]);
+  const connectionStatusSystems = useMemo(() => {
+    const systems = connectionStatusModal === "online" ? onlineSystems : offlineSystems;
+    return systems.filter((system: any) => operationalSearchMatches(system, clientsById.get(system.clientId)));
+  }, [connectionStatusModal, onlineSystems, offlineSystems, operationalSearchMatches, clientsById]);
+  const armDisarmSystems = useMemo(() => {
+    const systems = armDisarmModal === "armed" ? armDisarmData?.armed || [] : armDisarmData?.disarmed || [];
+    return systems.filter((system: any) => operationalSearchMatches(system, clientsById.get(system.clientId)));
+  }, [armDisarmModal, armDisarmData, operationalSearchMatches, clientsById]);
+  const filteredBlockedClients = useMemo(() => blockedClients.filter((client: any) => operationalSearchMatches({ accounts: client.accounts }, client)), [blockedClients, operationalSearchMatches]);
 
   // Processar novos eventos em tempo real
   useEffect(() => {
@@ -1442,17 +1465,20 @@ export default function Dashboard() {
               {audioEnabled ? <Volume2 className="h-3.5 w-3.5 mr-1" /> : <VolumeX className="h-3.5 w-3.5 mr-1" />}
               {audioEnabled ? "Áudio ativo" : "Ativar áudio"}
             </Button>
-            <Button variant="outline" size="sm" className="shrink-0 border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold" onClick={() => setArmDisarmModal('disarmed')}>
+            <Button variant="outline" size="sm" className="shrink-0 border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold" onClick={() => { setOperationalStatusSearch(""); setArmDisarmModal('disarmed'); }}>
               <WifiOff className="h-3.5 w-3.5 mr-1" /> Desarmados ({armDisarmData?.disarmed?.length || 0})
             </Button>
-            <Button variant="outline" size="sm" className="shrink-0 border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => setArmDisarmModal('armed')}>
+            <Button variant="outline" size="sm" className="shrink-0 border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => { setOperationalStatusSearch(""); setArmDisarmModal('armed'); }}>
               <Shield className="h-3.5 w-3.5 mr-1" /> Armados ({armDisarmData?.armed?.length || 0})
             </Button>
-            <Button size="sm" className="shrink-0 bg-green-600 text-white font-bold hover:bg-green-700" onClick={() => setConnectionStatusModal("online")}>
+            <Button size="sm" className="shrink-0 bg-green-600 text-white font-bold hover:bg-green-700" onClick={() => { setOperationalStatusSearch(""); setConnectionStatusModal("online"); }}>
               <Wifi className="h-3.5 w-3.5 mr-1" /> Online ({onlineSystems.length})
             </Button>
-            <Button size="sm" className="shrink-0 bg-red-600 text-white font-bold hover:bg-red-700" onClick={() => setConnectionStatusModal("offline")}>
+            <Button size="sm" className="shrink-0 bg-red-600 text-white font-bold hover:bg-red-700" onClick={() => { setOperationalStatusSearch(""); setConnectionStatusModal("offline"); }}>
               <WifiOff className="h-3.5 w-3.5 mr-1" /> Offline ({offlineSystems.length})
+            </Button>
+            <Button size="sm" variant="outline" className="shrink-0 border-amber-500/60 text-amber-300 hover:bg-amber-500/10 font-bold" onClick={() => { setOperationalStatusSearch(""); setBlockedClientsModal(true); }}>
+              <Ban className="h-3.5 w-3.5 mr-1" /> Bloqueados ({blockedClients.length})
             </Button>
           </div>
         </div>
@@ -1915,8 +1941,14 @@ export default function Dashboard() {
               </h3>
               <button onClick={() => setConnectionStatusModal(null)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
+            <div className="p-3 border-b border-border bg-muted/20">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, nome ou fantasia..." className="pl-9" />
+              </div>
+            </div>
             <div className="overflow-y-auto max-h-[58vh] p-2">
-              {(connectionStatusModal === "online" ? onlineSystems : offlineSystems).map((system: any) => {
+              {connectionStatusSystems.map((system: any) => {
                 const client = (clientData || []).find((item: any) => item.id === system.clientId);
                 return (
                   <div key={system.id} className="flex items-center justify-between px-3 py-2.5 border-b border-border/50 hover:bg-muted/30">
@@ -1931,7 +1963,44 @@ export default function Dashboard() {
                   </div>
                 );
               })}
-              {(connectionStatusModal === "online" ? onlineSystems : offlineSystems).length === 0 && <p className="text-center text-muted-foreground py-8">Nenhuma central encontrada.</p>}
+              {connectionStatusSystems.length === 0 && <p className="text-center text-muted-foreground py-8">Nenhuma central encontrada para esta busca.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clientes bloqueados ou suspensos */}
+      {blockedClientsModal && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center" onClick={() => setBlockedClientsModal(false)}>
+          <div className="bg-card border border-amber-500/40 rounded-lg w-[600px] max-h-[70vh] overflow-hidden shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-amber-500/30 flex items-center justify-between bg-amber-500/10">
+              <h3 className="font-bold text-amber-300">Clientes Bloqueados / Suspensos ({blockedClients.length})</h3>
+              <button onClick={() => setBlockedClientsModal(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-3 border-b border-border bg-muted/20">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, nome ou fantasia..." className="pl-9" />
+              </div>
+            </div>
+            <div className="overflow-y-auto max-h-[54vh] p-2">
+              {filteredBlockedClients.map((client: any) => {
+                const status = getEffectiveClientMonitoringStatus(client);
+                return (
+                  <div key={client.id} className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-border/50 hover:bg-muted/30">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-foreground truncate">{client.fantasyName || client.name}</p>
+                      {client.fantasyName && <p className="text-xs text-muted-foreground truncate">{client.name}</p>}
+                      <p className="text-xs text-muted-foreground">Conta {client.accounts?.length ? client.accounts.join(" · ") : "não cadastrada"}{client.monitoringStatusReason ? ` · ${client.monitoringStatusReason}` : ""}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <Badge className="bg-amber-500/20 text-amber-300">{status === "blocked" ? "BLOQUEADO" : "SUSPENSO"}</Badge>
+                      {status === "suspended" && client.monitoringStatusUntil && <p className="text-[11px] text-muted-foreground mt-1">Até {new Date(client.monitoringStatusUntil).toLocaleString("pt-BR")}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredBlockedClients.length === 0 && <p className="text-center text-muted-foreground py-8">Nenhum cliente bloqueado ou suspenso para esta busca.</p>}
             </div>
           </div>
         </div>
@@ -1949,8 +2018,14 @@ export default function Dashboard() {
                 <X className="h-5 w-5" />
               </button>
             </div>
+            <div className="p-3 border-b border-border bg-muted/20">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, nome ou fantasia..." className="pl-9" />
+              </div>
+            </div>
             <div className="overflow-y-auto max-h-[60vh] p-2">
-              {(armDisarmModal === 'armed' ? armDisarmData?.armed : armDisarmData?.disarmed)?.map((item: any, idx: number) => (
+              {armDisarmSystems.map((item: any, idx: number) => (
                 <div key={idx} className="flex items-center justify-between px-3 py-2 border-b border-border/50 hover:bg-muted/30">
                   <div>
                     <p className="text-sm font-bold text-foreground">{item.clientName}</p>
@@ -1966,8 +2041,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
-              {((armDisarmModal === 'armed' ? armDisarmData?.armed : armDisarmData?.disarmed)?.length || 0) === 0 && (
-                <p className="text-center text-muted-foreground py-8">Nenhum cliente encontrado</p>
+              {armDisarmSystems.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">Nenhum cliente encontrado para esta busca</p>
               )}
             </div>
           </div>

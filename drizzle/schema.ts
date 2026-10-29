@@ -124,6 +124,9 @@ export const clients = mysqlTable("clients", {
   longitude: varchar("longitude", { length: 20 }),
   notes: text("notes"),
   isActive: boolean("isActive").default(true).notNull(),
+  monitoringStatus: mysqlEnum("monitoringStatus", ["active", "blocked", "suspended"]).default("active").notNull(),
+  monitoringStatusReason: varchar("monitoringStatusReason", { length: 255 }),
+  monitoringStatusUntil: timestamp("monitoringStatusUntil"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

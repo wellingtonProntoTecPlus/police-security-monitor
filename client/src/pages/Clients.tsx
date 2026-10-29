@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Trash2, Pencil } from "lucide-react";
+import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Trash2, Pencil, Ban } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
@@ -46,6 +46,14 @@ function maskCep(v: string) {
   const n = v.replace(/\D/g, "").slice(0, 8);
   if (n.length <= 5) return n;
   return `${n.slice(0, 5)}-${n.slice(5)}`;
+}
+
+function toDateTimeLocalValue(value?: Date | string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function validateCpf(cpf: string): boolean {
@@ -98,6 +106,9 @@ const INITIAL_FORM = {
   state: "",
   zipCode: "",
   notes: "",
+  monitoringStatus: "active" as "active" | "blocked" | "suspended",
+  monitoringStatusReason: "",
+  monitoringStatusUntil: "",
 };
 
 export default function Clients() {
@@ -180,6 +191,8 @@ export default function Clients() {
   function handleSubmit() {
     if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
     if (!form.name.trim()) { toast.error("Informe a Razão Social / Nome"); return; }
+    if (form.monitoringStatus !== "active" && !form.monitoringStatusReason.trim()) { toast.error("Informe o motivo do bloqueio ou da suspensão"); return; }
+    if (form.monitoringStatus === "suspended" && !form.monitoringStatusUntil) { toast.error("Informe até quando o monitoramento ficará suspenso"); return; }
     const documentCheck = validateOptionalBrazilianDocument(form.document, form.type === "pf" ? "cpf" : "cnpj");
     if (documentCheck.error) { toast.error(documentCheck.error); return; }
     const values = {
@@ -188,6 +201,8 @@ export default function Clients() {
       phone: form.phone.replace(/\D/g, ""),
       whatsapp: form.whatsapp.replace(/\D/g, ""),
       zipCode: form.zipCode.replace(/\D/g, ""),
+      monitoringStatusReason: form.monitoringStatus === "active" ? null : form.monitoringStatusReason.trim() || null,
+      monitoringStatusUntil: form.monitoringStatus === "suspended" && form.monitoringStatusUntil ? new Date(form.monitoringStatusUntil) : null,
     };
     if (editingClient) updateMutation.mutate({ id: editingClient.id, ...values });
     else createMutation.mutate(values);
@@ -214,6 +229,9 @@ export default function Clients() {
         state: client.state || "",
         zipCode: maskCep(client.zipCode || ""),
         notes: client.notes || "",
+        monitoringStatus: client.monitoringStatus || "active",
+        monitoringStatusReason: client.monitoringStatusReason || "",
+        monitoringStatusUntil: toDateTimeLocalValue(client.monitoringStatusUntil),
       });
     } else {
       setEditingClient(null);
@@ -411,6 +429,35 @@ export default function Clients() {
                   </CardContent>
                 </Card>
 
+                {/* Situação do Monitoramento */}
+                <Card>
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Ban className="h-5 w-5 text-amber-400" />
+                      <h3 className="font-bold text-foreground">Situação do Monitoramento</h3>
+                    </div>
+                    <Select value={form.monitoringStatus} onValueChange={(value) => setForm({ ...form, monitoringStatus: value as typeof form.monitoringStatus, monitoringStatusReason: value === "active" ? "" : form.monitoringStatusReason, monitoringStatusUntil: value === "suspended" ? form.monitoringStatusUntil : "" })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Ativo</SelectItem>
+                        <SelectItem value="blocked">Bloqueado (ex.: falta de pagamento)</SelectItem>
+                        <SelectItem value="suspended">Suspenso temporariamente</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {form.monitoringStatus !== "active" && <>
+                      <div>
+                        <Label className="text-sm font-medium">Motivo *</Label>
+                        <Input className="mt-1" placeholder={form.monitoringStatus === "blocked" ? "Ex.: pendência financeira" : "Ex.: mudança de endereço"} value={form.monitoringStatusReason} onChange={(event) => setForm({ ...form, monitoringStatusReason: event.target.value })} />
+                      </div>
+                      {form.monitoringStatus === "suspended" && <div>
+                        <Label className="text-sm font-medium">Suspenso até *</Label>
+                        <Input className="mt-1" type="datetime-local" value={form.monitoringStatusUntil} onChange={(event) => setForm({ ...form, monitoringStatusUntil: event.target.value })} />
+                      </div>}
+                    </>}
+                    <p className="text-xs text-muted-foreground">A situação aparece na lista Bloqueados do Dashboard e preserva o motivo para consulta operacional.</p>
+                  </CardContent>
+                </Card>
+
                 {/* Observações */}
                 <Card>
                   <CardContent className="p-5">
@@ -511,8 +558,8 @@ export default function Clients() {
                   {client.whatsapp && <span className="block text-green-400">{client.whatsapp}</span>}
                 </div>
                 <span className="text-xs text-muted-foreground">{client.city ? `${client.city}/${client.state}` : "—"}</span>
-                <Badge variant={client.isActive ? "default" : "destructive"} className="text-xs justify-center">
-                  {client.isActive ? "Ativo" : "Inativo"}
+                <Badge variant={client.monitoringStatus === "blocked" || client.monitoringStatus === "suspended" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
+                  {!client.isActive ? "Inativo" : client.monitoringStatus === "blocked" ? "Bloqueado" : client.monitoringStatus === "suspended" ? "Suspenso" : "Ativo"}
                 </Badge>
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => openClientForm(client)} title="Editar cliente">

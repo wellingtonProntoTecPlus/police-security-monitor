@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLatestArmDisarmStatusBySystem } from "./armDisarmStatus";
+import { getLatestArmDisarmStatusBySystem, isArmDisarmStatusEvent } from "./armDisarmStatus";
 
 describe("status operacional de arme e desarme", () => {
   it("usa a conta cadastrada do sistema para normalizar evento Vetti legado", () => {
@@ -43,5 +43,11 @@ describe("status operacional de arme e desarme", () => {
       receivedAt: new Date("2026-09-05T20:01:00.000Z"),
       alarmSystemId: 55,
     }]);
+  });
+
+  it("reconhece R701 somente quando o evento vem da Compatec", () => {
+    expect(isArmDisarmStatusEvent({ brand: "COMPATEC", eventCode: "701" })).toBe(true);
+    expect(isArmDisarmStatusEvent({ brand: "JFL", eventCode: "701" })).toBe(false);
+    expect(isArmDisarmStatusEvent({ brand: "VETTI", eventCode: "401" })).toBe(true);
   });
 });

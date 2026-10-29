@@ -298,6 +298,9 @@ export const appRouter = router({
       latitude: z.string().optional(),
       longitude: z.string().optional(),
       notes: z.string().optional(),
+      monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional(),
+      monitoringStatusReason: z.string().max(255).optional().nullable(),
+      monitoringStatusUntil: z.date().optional().nullable(),
     })).mutation(({ input }) => db.createClient(input)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
@@ -321,6 +324,9 @@ export const appRouter = router({
       longitude: z.string().optional(),
       notes: z.string().optional(),
       isActive: z.boolean().optional(),
+      monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional(),
+      monitoringStatusReason: z.string().max(255).optional().nullable(),
+      monitoringStatusUntil: z.date().optional().nullable(),
     })).mutation(({ input }) => {
       const { id, ...data } = input;
       return db.updateClient(id, data);

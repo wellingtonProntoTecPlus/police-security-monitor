@@ -56,6 +56,8 @@
 - [x] Corrigir o erro NotFoundError removeChild que ocorre ao clicar em Novo Cliente e impede abrir o formulário, com transição segura após fechamento de portais
 - [ ] Validar na VPS que Novo Cliente abre sem NotFoundError removeChild; se persistir, capturar a origem exata do portal responsável
 - [x] Auditar e corrigir a precisão e atualização dos indicadores Armados, Desarmados, Online, Offline e Última confirmação automática do Dashboard
+- [ ] Publicar o ajuste da Compatec: R701 (Arme por Aplicativo) deve aparecer em Armados somente para a marca Compatec, sem afetar o R701 de outras marcas
+- [ ] Publicar busca por conta, nome ou fantasia nas listas Armados, Desarmados, Online e Offline, além da lista Bloqueados para clientes em inadimplência ou suspensão temporária
 - [x] Conferir os códigos da tabela Contact ID fornecida contra os cadastros JFL, VIAWEB e Universal, sem alterar a base durante a auditoria
 - [x] Aplicar a primeira atualização validada dos cadastros Contact ID específicos de JFL e VIAWEB, preservando os códigos Universais
 - [ ] Normalizar todos os códigos JFL e VIAWEB ainda divergentes da tabela validada, incluindo regras de abrir ou fechar tela dos códigos analíticos e CFTV

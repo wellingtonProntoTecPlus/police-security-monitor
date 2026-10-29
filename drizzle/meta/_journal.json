@@ -260,6 +260,13 @@
       "when": 1793257031972,
       "tag": "0036_true_wild_child",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1793262987988,
+      "tag": "0037_spicy_moonstone",
+      "breakpoints": true
     }
   ]
 }

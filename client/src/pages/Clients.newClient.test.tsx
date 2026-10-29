@@ -54,6 +54,7 @@ describe("Clientes — Novo Cliente", () => {
 
     expect(await screen.findByRole("heading", { name: /cadastrar novo cliente/i })).toBeTruthy();
     expect(screen.getByText("Empresa Responsável")).toBeTruthy();
+    expect(screen.getByText("Situação do Monitoramento")).toBeTruthy();
     expect(screen.getByRole("button", { name: /cadastrar cliente/i })).toBeTruthy();
   });
 });
