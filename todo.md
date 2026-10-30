@@ -504,7 +504,7 @@
 - [x] Tornar funcional o botão de Ocorrência Manual
 - [x] Exibir em janela as centrais online ao clicar no botão Online
 - [x] Exibir em janela as centrais offline ao clicar no botão Offline
-- [x] Disponibilizar Arme Compatec sem ocorrência pela lista Desarmados, com solicitante, autorizador, motivo, confirmação e auditoria do comando
+- [x] Disponibilizar Arme e Desarme Compatec sem ocorrência pelas listas Desarmados e Armados, com solicitante, autorizador, motivo, confirmação e auditoria do comando
 
 ## Conta Técnica do Sistema
 - [x] Criar e manter a Conta do Sistema 0000 para eventos sem conta ou de central não cadastrada

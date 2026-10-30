@@ -39,7 +39,7 @@ const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   activate_pgm: "Acionar PGM",
 };
 const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = { ...REMOTE_COMMAND_LABELS, query_status: "Consultar status da central" };
-function isStandalonePhysicalArmSupported(brand?: string | null) {
+function isStandalonePhysicalCommandSupported(brand?: string | null) {
   const normalized = String(brand || "").trim().toUpperCase();
   return normalized === "COMPATEC";
 }
@@ -205,10 +205,10 @@ export default function Dashboard() {
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
-  const [standaloneArmRequest, setStandaloneArmRequest] = useState<any | null>(null);
-  const [standaloneArmRequester, setStandaloneArmRequester] = useState("");
-  const [standaloneArmAuthorizer, setStandaloneArmAuthorizer] = useState("");
-  const [standaloneArmReason, setStandaloneArmReason] = useState("");
+  const [standaloneRemoteRequest, setStandaloneRemoteRequest] = useState<(any & { commandType: "arm" | "disarm" }) | null>(null);
+  const [standaloneRemoteRequester, setStandaloneRemoteRequester] = useState("");
+  const [standaloneRemoteAuthorizer, setStandaloneRemoteAuthorizer] = useState("");
+  const [standaloneRemoteReason, setStandaloneRemoteReason] = useState("");
   const [connectionStatusModal, setConnectionStatusModal] = useState<'online' | 'offline' | null>(null);
   const [blockedClientsModal, setBlockedClientsModal] = useState(false);
   const [operationalStatusSearch, setOperationalStatusSearch] = useState("");
@@ -1280,63 +1280,69 @@ export default function Dashboard() {
     });
   }
 
-  function openStandaloneArmRequest(item: any) {
-    if (!isStandalonePhysicalArmSupported(item?.brand)) {
-      toast.error("O Arme físico ainda não está homologado para esta marca.");
+  function openStandaloneCommandRequest(item: any, commandType: "arm" | "disarm") {
+    if (!isStandalonePhysicalCommandSupported(item?.brand)) {
+      toast.error("O Arme e o Desarme sem ocorrência estão liberados somente para centrais Compatec homologadas.");
       return;
     }
-    setStandaloneArmRequest(item);
-    setStandaloneArmRequester("");
-    setStandaloneArmAuthorizer("");
-    setStandaloneArmReason("");
+    setStandaloneRemoteRequest({ ...item, commandType });
+    setStandaloneRemoteRequester("");
+    setStandaloneRemoteAuthorizer("");
+    setStandaloneRemoteReason("");
   }
 
-  function submitStandaloneArmRequest() {
-    if (!standaloneArmRequest) return;
-    const systemId = Number(standaloneArmRequest.alarmSystemId || standaloneArmRequest.systemId || 0);
-    const brand = String(standaloneArmRequest.brand || "").toUpperCase();
-    const requester = standaloneArmRequester.trim();
-    const authorizer = standaloneArmAuthorizer.trim();
-    const reason = standaloneArmReason.trim();
+  function submitStandaloneCommandRequest() {
+    if (!standaloneRemoteRequest) return;
+    const systemId = Number(standaloneRemoteRequest.alarmSystemId || standaloneRemoteRequest.systemId || 0);
+    const brand = String(standaloneRemoteRequest.brand || "").toUpperCase();
+    const commandType = standaloneRemoteRequest.commandType;
+    const actionName = commandType === "arm" ? "Arme" : "Desarme";
+    const actionLabel = commandType === "arm" ? "ARMAR físico Compatec" : "DESARMAR físico Compatec";
+    const requester = standaloneRemoteRequester.trim();
+    const authorizer = standaloneRemoteAuthorizer.trim();
+    const reason = standaloneRemoteReason.trim();
     if (!systemId) {
       toast.error("A central não possui um identificador cadastrado para o comando.");
       return;
     }
     if (!requester || requester.length < 2) {
-      toast.error("Informe quem solicitou o Arme.");
+      toast.error(`Informe quem solicitou o ${actionName}.`);
       return;
     }
     if (!authorizer || authorizer.length < 2) {
-      toast.error("Informe quem autorizou o Arme.");
+      toast.error(`Informe quem autorizou o ${actionName}.`);
       return;
     }
     if (reason.length < 5) {
-      toast.error("Informe o motivo operacional do Arme.");
+      toast.error(`Informe o motivo operacional do ${actionName}.`);
       return;
     }
     const auditReason = `Solicitado por: ${requester}; Autorizado por: ${authorizer}; Motivo: ${reason}`;
     if (brand !== "COMPATEC") {
-      toast.error("O Arme sem ocorrência está liberado somente para centrais Compatec homologadas.");
+      toast.error("O Arme e o Desarme sem ocorrência estão liberados somente para centrais Compatec homologadas.");
       return;
     }
-    const actionLabel = "ARMAR físico Compatec";
     if (!window.confirm(
-      `CONFIRMAR ${actionLabel} SEM OCORRÊNCIA?\n\nConta ${standaloneArmRequest.account} · ${standaloneArmRequest.clientName || "Cliente"}\nCentral ${standaloneArmRequest.model || standaloneArmRequest.brand || "não informada"}\n\nSolicitado por: ${requester}\nAutorizado por: ${authorizer}\nMotivo: ${reason}\n\nA ação será registrada no histórico de comandos remotos antes do envio.`,
+      `CONFIRMAR ${actionLabel} SEM OCORRÊNCIA?\n\nConta ${standaloneRemoteRequest.account} · ${standaloneRemoteRequest.clientName || "Cliente"}\nCentral ${standaloneRemoteRequest.model || standaloneRemoteRequest.brand || "não informada"}\n\nSolicitado por: ${requester}\nAutorizado por: ${authorizer}\nMotivo: ${reason}\n\nA ação será registrada no histórico de comandos remotos antes do envio.`,
     )) return;
 
     const onSuccess = (result: any) => {
-      setStandaloneArmRequest(null);
+      setStandaloneRemoteRequest(null);
       setArmDisarmModal(null);
-      setStandaloneArmRequester("");
-      setStandaloneArmAuthorizer("");
-      setStandaloneArmReason("");
+      setStandaloneRemoteRequester("");
+      setStandaloneRemoteAuthorizer("");
+      setStandaloneRemoteReason("");
       void utils.dashboard.armDisarmStatus.invalidate();
       void utils.remoteCommand.list.invalidate({ alarmSystemId: systemId, limit: 8 });
       toast.success(result?.status === "sent" ? `${actionLabel} enviado. Aguarde a confirmação da central.` : result?.message || `${actionLabel} registrado e aguardando a conexão autenticada.`);
     };
     const onError = (error: any) => toast.error(error.message);
 
-    armCompatecAllMut.mutate({ alarmSystemId: systemId, reason: auditReason }, { onSuccess, onError });
+    if (commandType === "arm") {
+      armCompatecAllMut.mutate({ alarmSystemId: systemId, reason: auditReason }, { onSuccess, onError });
+    } else {
+      disarmBenchAllMut.mutate({ alarmSystemId: systemId, reason: auditReason }, { onSuccess, onError });
+    }
   }
 
   // Card do evento
@@ -1640,37 +1646,37 @@ export default function Dashboard() {
         </div>
       )}
 
-      {standaloneArmRequest && (
-        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/75 p-4" onClick={() => setStandaloneArmRequest(null)}>
+      {standaloneRemoteRequest && (
+        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/75 p-4" onClick={() => setStandaloneRemoteRequest(null)}>
           <div className="w-full max-w-lg rounded-xl border border-emerald-400/35 bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-300">Solicitação operacional</p>
-                <h3 className="mt-1 text-lg font-bold text-foreground">Armar sem ocorrência</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Use quando o cliente pedir o Arme e não existir alarme aberto. Esta ação não cria um evento falso.</p>
+                <h3 className="mt-1 text-lg font-bold text-foreground">{standaloneRemoteRequest.commandType === "arm" ? "Armar" : "Desarmar"} sem ocorrência</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Use quando o cliente pedir o {standaloneRemoteRequest.commandType === "arm" ? "Arme" : "Desarme"} e não existir alarme aberto. Esta ação não cria um evento falso.</p>
               </div>
-              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setStandaloneArmRequest(null)} aria-label="Fechar solicitação de Arme"><X className="h-5 w-5" /></button>
+              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setStandaloneRemoteRequest(null)} aria-label="Fechar solicitação de comando"><X className="h-5 w-5" /></button>
             </div>
             <div className="mt-4 rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm">
-              <p className="font-bold text-foreground">{standaloneArmRequest.clientName || "Cliente não identificado"}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Conta {standaloneArmRequest.account} · {standaloneArmRequest.brand} {standaloneArmRequest.model || ""}</p>
+              <p className="font-bold text-foreground">{standaloneRemoteRequest.clientName || "Cliente não identificado"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Conta {standaloneRemoteRequest.account} · {standaloneRemoteRequest.brand} {standaloneRemoteRequest.model || ""}</p>
             </div>
             <div className="mt-4 space-y-3">
               <label className="block text-sm font-medium text-foreground">Solicitado por
-                <Input className="mt-1" value={standaloneArmRequester} onChange={(event) => setStandaloneArmRequester(event.target.value)} placeholder="Nome do cliente ou responsável" autoFocus />
+                <Input className="mt-1" value={standaloneRemoteRequester} onChange={(event) => setStandaloneRemoteRequester(event.target.value)} placeholder="Nome do cliente ou responsável" autoFocus />
               </label>
               <label className="block text-sm font-medium text-foreground">Autorizado por
-                <Input className="mt-1" value={standaloneArmAuthorizer} onChange={(event) => setStandaloneArmAuthorizer(event.target.value)} placeholder="Nome do responsável que autorizou" />
+                <Input className="mt-1" value={standaloneRemoteAuthorizer} onChange={(event) => setStandaloneRemoteAuthorizer(event.target.value)} placeholder="Nome do responsável que autorizou" />
               </label>
               <label className="block text-sm font-medium text-foreground">Motivo operacional
-                <Textarea className="mt-1 min-h-24" value={standaloneArmReason} onChange={(event) => setStandaloneArmReason(event.target.value)} placeholder="Ex.: empresa encerrada; responsável solicitou o Arme por telefone." />
+                <Textarea className="mt-1 min-h-24" value={standaloneRemoteReason} onChange={(event) => setStandaloneRemoteReason(event.target.value)} placeholder={standaloneRemoteRequest.commandType === "arm" ? "Ex.: empresa encerrada; responsável solicitou o Arme por telefone." : "Ex.: Desarmado para entrada de funcionários."} />
               </label>
               <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado, o solicitante, o autorizador e o motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente.</div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setStandaloneArmRequest(null)}>Cancelar</Button>
-              <Button className="bg-emerald-600 text-white hover:bg-emerald-700" disabled={armCompatecAllMut.isPending || sendIntelbrasPhysicalMut.isPending || standaloneArmRequester.trim().length < 2 || standaloneArmAuthorizer.trim().length < 2 || standaloneArmReason.trim().length < 5} onClick={submitStandaloneArmRequest}>
-                {armCompatecAllMut.isPending || sendIntelbrasPhysicalMut.isPending ? "Enviando..." : "Confirmar ARMAR"}
+              <Button variant="outline" onClick={() => setStandaloneRemoteRequest(null)}>Cancelar</Button>
+              <Button className={standaloneRemoteRequest.commandType === "arm" ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-red-600 text-white hover:bg-red-700"} disabled={armCompatecAllMut.isPending || disarmBenchAllMut.isPending || standaloneRemoteRequester.trim().length < 2 || standaloneRemoteAuthorizer.trim().length < 2 || standaloneRemoteReason.trim().length < 5} onClick={submitStandaloneCommandRequest}>
+                {armCompatecAllMut.isPending || disarmBenchAllMut.isPending ? "Enviando..." : `Confirmar ${standaloneRemoteRequest.commandType === "arm" ? "ARMAR" : "DESARMAR"}`}
               </Button>
             </div>
           </div>
@@ -2265,7 +2271,7 @@ export default function Dashboard() {
                      <p className="text-xs text-muted-foreground">Conta: {item.account} · {item.brand || "Marca não informada"} {item.model || ""}</p>
                    </div>
                    <div className="flex shrink-0 items-center gap-2 text-right">
-                     {armDisarmModal === "disarmed" && (isStandalonePhysicalArmSupported(item.brand) ? <Button size="sm" className="h-8 bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700" onClick={() => openStandaloneArmRequest(item)}>ARMAR</Button> : <span className="text-[10px] text-muted-foreground">Arme não homologado</span>)}
+                     {isStandalonePhysicalCommandSupported(item.brand) ? <Button size="sm" className={armDisarmModal === "disarmed" ? "h-8 bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700" : "h-8 bg-red-600 px-3 text-xs font-bold text-white hover:bg-red-700"} onClick={() => openStandaloneCommandRequest(item, armDisarmModal === "disarmed" ? "arm" : "disarm")}>{armDisarmModal === "disarmed" ? "ARMAR" : "DESARMAR"}</Button> : <span className="text-[10px] text-muted-foreground">Comando não homologado</span>}
                      <div>
                      <p className="text-xs text-muted-foreground">
                        {item.lastEvent ? new Date(item.lastEvent).toLocaleString('pt-BR') : '-'}

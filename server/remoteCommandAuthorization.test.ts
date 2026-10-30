@@ -36,6 +36,9 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(disarmRoute).not.toContain("isConfirmedCompatecBenchSystem(system)");
     expect(disarmRoute).toContain('const payload = "MB=AK4[12]\\r\\n"');
     expect(disarmRoute).not.toContain("MB=AK4[0,03FF]");
+    expect(disarmRoute).toContain("getLatestArmDisarmStatusForSystem");
+    expect(disarmRoute).toContain('currentState.qualifier !== "R"');
+    expect(disarmRoute).toContain("createExclusiveCompatecPhysicalCommand");
   });
 
   it("libera o Arme físico para toda Compatec ativa e cadastrada e usa o quadro fixo AK4[4]", () => {

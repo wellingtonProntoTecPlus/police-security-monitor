@@ -1048,13 +1048,21 @@ export const appRouter = router({
       if (system.brand !== "COMPATEC" || system.isActive === false) {
         throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
+      const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
+      if (!currentState || currentState.qualifier !== "R") {
+        throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o último estado confirmado da central não é ARMADO" });
+      }
       const payload = "MB=AK4[12]\r\n";
-      const created = await db.createAlarmRemoteCommand({
+      const reservation = await db.createExclusiveCompatecPhysicalCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "COMPATEC", commandType: "disarm", transportMode: "microbus_compatec", status: "queued",
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
+      if (!reservation.created) {
+        throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
+      }
+      const created = { id: reservation.id };
       const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
