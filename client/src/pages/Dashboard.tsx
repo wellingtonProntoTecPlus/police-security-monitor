@@ -60,6 +60,23 @@ function isPanelUserEvent(event?: Pick<AlarmEvent, "eventCode"> | null) {
   return Boolean(event && PANEL_USER_EVENT_CODES.has(event.eventCode));
 }
 
+function isPanelUserDisplayEvent(event?: Pick<AlarmEvent, "eventCode"> | null) {
+  return Boolean(event && (isPanelUserEvent(event) || event.eventCode === "701"));
+}
+
+function isUnidentifiedApplicationUserEvent(event?: Pick<AlarmEvent, "eventCode" | "zoneUser"> | null) {
+  return Boolean(event?.eventCode === "701" && Number(event.zoneUser || 0) === 0);
+}
+
+function getPanelUserDisplayText(
+  event?: Pick<AlarmEvent, "eventCode" | "zoneUser"> | null,
+  panelUser?: { name?: string | null } | null,
+) {
+  if (!isPanelUserDisplayEvent(event)) return null;
+  if (isUnidentifiedApplicationUserEvent(event)) return "Usuário do painel: não informado";
+  return `Usuário da central: ${String(event?.zoneUser || "").padStart(2, "0")} · ${panelUser?.name || "Não cadastrado"}`;
+}
+
 // Modal de câmera expandida
 function CameraModal({ cam, onClose, url, label }: { cam: number; onClose: () => void; url?: string; label?: string }) {
   return (
@@ -354,9 +371,11 @@ export default function Dashboard() {
     const notes = selectedEvent?.incidentNotes || "";
     return notes.startsWith("[COMANDO REMOTO CONFIRMADO]") ? notes.split("\n").slice(1) : [];
   }, [selectedEvent?.incidentNotes]);
-  const selectedEventArgument = useMemo(() => selectedEvent
-    ? formatContactIdArgument({ eventCode: selectedEvent.eventCode, qualifier: selectedEvent.qualifier, value: selectedEvent.zoneUser })
-    : "Argumento não informado", [selectedEvent?.eventCode, selectedEvent?.qualifier, selectedEvent?.zoneUser]);
+  const selectedEventArgument = useMemo(() => {
+    if (!selectedEvent) return "Argumento não informado";
+    if (isUnidentifiedApplicationUserEvent(selectedEvent)) return "Usuário do painel: não informado";
+    return formatContactIdArgument({ eventCode: selectedEvent.eventCode, qualifier: selectedEvent.qualifier, value: selectedEvent.zoneUser });
+  }, [selectedEvent?.eventCode, selectedEvent?.qualifier, selectedEvent?.zoneUser]);
 
   const manualAccountMatch = useMemo(() => {
     const normalize = (value?: string | null) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -749,7 +768,7 @@ export default function Dashboard() {
     { enabled: !!selectedSystem?.id }
   );
   const selectedPanelUser = useMemo(() => {
-    if (!selectedEvent || !isPanelUserEvent(selectedEvent)) return null;
+    if (!selectedEvent || !isPanelUserDisplayEvent(selectedEvent)) return null;
     const eventUserNumber = Number(selectedEvent.zoneUser);
     if (!Number.isInteger(eventUserNumber)) return null;
     return operationalAlarmUsers.find((panelUser: any) => panelUser.alarmSystemId === selectedSystem?.id && Number(panelUser.userNumber) === eventUserNumber) || null;
@@ -1265,9 +1284,10 @@ export default function Dashboard() {
     const eventPartner = eventClient?.partnerCompanyId
       ? partnerCompanyData.find((partner: any) => partner.id === eventClient.partnerCompanyId)
       : null;
-    const eventPanelUser = isPanelUserEvent(ev) && eventSystem
+    const eventPanelUser = isPanelUserDisplayEvent(ev) && eventSystem
       ? operationalAlarmUsers.find((panelUser: any) => panelUser.alarmSystemId === eventSystem.id && Number(panelUser.userNumber) === Number(ev.zoneUser))
       : null;
+    const panelUserDisplayText = getPanelUserDisplayText(ev, eventPanelUser);
 
     return (
       <div
@@ -1288,7 +1308,7 @@ export default function Dashboard() {
         <div className={`mt-0.5 font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
         <div className="mt-0.5 text-sm text-primary font-semibold"><span className="font-mono tracking-[0.12em]">{ev.account}</span> <span className="text-muted-foreground">·</span> {ev.clientName}</div>
         <div className="text-[11px] text-cyan-300/90 truncate">Parceira: {eventPartner?.name || "Sem empresa parceira vinculada"}</div>
-        {isPanelUserEvent(ev) && <div className="text-[11px] text-blue-200 truncate">Usuário da central: {String(ev.zoneUser || "").padStart(2, "0")} · {eventPanelUser?.name || "Não cadastrado"}</div>}
+        {panelUserDisplayText && <div className="text-[11px] text-blue-200 truncate">{panelUserDisplayText}</div>}
         <div className="text-[11px] text-muted-foreground truncate">Central: {ev.systemModel}</div>
         <div className="flex items-center gap-2 mt-1">
           <span className="font-mono text-xs text-muted-foreground">{ev.qualifier === 'E' ? '' : 'R'}{ev.eventCode}</span>
@@ -1377,7 +1397,7 @@ export default function Dashboard() {
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                     <span className="text-cyan-200">Parceira responsável: <strong className="text-foreground">{selectedPartner?.name || "Sem empresa parceira vinculada"}</strong></span>
-                    {isPanelUserEvent(selectedEvent) && <span className="text-blue-200">Usuário da central: <strong className="text-foreground">{String(selectedEvent.zoneUser || "").padStart(2, "0")}{selectedPanelUser ? ` · ${selectedPanelUser.name}` : " · Não cadastrado"}</strong></span>}
+                    {getPanelUserDisplayText(selectedEvent, selectedPanelUser) && <span className="text-blue-200"><strong className="text-foreground">{getPanelUserDisplayText(selectedEvent, selectedPanelUser)}</strong></span>}
                   </div>
                   <p className={`mt-1 font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>{selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}</p>
                   {selectedRemoteBrand === "VETTI" && selectedEvent.alarmSystemId && (

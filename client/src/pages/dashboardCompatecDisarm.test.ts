@@ -55,3 +55,17 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain("Toggle, Zona e PGM permanecem bloqueados para transmissão");
   });
 });
+
+describe("Identificação do usuário nos eventos 701", () => {
+  it("não transforma o argumento 000 em Usuário 0", () => {
+    expect(dashboardSource).toContain('event.eventCode === "701"');
+    expect(dashboardSource).toContain('Number(event.zoneUser || 0) === 0');
+    expect(dashboardSource).toContain("Usuário do painel: não informado");
+  });
+
+  it("usa a mesma indicação na fila, no atendimento e nos dados do sistema", () => {
+    expect(dashboardSource).toContain("panelUserDisplayText");
+    expect(dashboardSource).toContain("getPanelUserDisplayText(selectedEvent, selectedPanelUser)");
+    expect(dashboardSource).toContain("selectedEventArgument");
+  });
+});

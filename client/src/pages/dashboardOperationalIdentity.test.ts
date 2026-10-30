@@ -13,8 +13,8 @@ describe("Identificação operacional do atendimento", () => {
   it("mostra o número e o nome cadastrado do usuário da central para E401 e R401", () => {
     expect(source).toContain('const PANEL_USER_EVENT_CODES = new Set(["401", "407"])');
     expect(source).toContain("Usuário da central:");
-    expect(source).toContain("selectedPanelUser ? ` · ${selectedPanelUser.name}`");
+    expect(source).toContain("getPanelUserDisplayText(selectedEvent, selectedPanelUser)");
     expect(source).toContain("trpc.alarmUser.operationalList.useQuery(undefined)");
-    expect(source).toContain("eventPanelUser?.name || \"Não cadastrado\"");
+    expect(source).toContain("panelUser?.name || \"Não cadastrado\"");
   });
 });
