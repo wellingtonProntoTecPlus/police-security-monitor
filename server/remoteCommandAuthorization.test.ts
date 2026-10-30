@@ -47,6 +47,8 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(armRoute).toContain("createExclusiveCompatecPhysicalCommand");
     expect(armRoute).toContain('commandType: "arm"');
     expect(armRoute).toContain('transportMode: "microbus_compatec"');
+    expect(armRoute).toContain("getLatestArmDisarmStatusForSystem");
+    expect(armRoute).toContain('currentState.qualifier !== "E"');
   });
 
   it("não mantém a rota de Desarme físico restrita exclusivamente ao administrador", () => {

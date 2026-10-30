@@ -1014,6 +1014,10 @@ export const appRouter = router({
       if (system.brand !== "COMPATEC" || system.isActive === false) {
         throw new TRPCError({ code: "FORBIDDEN", message: "O Arme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
+      const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
+      if (!currentState || currentState.qualifier !== "E") {
+        throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o último estado confirmado da central não é DESARMADO" });
+      }
       const payload = "MB=AK4[4]\r\n";
       const reservation = await db.createExclusiveCompatecPhysicalCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,

@@ -39,7 +39,10 @@ const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   activate_pgm: "Acionar PGM",
 };
 const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = { ...REMOTE_COMMAND_LABELS, query_status: "Consultar status da central" };
-
+function isStandalonePhysicalArmSupported(brand?: string | null) {
+  const normalized = String(brand || "").trim().toUpperCase();
+  return normalized === "COMPATEC";
+}
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
   incidentId?: number;
@@ -202,6 +205,10 @@ export default function Dashboard() {
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
+  const [standaloneArmRequest, setStandaloneArmRequest] = useState<any | null>(null);
+  const [standaloneArmRequester, setStandaloneArmRequester] = useState("");
+  const [standaloneArmAuthorizer, setStandaloneArmAuthorizer] = useState("");
+  const [standaloneArmReason, setStandaloneArmReason] = useState("");
   const [connectionStatusModal, setConnectionStatusModal] = useState<'online' | 'offline' | null>(null);
   const [blockedClientsModal, setBlockedClientsModal] = useState(false);
   const [operationalStatusSearch, setOperationalStatusSearch] = useState("");
@@ -1273,6 +1280,65 @@ export default function Dashboard() {
     });
   }
 
+  function openStandaloneArmRequest(item: any) {
+    if (!isStandalonePhysicalArmSupported(item?.brand)) {
+      toast.error("O Arme físico ainda não está homologado para esta marca.");
+      return;
+    }
+    setStandaloneArmRequest(item);
+    setStandaloneArmRequester("");
+    setStandaloneArmAuthorizer("");
+    setStandaloneArmReason("");
+  }
+
+  function submitStandaloneArmRequest() {
+    if (!standaloneArmRequest) return;
+    const systemId = Number(standaloneArmRequest.alarmSystemId || standaloneArmRequest.systemId || 0);
+    const brand = String(standaloneArmRequest.brand || "").toUpperCase();
+    const requester = standaloneArmRequester.trim();
+    const authorizer = standaloneArmAuthorizer.trim();
+    const reason = standaloneArmReason.trim();
+    if (!systemId) {
+      toast.error("A central não possui um identificador cadastrado para o comando.");
+      return;
+    }
+    if (!requester || requester.length < 2) {
+      toast.error("Informe quem solicitou o Arme.");
+      return;
+    }
+    if (!authorizer || authorizer.length < 2) {
+      toast.error("Informe quem autorizou o Arme.");
+      return;
+    }
+    if (reason.length < 5) {
+      toast.error("Informe o motivo operacional do Arme.");
+      return;
+    }
+    const auditReason = `Solicitado por: ${requester}; Autorizado por: ${authorizer}; Motivo: ${reason}`;
+    if (brand !== "COMPATEC") {
+      toast.error("O Arme sem ocorrência está liberado somente para centrais Compatec homologadas.");
+      return;
+    }
+    const actionLabel = "ARMAR físico Compatec";
+    if (!window.confirm(
+      `CONFIRMAR ${actionLabel} SEM OCORRÊNCIA?\n\nConta ${standaloneArmRequest.account} · ${standaloneArmRequest.clientName || "Cliente"}\nCentral ${standaloneArmRequest.model || standaloneArmRequest.brand || "não informada"}\n\nSolicitado por: ${requester}\nAutorizado por: ${authorizer}\nMotivo: ${reason}\n\nA ação será registrada no histórico de comandos remotos antes do envio.`,
+    )) return;
+
+    const onSuccess = (result: any) => {
+      setStandaloneArmRequest(null);
+      setArmDisarmModal(null);
+      setStandaloneArmRequester("");
+      setStandaloneArmAuthorizer("");
+      setStandaloneArmReason("");
+      void utils.dashboard.armDisarmStatus.invalidate();
+      void utils.remoteCommand.list.invalidate({ alarmSystemId: systemId, limit: 8 });
+      toast.success(result?.status === "sent" ? `${actionLabel} enviado. Aguarde a confirmação da central.` : result?.message || `${actionLabel} registrado e aguardando a conexão autenticada.`);
+    };
+    const onError = (error: any) => toast.error(error.message);
+
+    armCompatecAllMut.mutate({ alarmSystemId: systemId, reason: auditReason }, { onSuccess, onError });
+  }
+
   // Card do evento
   function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
@@ -1570,6 +1636,43 @@ export default function Dashboard() {
           <div className="max-h-[calc(100dvh-1rem)] w-full overflow-hidden rounded-t-xl border border-border bg-card shadow-2xl sm:max-h-[78dvh] sm:w-[min(760px,94vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Conta {selectedEvent.account}</p><h3 className="mt-1 text-lg font-bold text-foreground">Providências e histórico do atendimento</h3></div><button type="button" onClick={() => setShowProceduresModal(false)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fechar providências"><X className="h-5 w-5" /></button></div>
             <div className="max-h-[calc(100dvh-8rem)] space-y-3 overflow-y-auto p-4 sm:max-h-[62dvh] sm:p-5">{attendingNotes.trim() && <div className="rounded-lg border border-primary/30 bg-primary/5 p-4"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">Registro em andamento</p><p className="whitespace-pre-wrap text-sm text-foreground">{attendingNotes}</p></div>}{logs.length === 0 ? <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhuma providência registrada ainda.</p> : logs.map((log, index) => <div key={index} className="rounded-lg border border-border bg-black/15 p-3 font-mono text-xs text-muted-foreground">{log}</div>)}</div>
+          </div>
+        </div>
+      )}
+
+      {standaloneArmRequest && (
+        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/75 p-4" onClick={() => setStandaloneArmRequest(null)}>
+          <div className="w-full max-w-lg rounded-xl border border-emerald-400/35 bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-300">Solicitação operacional</p>
+                <h3 className="mt-1 text-lg font-bold text-foreground">Armar sem ocorrência</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Use quando o cliente pedir o Arme e não existir alarme aberto. Esta ação não cria um evento falso.</p>
+              </div>
+              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setStandaloneArmRequest(null)} aria-label="Fechar solicitação de Arme"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mt-4 rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm">
+              <p className="font-bold text-foreground">{standaloneArmRequest.clientName || "Cliente não identificado"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Conta {standaloneArmRequest.account} · {standaloneArmRequest.brand} {standaloneArmRequest.model || ""}</p>
+            </div>
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm font-medium text-foreground">Solicitado por
+                <Input className="mt-1" value={standaloneArmRequester} onChange={(event) => setStandaloneArmRequester(event.target.value)} placeholder="Nome do cliente ou responsável" autoFocus />
+              </label>
+              <label className="block text-sm font-medium text-foreground">Autorizado por
+                <Input className="mt-1" value={standaloneArmAuthorizer} onChange={(event) => setStandaloneArmAuthorizer(event.target.value)} placeholder="Nome do responsável que autorizou" />
+              </label>
+              <label className="block text-sm font-medium text-foreground">Motivo operacional
+                <Textarea className="mt-1 min-h-24" value={standaloneArmReason} onChange={(event) => setStandaloneArmReason(event.target.value)} placeholder="Ex.: empresa encerrada; responsável solicitou o Arme por telefone." />
+              </label>
+              <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado, o solicitante, o autorizador e o motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente.</div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setStandaloneArmRequest(null)}>Cancelar</Button>
+              <Button className="bg-emerald-600 text-white hover:bg-emerald-700" disabled={armCompatecAllMut.isPending || sendIntelbrasPhysicalMut.isPending || standaloneArmRequester.trim().length < 2 || standaloneArmAuthorizer.trim().length < 2 || standaloneArmReason.trim().length < 5} onClick={submitStandaloneArmRequest}>
+                {armCompatecAllMut.isPending || sendIntelbrasPhysicalMut.isPending ? "Enviando..." : "Confirmar ARMAR"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -2155,21 +2258,24 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="overflow-y-auto max-h-[60vh] p-2">
-              {armDisarmSystems.map((item: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between px-3 py-2 border-b border-border/50 hover:bg-muted/30">
-                  <div>
-                    <p className="text-sm font-bold text-foreground">{item.clientName}</p>
-                    <p className="text-xs text-muted-foreground">Conta: {item.account}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground">
-                      {item.lastEvent ? new Date(item.lastEvent).toLocaleString('pt-BR') : '-'}
-                    </p>
-                    <Badge className={armDisarmModal === 'armed' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
-                      {armDisarmModal === 'armed' ? 'ARMADO' : 'DESARMADO'}
-                    </Badge>
-                  </div>
-                </div>
+               {armDisarmSystems.map((item: any, idx: number) => (
+                 <div key={idx} className="flex items-center justify-between gap-3 px-3 py-2 border-b border-border/50 hover:bg-muted/30">
+                   <div>
+                     <p className="text-sm font-bold text-foreground">{item.clientName}</p>
+                     <p className="text-xs text-muted-foreground">Conta: {item.account} · {item.brand || "Marca não informada"} {item.model || ""}</p>
+                   </div>
+                   <div className="flex shrink-0 items-center gap-2 text-right">
+                     {armDisarmModal === "disarmed" && (isStandalonePhysicalArmSupported(item.brand) ? <Button size="sm" className="h-8 bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700" onClick={() => openStandaloneArmRequest(item)}>ARMAR</Button> : <span className="text-[10px] text-muted-foreground">Arme não homologado</span>)}
+                     <div>
+                     <p className="text-xs text-muted-foreground">
+                       {item.lastEvent ? new Date(item.lastEvent).toLocaleString('pt-BR') : '-'}
+                     </p>
+                     <Badge className={armDisarmModal === 'armed' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                       {armDisarmModal === 'armed' ? 'ARMADO' : 'DESARMADO'}
+                     </Badge>
+                     </div>
+                   </div>
+                 </div>
               ))}
               {armDisarmSystems.length === 0 && (
                 <p className="text-center text-muted-foreground py-8">Nenhum cliente encontrado para esta busca</p>

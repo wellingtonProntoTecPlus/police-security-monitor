@@ -17,6 +17,7 @@ export type LatestArmDisarmStatus = {
   qualifier: string;
   receivedAt: Date | null;
   alarmSystemId: number;
+  brand?: string | null;
 };
 
 export const STANDARD_ARM_DISARM_EVENT_CODES = ["401", "403", "407", "408", "409", "441"] as const;
@@ -52,6 +53,7 @@ export function getLatestArmDisarmStatusBySystem(
       qualifier: event.qualifier,
       receivedAt: event.receivedAt,
       alarmSystemId: event.alarmSystemId,
+      brand: event.brand,
     });
   }
 

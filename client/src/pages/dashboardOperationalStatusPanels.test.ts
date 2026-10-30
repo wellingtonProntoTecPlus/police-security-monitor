@@ -17,4 +17,13 @@ describe("indicadores operacionais do Dashboard", () => {
     expect(source).toContain("monitoringStatusReason");
     expect(source).toContain("monitoringStatusUntil");
   });
+
+  it("permite solicitar Arme sem ocorrência com rastreabilidade obrigatória", () => {
+    expect(source).toContain("Armar sem ocorrência");
+    expect(source).toContain("Solicitado por");
+    expect(source).toContain("Autorizado por");
+    expect(source).toContain("Motivo operacional");
+    expect(source).toContain("isStandalonePhysicalArmSupported");
+    expect(source).toContain("ARMAR");
+  });
 });

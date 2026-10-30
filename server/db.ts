@@ -2213,9 +2213,9 @@ export async function getArmDisarmStatus() {
     let clientFantasyName: string | null = null;
     let clientId: number | null = null;
     let systemId = status.alarmSystemId;
+    const systemInfo = systemsById.get(status.alarmSystemId);
     
     if (status.alarmSystemId) {
-      const systemInfo = systemsById.get(status.alarmSystemId);
       if (systemInfo?.clientId) {
         const clientInfo = await db.select().from(clients).where(eq(clients.id, systemInfo.clientId)).limit(1);
         if (clientInfo.length > 0) {
@@ -2237,6 +2237,8 @@ export async function getArmDisarmStatus() {
       // Mantém o nome usado pelos eventos e pelo Dashboard, sem remover o
       // campo histórico systemId consumido pelas listas operacionais.
       alarmSystemId: systemId,
+      brand: systemInfo?.brand || status.brand || null,
+      model: systemInfo?.model || null,
     };
     
     if (status.qualifier === 'R') {
