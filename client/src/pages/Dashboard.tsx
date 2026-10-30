@@ -426,7 +426,7 @@ export default function Dashboard() {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
     realtimeEvents.forEach((ev) => {
-      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation" || ev.kind === "remote_command_confirmation") {
+      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation" || ev.kind === "remote_command_confirmation" || ev.kind === "radioenge_observation_escalated") {
         const operationalKey = `${ev.kind}-${ev.alarmSystemId || "unknown"}-${ev.timestamp}`;
         if (processedOperationalRefreshesRef.current.has(operationalKey)) return;
         processedOperationalRefreshesRef.current.add(operationalKey);
@@ -445,6 +445,10 @@ export default function Dashboard() {
           void utils.incident.openQueue.invalidate();
           void utils.dashboard.armDisarmStatus.invalidate();
           toast.success(`${ev.actionLabel || "Comando remoto"} confirmado pela central.`);
+        } else if (ev.kind === "radioenge_observation_escalated") {
+          void utils.incident.openQueue.invalidate();
+          startAlertSound();
+          toast.error(`Falha Radioenge E361 da conta ${ev.account} excedeu 4 segundos sem R361 e foi encaminhada para atendimento.`);
         } else {
           void utils.dashboard.armDisarmStatus.invalidate();
           void utils.dashboard.recentAutoFinalizedArmDisarm.invalidate();

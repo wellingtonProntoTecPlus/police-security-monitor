@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordRemoteCommandConfirmation, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -24,6 +24,7 @@ import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consume
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
 import { startViawebEventIntegration } from './viawebIntegration';
+import { getRadioengeKeepAliveObservationUntil, isRadioengeKeepAliveFailure, isRadioengeKeepAliveRestoration } from './radioengeKeepAlivePolicy';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -50,9 +51,45 @@ const compatecPendingBytesBySocket = new WeakMap<object, Buffer>();
 const intelbrasPendingBytesBySocket = new WeakMap<object, Buffer>();
 const compatecAccountBySocket = new WeakMap<object, string>();
 const compatecRecentEventsBySocket = new WeakMap<object, Map<string, number>>();
+const radioengeObservationTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 export function setEventCallback(cb: EventCallback) {
   eventCallback = cb;
+}
+
+function cancelRadioengeObservationTimer(incidentId: number) {
+  const timer = radioengeObservationTimers.get(incidentId);
+  if (timer) clearTimeout(timer);
+  radioengeObservationTimers.delete(incidentId);
+}
+
+function scheduleRadioengeObservationEscalation(input: { incidentId: number; observationUntil: Date }) {
+  cancelRadioengeObservationTimer(input.incidentId);
+  const delay = Math.max(0, input.observationUntil.getTime() - Date.now());
+  const timer = setTimeout(async () => {
+    radioengeObservationTimers.delete(input.incidentId);
+    try {
+      const escalated = await promoteExpiredRadioengeKeepAliveObservations(new Date());
+      for (const item of escalated) {
+        eventCallback?.({
+          kind: "radioenge_observation_escalated",
+          id: item.eventId,
+          incidentId: item.incidentId,
+          alarmSystemId: item.alarmSystemId,
+          account: item.account,
+          brand: item.brand,
+          qualifier: item.qualifier,
+          eventCode: item.eventCode,
+          description: item.description || "Falha de Keep Alive Radioenge sem restauração",
+          timestamp: new Date().toISOString(),
+        });
+        console.warn(`[RECIP] RADIOENGE | Conta ${item.account} | E361 excedeu 4 segundos sem R361; ocorrência encaminhada ao atendimento.`);
+      }
+    } catch (error) {
+      console.error("[RECIP] Falha ao escalar observação E361 da Radioenge", error);
+    }
+  }, delay);
+  radioengeObservationTimers.set(input.incidentId, timer);
 }
 
 function rememberSystem(socket: net.Socket, system: any, receiverPort?: number) {
@@ -921,8 +958,16 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       description = `${captureDescription}${receivedAccount ? ` — conta recebida ${receivedAccount}` : " — sem conta recebida"}: ${description}`;
     }
 
+    const eventReceivedAt = new Date();
     const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
-    const repeatedTrackedIncident = automaticAction === "track_for_restoration" && system?.id
+    const isRadioengeE361 = isRadioengeKeepAliveFailure({ brand: evento.brand, qualifier: evento.qualifier, eventCode: evento.eventCode })
+      && Boolean(system?.id)
+      && !accountResolution.isSystemAccount;
+    const isRadioengeR361 = isRadioengeKeepAliveRestoration({ brand: evento.brand, qualifier: evento.qualifier, eventCode: evento.eventCode })
+      && Boolean(system?.id)
+      && !accountResolution.isSystemAccount;
+    const eventAutomaticAction = isRadioengeR361 ? "try_restoration" as const : automaticAction;
+    const repeatedTrackedIncident = (eventAutomaticAction === "track_for_restoration" || isRadioengeE361) && system?.id
       ? await findOpenTrackedIncident({
         alarmSystemId: system.id,
         account: effectiveAccount,
@@ -935,17 +980,27 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     if (systemInMaintenance) {
       description = `${maintenanceMessage} — ${description}`;
     }
+    const radioengeObservation = isRadioengeE361 && !systemInMaintenance && !repeatedTrackedIncident;
+    const radioengeRestorationCandidate = isRadioengeR361 && !systemInMaintenance
+      ? await findRadioengeKeepAliveObservationForRestoration({
+        alarmSystemId: system?.id,
+        account: effectiveAccount,
+        now: eventReceivedAt,
+      })
+      : undefined;
     // Eventos internos ViaWeb já associados ao ISEP são auditáveis, mas não são
     // ocorrências operacionais. Forçar report_only mantém a confirmação ao
     // Receiver e evita que o EAA5 fique retransmitindo e bloqueie a fila.
-    const deliveryAutomaticAction = isViawebInternalEvent ? "report_only" as const : automaticAction;
+    const deliveryAutomaticAction = isViawebInternalEvent ? "report_only" as const : eventAutomaticAction;
     const deliveryPlan = getOperationalDeliveryPlan({
       isSystemAccount: accountResolution.isSystemAccount,
       automaticAction: deliveryAutomaticAction,
       systemInMaintenance,
     });
-    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident;
-    const automaticFinalizationMessage = repeatedTrackedIncident
+    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident && !radioengeObservation;
+    const automaticFinalizationMessage = radioengeObservation
+      ? "Falha de Keep Alive Radioenge E361 em observação por até 4 segundos, aguardando R361"
+      : repeatedTrackedIncident
       ? "Falha repetida registrada no relatório; ocorrência operacional já aberta aguardando restauração"
       : accountResolution.isSystemAccount
       ? "Registrada na Conta do Sistema (0000) para conferência no relatório"
@@ -958,7 +1013,6 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     let incident: { id: number } | null = null;
     let remoteCommandMatched = false;
     try {
-      const eventReceivedAt = new Date();
       const eventData = {
         alarmSystemId: system?.id || null,
         account: effectiveAccount,
@@ -972,8 +1026,8 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
         rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}\n${argumentContext.label}: ${argumentContext.value}${evento.confirmedIntelbrasIdentifier ? `\nIdentificado por ${evento.confirmedIntelbrasIdentifier}` : system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
-        autoFinalized: !shouldOpenAttendance,
-        autoFinalizationReason: shouldOpenAttendance ? null : automaticFinalizationMessage,
+        autoFinalized: radioengeObservation ? false : !shouldOpenAttendance,
+        autoFinalizationReason: radioengeObservation || shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
       const remoteMatch = system && !accountResolution.isSystemAccount && !systemInMaintenance
         ? await createConfirmedVettiDisarmEventWithOpenIncident({
@@ -989,6 +1043,24 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         incident = { id: remoteMatch.incidentId };
         remoteCommandMatched = true;
         console.log(`[RECIP] VETTI | Conta ${effectiveAccount} | evento associado ao Desarme remoto confirmado #${remoteMatch.commandId}`);
+      } else if (radioengeObservation) {
+        const persisted = await createAlarmEventWithOpenIncident({
+          event: eventData,
+          incident: {
+            alarmSystemId: system?.id || null,
+            clientId: system?.clientId || null,
+            status: "observing",
+            priority: priority as "critical" | "high" | "medium" | "low",
+            observationUntil: getRadioengeKeepAliveObservationUntil(eventReceivedAt),
+            notes: "Radioenge E361 em observação; aguardando R361 por até 4 segundos.",
+          },
+        });
+        savedEvent = { id: persisted.eventId };
+        incident = { id: persisted.incidentId };
+        scheduleRadioengeObservationEscalation({
+          incidentId: persisted.incidentId,
+          observationUntil: getRadioengeKeepAliveObservationUntil(eventReceivedAt),
+        });
       } else if (shouldOpenAttendance) {
         const persisted = await createAlarmEventWithOpenIncident({
           event: eventData,
@@ -1011,7 +1083,43 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       return false;
     }
 
-    if (automaticAction === "try_restoration") {
+    if (radioengeRestorationCandidate) {
+      cancelRadioengeObservationTimer(radioengeRestorationCandidate.incident.id);
+      await finalizeIncidentWithRestoration({
+        incident: radioengeRestorationCandidate.incident,
+        event: {
+          id: savedEvent.id,
+          account: effectiveAccount,
+          eventCode: evento.eventCode,
+          qualifier: evento.qualifier,
+          partition: evento.partition,
+          zoneUser: evento.zoneUser,
+          description,
+          priority,
+          brand: evento.brand,
+          receivedAt: eventReceivedAt,
+        } as any,
+      });
+      if (eventCallback) {
+        eventCallback({
+          id: savedEvent.id,
+          kind: "restoration_closed",
+          originalEventId: radioengeRestorationCandidate.event.id,
+          account: effectiveAccount,
+          brand: evento.brand,
+          qualifier: evento.qualifier,
+          eventCode: evento.eventCode,
+          description: "Finalizado com a restauração do evento",
+          priority,
+          receiverPort: evento.receiverPort,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      console.log(`[RECIP] RADIOENGE | Conta ${effectiveAccount} | R361 recebido dentro de 4 segundos; E361 e R361 fechados juntos.`);
+      return true;
+    }
+
+    if (eventAutomaticAction === "try_restoration") {
       const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: effectiveAccount, restorationCode: evento.eventCode });
       if (pending) {
         await finalizeIncidentWithRestoration(pending);
@@ -1035,7 +1143,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       }
     }
 
-    if ((deliveryPlan.shouldPersistReport || Boolean(repeatedTrackedIncident)) && !remoteCommandMatched) {
+    if ((deliveryPlan.shouldPersistReport || Boolean(repeatedTrackedIncident)) && !remoteCommandMatched && !radioengeObservation) {
       const client = system?.clientId ? await getClient(system.clientId) : undefined;
       await persistAutomaticOccurrence({
         create: createOccurrence,
@@ -1081,7 +1189,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     // Emitir para o dashboard via callback
-    if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && eventCallback) {
+    if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && !radioengeObservation && eventCallback) {
       eventCallback({
         id: savedEvent.id,
         ...evento,

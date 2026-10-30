@@ -1499,6 +1499,71 @@ export async function findOpenTrackedIncident(input: {
   return result[0];
 }
 
+/**
+ * Escala falhas E361 da Radioenge que não receberam R361 dentro da janela
+ * automática. A atualização é persistida para sobreviver a reinícios e pode
+ * ser chamada pelo temporizador do receptor ou pela reconstrução da fila.
+ */
+export async function promoteExpiredRadioengeKeepAliveObservations(now = new Date()) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ incident: incidents, event: alarmEvents })
+    .from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(and(
+      eq(incidents.status, "observing"),
+      eq(alarmEvents.brand, "RADIOENGE"),
+      eq(alarmEvents.qualifier, "E"),
+      eq(alarmEvents.eventCode, "361"),
+      isNotNull(incidents.observationUntil),
+      lte(incidents.observationUntil, now),
+    ));
+  if (rows.length === 0) return [];
+  await db.update(incidents).set({
+    status: "attending",
+    observationUntil: null,
+    notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPrazo Radioenge E361 encerrado sem R361; ocorrência encaminhada para atendimento.')`,
+  }).where(inArray(incidents.id, rows.map(({ incident }) => incident.id)));
+  return rows.map(({ incident, event }) => ({
+    incidentId: incident.id,
+    eventId: event.id,
+    alarmSystemId: incident.alarmSystemId,
+    account: event.account,
+    brand: event.brand,
+    qualifier: event.qualifier,
+    eventCode: event.eventCode,
+    description: event.description,
+  }));
+}
+
+/** Localiza o E361 ainda dentro da janela automática para parear com o R361. */
+export async function findRadioengeKeepAliveObservationForRestoration(input: {
+  alarmSystemId?: number | null;
+  account: string;
+  now?: Date;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const now = input.now || new Date();
+  const result = await db
+    .select({ incident: incidents, event: alarmEvents })
+    .from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(and(
+      eq(incidents.status, "observing"),
+      eq(alarmEvents.brand, "RADIOENGE"),
+      eq(alarmEvents.qualifier, "E"),
+      eq(alarmEvents.eventCode, "361"),
+      eq(alarmEvents.account, input.account),
+      input.alarmSystemId ? eq(incidents.alarmSystemId, input.alarmSystemId) : sql`1=1`,
+      sql`${incidents.observationUntil} > ${now}`,
+    ))
+    .orderBy(desc(incidents.createdAt))
+    .limit(1);
+  return result[0];
+}
+
 export async function listAlarmEvents(limit = 50, offset = 0) {
   const db = await getDb();
   if (!db) return [];
@@ -1596,6 +1661,8 @@ export async function listOpenQueueEvents() {
   if (!db) return [];
   const now = getMaintenanceOperationalNow();
 
+  await promoteExpiredRadioengeKeepAliveObservations(now);
+
   const expiredMaintenances = await db.select({ id: alarmSystems.id })
     .from(alarmSystems)
     .where(lte(alarmSystems.maintenanceEndAt, now));
@@ -1634,7 +1701,11 @@ export async function listOpenQueueEvents() {
     status: "attending",
     observationUntil: null,
     notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPrazo de observação encerrado. Ocorrência retornada para atendimento.')`,
-  }).where(and(eq(incidents.status, "observing"), lte(incidents.observationUntil, now)));
+  }).where(and(
+    eq(incidents.status, "observing"),
+    lte(incidents.observationUntil, now),
+    sql`NOT (${alarmEvents.brand} = 'RADIOENGE' AND ${alarmEvents.qualifier} = 'E' AND ${alarmEvents.eventCode} = '361')`,
+  ));
 
   const rows = await db
     .select({ incident: incidents, event: alarmEvents })

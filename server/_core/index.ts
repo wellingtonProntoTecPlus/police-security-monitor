@@ -55,6 +55,8 @@ async function startServer() {
       console.log(`[Socket.IO] Supervisão emitida: ${event.brand} conta ${event.account}`);
     } else if (event.kind === "remote_command_confirmation") {
       console.log(`[Socket.IO] Comando remoto confirmado: ${event.actionLabel || "ação remota"} | sistema ${event.alarmSystemId} | comando ${event.commandId}`);
+    } else if (event.kind === "radioenge_observation_escalated") {
+      console.log(`[Socket.IO] Radioenge E361 escalado: conta ${event.account} | incidente ${event.incidentId}`);
     } else {
       console.log(`[Socket.IO] Evento emitido: ${event.brand} conta ${event.account} ${event.qualifier}${event.eventCode}`);
     }

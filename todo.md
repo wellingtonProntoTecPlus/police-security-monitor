@@ -334,6 +334,7 @@
 - [x] Interpretar o argumento Contact ID por código e qualificador em todos os fabricantes, sem rotulá-lo genericamente como Zona
 - [x] Registrar os mapeamentos: E361/R361 = IP, R401/E401 e E407/R407 = Usuário, E570/R570 = Zona isolada, E708/R708 = PGM
 - [x] Corrigir a exibição do argumento em Dashboard e Relatórios para preservar a descrição e o número contextual corretos
+- [x] Colocar E361 Radioenge em observação por 4 segundos, parear R361 dentro da janela e escalar a falha para atendimento quando o prazo vencer, para todas as centrais Radioenge cadastradas
 
 ## Botões Armados/Desarmados no Dashboard
 - [x] Preservar a confirmação visível de arme e desarme após eventos analíticos ou disparos JFL
