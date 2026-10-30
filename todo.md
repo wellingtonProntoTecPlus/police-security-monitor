@@ -505,6 +505,7 @@
 - [x] Exibir em janela as centrais online ao clicar no botão Online
 - [x] Exibir em janela as centrais offline ao clicar no botão Offline
 - [x] Disponibilizar Arme e Desarme Compatec sem ocorrência pelas listas Desarmados e Armados, com solicitante, autorizador, motivo, confirmação e auditoria do comando
+- [x] Identificar nas ocorrências os comandos remotos confirmados pela Central de Monitoramento com operador logado, origem e motivo; manter eventos iniciados pelo aplicativo do cliente no fluxo normal
 
 ## Conta Técnica do Sistema
 - [x] Criar e manter a Conta do Sistema 0000 para eventos sem conta ou de central não cadastrada

@@ -17,6 +17,7 @@ import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery, sendIntelbr
 import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 import { buildIntelbrasPhysicalPayload } from "./receiver/intelbrasIsecProgramTransport";
+import { buildRemoteCommandRequestNote } from "./remoteCommandEventCorrelation";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -879,6 +880,15 @@ export const appRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Intelbras em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
       }
 
+      if (input.incidentId) {
+        await db.appendIncidentNote(input.incidentId, buildRemoteCommandRequestNote({
+          commandId: reservation.id,
+          commandType: input.commandType,
+          operatorName: ctx.user.name || "Operador autenticado",
+          reason: input.reason,
+        }));
+      }
+
       const dispatched = await sendIntelbrasPhysicalCommand({ alarmSystemId: system.id, commandId: reservation.id });
       if (!dispatched.sent) {
         const waitingForConnection = dispatched.message.includes("aguardando uma conexão identificada");
@@ -1029,6 +1039,14 @@ export const appRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
       }
       const created = { id: reservation.id };
+      if (input.incidentId) {
+        await db.appendIncidentNote(input.incidentId, buildRemoteCommandRequestNote({
+          commandId: reservation.id,
+          commandType: "arm",
+          operatorName: ctx.user.name || "Operador autenticado",
+          reason: input.reason,
+        }));
+      }
       const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
@@ -1063,6 +1081,14 @@ export const appRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
       }
       const created = { id: reservation.id };
+      if (input.incidentId) {
+        await db.appendIncidentNote(input.incidentId, buildRemoteCommandRequestNote({
+          commandId: reservation.id,
+          commandType: "disarm",
+          operatorName: ctx.user.name || "Operador autenticado",
+          reason: input.reason,
+        }));
+      }
       const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
       if (!dispatched.sent) {
         await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });

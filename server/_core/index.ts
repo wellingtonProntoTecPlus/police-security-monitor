@@ -53,6 +53,8 @@ async function startServer() {
     io.emit("alarm:event", event);
     if (event.kind === "keepalive") {
       console.log(`[Socket.IO] Supervisão emitida: ${event.brand} conta ${event.account}`);
+    } else if (event.kind === "remote_command_confirmation") {
+      console.log(`[Socket.IO] Comando remoto confirmado: ${event.actionLabel || "ação remota"} | sistema ${event.alarmSystemId} | comando ${event.commandId}`);
     } else {
       console.log(`[Socket.IO] Evento emitido: ${event.brand} conta ${event.account} ${event.qualifier}${event.eventCode}`);
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_TOGGLE_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
+import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_TOGGLE_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, isCompatecArmDisarmConfirmation, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
 
 function fakeSocket() {
   const writes: string[] = [];
@@ -71,6 +71,13 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(socket.writes).toEqual(["MB=AK4[12]\r\n"]);
     expect(getCompatecMw1StatusResponseLine(Buffer.from("MB=KA4[12]\r\n"))).toBe("MB=KA4[12]\r\n");
     expect(consumeCompatecMw1StatusResponse(socket, "MB=KA4[12]\r\n")).toEqual({ commandId: 84, payload: COMPATEC_MW1_DISARM_ALL, response: "MB=KA4[12]\r\n" });
+  });
+
+  it("confirma Arme e Desarme somente com uma resposta KA4, nunca com uma consulta", () => {
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[4]\r\n")).toBe(true);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4[12]\r\n")).toBe(true);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA0[03FF]\r\n")).toBe(false);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_STATUS_QUERY, "MB=KA4[4]\r\n")).toBe(false);
   });
 
 });

@@ -16,8 +16,12 @@ export interface AlarmEvent {
   timestamp: string;
   clientId?: number;
   alarmSystemId?: number;
-  kind?: "restoration_closed" | "keepalive" | "arm_disarm_confirmation";
+  kind?: "restoration_closed" | "keepalive" | "arm_disarm_confirmation" | "remote_command_confirmation";
   originalEventId?: number;
+  incidentId?: number;
+  commandId?: number;
+  commandType?: string;
+  actionLabel?: string;
 }
 
 export function useSocket() {

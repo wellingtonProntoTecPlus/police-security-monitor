@@ -48,7 +48,7 @@ import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
-import { buildRemoteCommandIncidentNotes, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
+import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -862,6 +862,139 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   await db.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
+}
+
+/** Anexa a solicitação do comando à ocorrência já aberta, sem criar um evento falso. */
+export async function appendIncidentNote(incidentId: number, note: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.update(incidents).set({
+    notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${note}`})`,
+  }).where(and(eq(incidents.id, incidentId), ne(incidents.status, "closed")));
+}
+
+/**
+ * Confirma um comando físico Compatec e o torna visível no atendimento ou no
+ * relatório. O evento Contact ID enviado pelo painel continua sendo tratado
+ * separadamente; este registro descreve somente a ação iniciada pelo operador.
+ */
+export async function recordRemoteCommandConfirmation(input: {
+  commandId: number;
+  responsePayload: string;
+  confirmedAt?: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const confirmedAt = input.confirmedAt || new Date();
+
+  return db.transaction(async (tx) => {
+    const [command] = await tx.select().from(alarmRemoteCommands)
+      .where(eq(alarmRemoteCommands.id, input.commandId))
+      .limit(1)
+      .for("update");
+    if (!command) return { recorded: false as const };
+
+    await tx.update(alarmRemoteCommands).set({
+      status: "responded",
+      responsePayload: input.responsePayload,
+      panelConfirmedAt: confirmedAt,
+      executedAt: confirmedAt,
+    }).where(eq(alarmRemoteCommands.id, command.id));
+
+    const [operator] = await tx.select({ name: users.name }).from(users).where(eq(users.id, command.operatorId)).limit(1);
+    const operatorName = operator?.name || "Operador autenticado";
+    const actionLabel = getRemoteCommandActionLabel(command.commandType);
+    const incidentNote = buildRemoteCommandIncidentNotes({
+      commandId: command.id,
+      commandLabel: actionLabel,
+      requestedBy: operatorName,
+    });
+
+    if (command.incidentId) {
+      const [incident] = await tx.select({ id: incidents.id, status: incidents.status })
+        .from(incidents)
+        .where(eq(incidents.id, command.incidentId))
+        .limit(1);
+      if (incident && incident.status !== "closed") {
+        await tx.update(incidents).set({
+          notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${incidentNote}`})`,
+        }).where(and(eq(incidents.id, command.incidentId), ne(incidents.status, "closed")));
+        return {
+          recorded: true as const,
+          commandId: command.id,
+          alarmSystemId: command.alarmSystemId,
+          incidentId: command.incidentId,
+          commandType: command.commandType,
+          actionLabel,
+        };
+      }
+    }
+
+    if (command.transportMode !== "microbus_compatec" || !["arm", "disarm"].includes(command.commandType)) {
+      return {
+        recorded: true as const,
+        commandId: command.id,
+        alarmSystemId: command.alarmSystemId,
+        incidentId: null,
+        commandType: command.commandType,
+        actionLabel,
+      };
+    }
+
+    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1);
+    const [client] = system?.clientId
+      ? await tx.select().from(clients).where(eq(clients.id, system.clientId)).limit(1)
+      : [];
+    const marker = `[COMANDO REMOTO #${command.id}]`;
+    const [existingOccurrence] = await tx.select({ id: occurrences.id }).from(occurrences)
+      .where(like(occurrences.observations, `%${marker}%`))
+      .limit(1);
+    let occurrenceId = existingOccurrence?.id || null;
+    if (!existingOccurrence) {
+      const text = buildRemoteCommandOccurrenceText({
+        commandId: command.id,
+        commandType: command.commandType,
+        operatorName,
+        reason: command.reason,
+        response: input.responsePayload,
+      });
+      const occurrenceResult = await tx.insert(occurrences).values({
+        account: system?.account || "0000",
+        eventCode: text.eventCode,
+        qualifier: text.qualifier,
+        partition: null,
+        zoneUser: null,
+        description: text.description,
+        priority: "low",
+        brand: system?.brand || command.brand,
+        clientId: system?.clientId || null,
+        clientName: client?.fantasyName || client?.name || null,
+        systemId: system?.id || command.alarmSystemId,
+        partnerCompanyId: client?.partnerCompanyId || null,
+        operatorId: command.operatorId,
+        operatorName,
+        status: "finalized",
+        observations: `${text.observations}\n${marker}`,
+        logs: JSON.stringify([`[${confirmedAt.toLocaleTimeString("pt-BR")}] ${actionLabel} confirmado pela central.`]),
+        attendingTimeMs: 0,
+        sendEmail: false,
+        sendPush: false,
+        eventReceivedAt: confirmedAt,
+        startedAt: command.confirmedAt,
+        finalizedAt: confirmedAt,
+      });
+      occurrenceId = Number(occurrenceResult[0].insertId);
+    }
+    return {
+      recorded: true as const,
+      commandId: command.id,
+      alarmSystemId: command.alarmSystemId,
+      incidentId: null,
+      occurrenceId,
+      commandType: command.commandType,
+      actionLabel,
+    };
+  });
 }
 
 /**

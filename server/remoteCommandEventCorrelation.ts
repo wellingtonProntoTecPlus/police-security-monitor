@@ -14,6 +14,55 @@ export type IncomingRemoteEvent = {
   receivedAt: Date;
 };
 
+export function getRemoteCommandActionLabel(commandType: string) {
+  return commandType === "arm"
+    ? "Armado Remoto por Central de Monitoramento"
+    : commandType === "disarm"
+      ? "Desarmado Remoto por Central de Monitoramento"
+      : `Comando remoto ${commandType}`;
+}
+
+export function buildRemoteCommandRequestNote(input: {
+  commandId: number;
+  commandType: string;
+  operatorName: string;
+  reason: string;
+}) {
+  return [
+    "[COMANDO REMOTO SOLICITADO]",
+    `Ação: ${getRemoteCommandActionLabel(input.commandType)}`,
+    "Origem: Central de Monitoramento",
+    `Operador: ${input.operatorName}`,
+    `Motivo: ${input.reason}`,
+    "Status: aguardando confirmação da central.",
+    `Auditoria do comando: #${input.commandId}`,
+  ].join("\n");
+}
+
+export function buildRemoteCommandOccurrenceText(input: {
+  commandId: number;
+  commandType: string;
+  operatorName: string;
+  reason: string;
+  response?: string | null;
+}) {
+  const action = getRemoteCommandActionLabel(input.commandType);
+  return {
+    eventCode: "REMOTE",
+    qualifier: null,
+    description: action,
+    observations: [
+      action,
+      "Origem: Central de Monitoramento",
+      `Operador: ${input.operatorName}`,
+      `Motivo: ${input.reason}`,
+      "Confirmação recebida da central.",
+      input.response ? `Resposta da central: ${input.response}` : null,
+      `Auditoria do comando: #${input.commandId}`,
+    ].filter(Boolean).join("\n"),
+  };
+}
+
 /**
  * A associação é deliberadamente restrita aos comandos físicos cuja
  * confirmação e evento Contact ID são conhecidos. Não se infere origem de
@@ -47,6 +96,8 @@ export function buildRemoteCommandIncidentNotes(input: {
   const rows = [
     "[COMANDO REMOTO CONFIRMADO]",
     `Ação: ${input.commandLabel}`,
+    "Origem: Central de Monitoramento",
+    `Operador: ${input.requestedBy}`,
     `Solicitado por: ${input.requestedBy}`,
   ];
   if (input.panelUser) rows.push(`Usuário informado pela central: ${input.panelUser}`);

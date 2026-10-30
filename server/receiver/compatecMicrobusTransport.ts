@@ -73,6 +73,11 @@ export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: s
   return { ...pending, response };
 }
 
+export function isCompatecArmDisarmConfirmation(payload: string, response: string) {
+  const isAction = payload === COMPATEC_MW1_ARM_ALL || payload === COMPATEC_MW1_DISARM_ALL;
+  return isAction && /^MB=KA4\[[^\r\n]*\]\r?\n?$/.test(response);
+}
+
 export function getCompatecMw1StatusResponseLine(input: Buffer) {
   const text = input.toString("latin1");
   const match = text.match(/MB=KA[014](?:\[[^\r\n]*\])?\r?\n?/);

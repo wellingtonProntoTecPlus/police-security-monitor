@@ -4,6 +4,7 @@ import {
   getAlarmSystem,
   getLatestArmDisarmStatusForSystem,
   getPendingIntelbrasPhysicalCommand,
+  recordRemoteCommandConfirmation,
   updateAlarmRemoteCommandDelivery,
 } from "../db";
 import {
@@ -176,14 +177,19 @@ export async function consumeIntelbrasPhysicalResponse(socket: net.Socket, frame
   pendingBySocket.delete(socket);
   clearCommandTimeout(socket);
   const confirmed = response.accepted && isIntelbrasPhysicalStateConfirmed(pending.commandType, response.status);
-  await updateAlarmRemoteCommandDelivery(pending.commandId, {
-    status: confirmed ? "responded" : "failed",
-    responsePayload: confirmed
-      ? `${getIntelbrasPhysicalResponseDescription(response)} Estado confirmado pela central.`
-      : `${getIntelbrasPhysicalResponseDescription(response)} Estado não confirmado; nenhuma confirmação falsa foi registrada.`,
-    panelConfirmedAt: confirmed ? new Date() : null,
-    executedAt: new Date(),
-  });
+  const responsePayload = confirmed
+    ? `${getIntelbrasPhysicalResponseDescription(response)} Estado confirmado pela central.`
+    : `${getIntelbrasPhysicalResponseDescription(response)} Estado não confirmado; nenhuma confirmação falsa foi registrada.`;
+  if (confirmed) {
+    await recordRemoteCommandConfirmation({ commandId: pending.commandId, responsePayload });
+  } else {
+    await updateAlarmRemoteCommandDelivery(pending.commandId, {
+      status: "failed",
+      responsePayload,
+      panelConfirmedAt: null,
+      executedAt: new Date(),
+    });
+  }
   console.log(`[ISEC] INTELBRAS E7/0x96 ${confirmed ? "confirmado" : "recusado"} | comando ${pending.commandId} | status 0x${response.status.toString(16).toUpperCase().padStart(2, "0")}`);
   return true;
 }

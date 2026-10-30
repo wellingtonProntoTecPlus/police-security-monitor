@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, recordRemoteCommandConfirmation, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -19,7 +19,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractIntelbrasIsecnetFrames, isIntelbrasIsecnetHeartbeat, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
-import { consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, rememberActiveCompatecSession, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, isCompatecArmDisarmConfirmation, rememberActiveCompatecSession, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
@@ -708,8 +708,39 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
   if (microbusResponse) {
     const completed = consumeCompatecMw1StatusResponse(socket, microbusResponse);
     if (completed) {
-      await updateAlarmRemoteCommandDelivery(completed.commandId, { status: "responded", responsePayload: microbusResponse, executedAt: new Date() });
-      console.log(`[MICROBUS] COMPATEC consulta confirmada pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+      const isPhysicalAction = completed.payload === COMPATEC_MW1_ARM_ALL || completed.payload === COMPATEC_MW1_DISARM_ALL;
+      if (isPhysicalAction && isCompatecArmDisarmConfirmation(completed.payload, microbusResponse)) {
+        const confirmation = await recordRemoteCommandConfirmation({
+          commandId: completed.commandId,
+          responsePayload: microbusResponse,
+        });
+        if (confirmation.recorded) {
+          eventCallback?.({
+            kind: "remote_command_confirmation",
+            alarmSystemId: confirmation.alarmSystemId,
+            incidentId: confirmation.incidentId || undefined,
+            commandId: confirmation.commandId,
+            commandType: confirmation.commandType,
+            actionLabel: confirmation.actionLabel,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        if (confirmation.recorded) {
+          console.log(`[MICROBUS] COMPATEC ${confirmation.actionLabel} confirmado pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+        } else {
+          console.warn(`[MICROBUS] COMPATEC resposta recebida para comando inexistente | comando ${completed.commandId}`);
+        }
+      } else if (isPhysicalAction) {
+        await updateAlarmRemoteCommandDelivery(completed.commandId, {
+          status: "failed",
+          responsePayload: `Resposta incompatível com o comando Compatec: ${microbusResponse.replace(/\r?\n/g, "")}`,
+          executedAt: new Date(),
+        });
+        console.warn(`[MICROBUS] COMPATEC resposta incompatível com Arme/Desarme | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+      } else {
+        await updateAlarmRemoteCommandDelivery(completed.commandId, { status: "responded", responsePayload: microbusResponse, executedAt: new Date() });
+        console.log(`[MICROBUS] COMPATEC consulta confirmada pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+      }
     }
   }
   const pending = compatecPendingBytesBySocket.get(socket) || Buffer.alloc(0);
