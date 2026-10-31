@@ -475,12 +475,70 @@ export const alarmSchedules = mysqlTable("alarm_schedules", {
   saturdayDisarm: varchar("saturdayDisarm", { length: 5 }),
   sundayArm: varchar("sundayArm", { length: 5 }),
   sundayDisarm: varchar("sundayDisarm", { length: 5 }),
+  holidayArm: varchar("holidayArm", { length: 5 }),
+  holidayDisarm: varchar("holidayDisarm", { length: 5 }),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type AlarmSchedule = typeof alarmSchedules.$inferSelect;
 export type InsertAlarmSchedule = typeof alarmSchedules.$inferInsert;
+
+// Exceções excepcionais por data e sistema: suspensão integral ou sobreposição
+// pontual dos horários semanais/feriado, sempre com solicitante e motivo.
+export const alarmScheduleOverrides = mysqlTable("alarm_schedule_overrides", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  overrideDate: varchar("overrideDate", { length: 10 }).notNull(), // YYYY-MM-DD
+  mode: mysqlEnum("mode", ["suspended", "override"]).notNull(),
+  armAt: varchar("armAt", { length: 5 }),
+  disarmAt: varchar("disarmAt", { length: 5 }),
+  requester: varchar("requester", { length: 255 }).notNull(),
+  reason: text("reason").notNull(),
+  createdBy: int("createdBy").notNull(),
+  updatedBy: int("updatedBy").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("alarm_schedule_overrides_system_date_unique").on(table.alarmSystemId, table.overrideDate)]);
+export type AlarmScheduleOverride = typeof alarmScheduleOverrides.$inferSelect;
+export type InsertAlarmScheduleOverride = typeof alarmScheduleOverrides.$inferInsert;
+
+export const alarmScheduleOverrideAudit = mysqlTable("alarm_schedule_override_audit", {
+  id: int("id").autoincrement().primaryKey(),
+  overrideId: int("overrideId"),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  overrideDate: varchar("overrideDate", { length: 10 }).notNull(),
+  action: mysqlEnum("action", ["created", "updated", "cancelled"]).notNull(),
+  operatorId: int("operatorId").notNull(),
+  operatorName: varchar("operatorName", { length: 255 }).notNull(),
+  requester: varchar("requester", { length: 255 }).notNull(),
+  reason: text("reason").notNull(),
+  previousSettings: text("previousSettings"),
+  newSettings: text("newSettings"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type AlarmScheduleOverrideAudit = typeof alarmScheduleOverrideAudit.$inferSelect;
+
+export const alarmScheduleAlerts = mysqlTable("alarm_schedule_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  scheduleId: int("scheduleId"),
+  sourceEventId: int("sourceEventId"),
+  alertType: mysqlEnum("alertType", ["missed_arm", "unexpected_disarm"]).notNull(),
+  dedupeKey: varchar("dedupeKey", { length: 191 }).notNull().unique(),
+  alertDate: varchar("alertDate", { length: 10 }).notNull(), // YYYY-MM-DD no horário operacional
+  expectedAt: timestamp("expectedAt"),
+  detectedAt: timestamp("detectedAt").defaultNow().notNull(),
+  currentState: varchar("currentState", { length: 20 }),
+  status: mysqlEnum("status", ["active", "acknowledged", "resolved"]).default("active").notNull(),
+  acknowledgedBy: int("acknowledgedBy"),
+  acknowledgedAt: timestamp("acknowledgedAt"),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AlarmScheduleAlert = typeof alarmScheduleAlerts.$inferSelect;
 
 // ============================================================
 // PROVIDÊNCIAS DO CLIENTE (instruções para o operador)

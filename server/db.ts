@@ -20,6 +20,9 @@ import {
   systemDisconnectAlerts,
   alarmRemoteCommands, InsertAlarmRemoteCommand,
   alarmRemoteCredentials,
+  alarmScheduleOverrides, InsertAlarmScheduleOverride,
+  alarmScheduleOverrideAudit,
+  alarmScheduleAlerts,
 } from "../drizzle/schema";
 import {
   alarmPgms, InsertAlarmPgm,
@@ -36,6 +39,7 @@ import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 import { getLatestArmDisarmStatusBySystem, isArmDisarmStatusEvent, STANDARD_ARM_DISARM_EVENT_CODES } from "./armDisarmStatus";
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
+import { classifyContactIdOperationalEvent, evaluateAlarmSchedule } from "./alarmSchedulePolicy";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
@@ -2059,6 +2063,23 @@ export async function updateAlarmSchedule(id: number, data: Partial<InsertAlarmS
   await db.update(alarmSchedules).set(formatRegistrationFields(data, ["name"])).where(eq(alarmSchedules.id, id));
 }
 
+export async function upsertAlarmSchedule(data: InsertAlarmSchedule) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const partition = data.partition || 1;
+  const existing = await db.select({ id: alarmSchedules.id }).from(alarmSchedules).where(and(
+    eq(alarmSchedules.alarmSystemId, data.alarmSystemId),
+    eq(alarmSchedules.partition, partition),
+  )).limit(1);
+  if (existing[0]) {
+    await db.update(alarmSchedules).set(formatRegistrationFields({ ...data, isActive: data.isActive ?? true }, ["name"]))
+      .where(eq(alarmSchedules.id, existing[0].id));
+    return { id: existing[0].id, updated: true as const };
+  }
+  const result = await db.insert(alarmSchedules).values(formatRegistrationFields({ ...data, partition, isActive: data.isActive ?? true }, ["name"]));
+  return { id: Number(result[0].insertId), updated: false as const };
+}
+
 // ============================================================
 // CLIENT PROCEDURES
 // ============================================================
@@ -2101,6 +2122,348 @@ export async function updatePartnerHoliday(id: number, data: Partial<InsertPartn
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(partnerHolidays).set(formatRegistrationFields(data, ["name"])).where(eq(partnerHolidays.id, id));
+}
+
+export async function getAlarmScheduleOverride(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(alarmScheduleOverrides).where(eq(alarmScheduleOverrides.id, id)).limit(1);
+  return rows[0] || null;
+}
+
+export async function listAlarmScheduleOverrides(alarmSystemId: number, includeInactive = true) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(alarmScheduleOverrides.alarmSystemId, alarmSystemId)];
+  if (!includeInactive) conditions.push(eq(alarmScheduleOverrides.isActive, true));
+  return db.select().from(alarmScheduleOverrides).where(and(...conditions)).orderBy(alarmScheduleOverrides.overrideDate);
+}
+
+export async function listAlarmScheduleOverrideAudit(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(alarmScheduleOverrideAudit)
+    .where(eq(alarmScheduleOverrideAudit.alarmSystemId, alarmSystemId))
+    .orderBy(desc(alarmScheduleOverrideAudit.createdAt))
+    .limit(100);
+}
+
+export async function saveAlarmScheduleOverride(input: {
+  alarmSystemId: number;
+  overrideDate: string;
+  mode: "suspended" | "override";
+  armAt?: string | null;
+  disarmAt?: string | null;
+  requester: string;
+  reason: string;
+  operatorId: number;
+  operatorName: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.transaction(async (tx) => {
+    const existingRows = await tx.select().from(alarmScheduleOverrides).where(and(
+      eq(alarmScheduleOverrides.alarmSystemId, input.alarmSystemId),
+      eq(alarmScheduleOverrides.overrideDate, input.overrideDate),
+    )).limit(1);
+    const previous = existingRows[0] || null;
+    const values: Omit<InsertAlarmScheduleOverride, "id"> = {
+      alarmSystemId: input.alarmSystemId,
+      overrideDate: input.overrideDate,
+      mode: input.mode,
+      armAt: input.mode === "suspended" ? null : input.armAt || null,
+      disarmAt: input.mode === "suspended" ? null : input.disarmAt || null,
+      requester: input.requester,
+      reason: input.reason,
+      createdBy: previous?.createdBy || input.operatorId,
+      updatedBy: input.operatorId,
+      isActive: true,
+    };
+    let overrideId: number;
+    if (previous) {
+      await tx.update(alarmScheduleOverrides).set(values).where(eq(alarmScheduleOverrides.id, previous.id));
+      overrideId = previous.id;
+    } else {
+      const result = await tx.insert(alarmScheduleOverrides).values(values);
+      overrideId = Number(result[0].insertId);
+    }
+    await tx.insert(alarmScheduleOverrideAudit).values({
+      overrideId,
+      alarmSystemId: input.alarmSystemId,
+      overrideDate: input.overrideDate,
+      action: previous ? "updated" : "created",
+      operatorId: input.operatorId,
+      operatorName: input.operatorName,
+      requester: input.requester,
+      reason: input.reason,
+      previousSettings: previous ? JSON.stringify({ mode: previous.mode, armAt: previous.armAt, disarmAt: previous.disarmAt, isActive: previous.isActive }) : null,
+      newSettings: JSON.stringify({ mode: values.mode, armAt: values.armAt, disarmAt: values.disarmAt, isActive: true }),
+    });
+    return { id: overrideId };
+  });
+}
+
+export async function cancelAlarmScheduleOverride(input: { id: number; operatorId: number; operatorName: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.transaction(async (tx) => {
+    const existingRows = await tx.select().from(alarmScheduleOverrides).where(eq(alarmScheduleOverrides.id, input.id)).limit(1);
+    const existing = existingRows[0];
+    if (!existing) throw new Error("Exceção de agenda não encontrada");
+    if (!existing.isActive) return { success: true as const };
+    await tx.update(alarmScheduleOverrides).set({ isActive: false, updatedBy: input.operatorId }).where(eq(alarmScheduleOverrides.id, input.id));
+    await tx.insert(alarmScheduleOverrideAudit).values({
+      overrideId: existing.id,
+      alarmSystemId: existing.alarmSystemId,
+      overrideDate: existing.overrideDate,
+      action: "cancelled",
+      operatorId: input.operatorId,
+      operatorName: input.operatorName,
+      requester: existing.requester,
+      reason: existing.reason,
+      previousSettings: JSON.stringify({ mode: existing.mode, armAt: existing.armAt, disarmAt: existing.disarmAt, isActive: true }),
+      newSettings: JSON.stringify({ isActive: false }),
+    });
+    return { success: true as const };
+  });
+}
+
+export async function getAlarmScheduleContext(alarmSystemId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const systemRows = await db.select({ system: alarmSystems, partnerCompanyId: clients.partnerCompanyId })
+    .from(alarmSystems)
+    .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(eq(alarmSystems.id, alarmSystemId))
+    .limit(1);
+  const systemRow = systemRows[0];
+  if (!systemRow?.system) return null;
+  const scheduleRows = await db.select().from(alarmSchedules)
+    .where(and(eq(alarmSchedules.alarmSystemId, alarmSystemId), eq(alarmSchedules.isActive, true)))
+    .orderBy(alarmSchedules.partition, alarmSchedules.id)
+    .limit(1);
+  if (!scheduleRows[0]) return { system: systemRow.system, schedule: null, holidays: [], exceptions: [] };
+  const [holidayRows, exceptionRows] = await Promise.all([
+    systemRow.partnerCompanyId ? db.select().from(partnerHolidays).where(eq(partnerHolidays.partnerCompanyId, systemRow.partnerCompanyId)) : Promise.resolve([]),
+    db.select().from(alarmScheduleOverrides).where(and(eq(alarmScheduleOverrides.alarmSystemId, alarmSystemId), eq(alarmScheduleOverrides.isActive, true))),
+  ]);
+  const holidays = holidayRows.map((holiday) => ({
+    date: holiday.date,
+    holidayArm: scheduleRows[0].holidayArm,
+    holidayDisarm: scheduleRows[0].holidayDisarm,
+  }));
+  const exceptions = exceptionRows.map((item) => ({
+    date: item.overrideDate,
+    suspended: item.mode === "suspended",
+    override: item.mode === "override" ? {
+      ...(item.armAt ? { armAt: item.armAt } : {}),
+      ...(item.disarmAt ? { disarmAt: item.disarmAt } : {}),
+    } : null,
+  }));
+  return { system: systemRow.system, schedule: scheduleRows[0], holidays, exceptions };
+}
+
+export async function listAlarmScheduleAlerts(filters: {
+  status?: "active" | "acknowledged" | "resolved" | "all";
+  dateFrom?: string;
+  dateTo?: string;
+  account?: string;
+  clientId?: number;
+  partnerCompanyId?: number;
+  limit?: number;
+} = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions: any[] = [];
+  if (filters.status && filters.status !== "all") conditions.push(eq(alarmScheduleAlerts.status, filters.status));
+  if (filters.dateFrom) conditions.push(gte(alarmScheduleAlerts.alertDate, filters.dateFrom));
+  if (filters.dateTo) conditions.push(lte(alarmScheduleAlerts.alertDate, filters.dateTo));
+  if (filters.account?.trim()) conditions.push(like(alarmSystems.account, `%${filters.account.trim()}%`));
+  if (filters.clientId) conditions.push(eq(clients.id, filters.clientId));
+  if (filters.partnerCompanyId) conditions.push(eq(clients.partnerCompanyId, filters.partnerCompanyId));
+  return db.select({
+    id: alarmScheduleAlerts.id,
+    alarmSystemId: alarmScheduleAlerts.alarmSystemId,
+    scheduleId: alarmScheduleAlerts.scheduleId,
+    sourceEventId: alarmScheduleAlerts.sourceEventId,
+    alertType: alarmScheduleAlerts.alertType,
+    alertDate: alarmScheduleAlerts.alertDate,
+    expectedAt: alarmScheduleAlerts.expectedAt,
+    detectedAt: alarmScheduleAlerts.detectedAt,
+    currentState: alarmScheduleAlerts.currentState,
+    status: alarmScheduleAlerts.status,
+    acknowledgedBy: alarmScheduleAlerts.acknowledgedBy,
+    acknowledgedByName: users.name,
+    acknowledgedAt: alarmScheduleAlerts.acknowledgedAt,
+    resolvedAt: alarmScheduleAlerts.resolvedAt,
+    account: alarmSystems.account,
+    brand: alarmSystems.brand,
+    model: alarmSystems.model,
+    clientId: clients.id,
+    clientName: clients.name,
+    fantasyName: clients.fantasyName,
+    partnerCompanyId: clients.partnerCompanyId,
+    partnerName: partnerCompanies.name,
+  }).from(alarmScheduleAlerts)
+    .innerJoin(alarmSystems, eq(alarmScheduleAlerts.alarmSystemId, alarmSystems.id))
+    .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .leftJoin(partnerCompanies, eq(clients.partnerCompanyId, partnerCompanies.id))
+    .leftJoin(users, eq(alarmScheduleAlerts.acknowledgedBy, users.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(alarmScheduleAlerts.detectedAt))
+    .limit(Math.min(Math.max(filters.limit || 500, 1), 2000));
+}
+
+export async function getAlarmScheduleAlertPartnerScope(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ id: alarmScheduleAlerts.id, partnerCompanyId: clients.partnerCompanyId })
+    .from(alarmScheduleAlerts)
+    .innerJoin(alarmSystems, eq(alarmScheduleAlerts.alarmSystemId, alarmSystems.id))
+    .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(eq(alarmScheduleAlerts.id, id))
+    .limit(1);
+  return rows[0] || null;
+}
+
+export async function acknowledgeAlarmScheduleAlert(input: { id: number; operatorId: number; acknowledgedAt?: Date }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(alarmScheduleAlerts).set({ status: "acknowledged", acknowledgedBy: input.operatorId, acknowledgedAt: input.acknowledgedAt || new Date() })
+    .where(and(eq(alarmScheduleAlerts.id, input.id), eq(alarmScheduleAlerts.status, "active")));
+  return { success: true as const };
+}
+
+export async function createAlarmScheduleComplianceAlert(input: {
+  alarmSystemId: number;
+  scheduleId: number;
+  sourceEventId?: number | null;
+  alertType: "missed_arm" | "unexpected_disarm";
+  dedupeKey: string;
+  alertDate: string;
+  expectedAt: Date | null;
+  currentState: "armed" | "disarmed";
+  detectedAt?: Date;
+}) {
+  const db = await getDb();
+  if (!db) return { created: false as const };
+  const existing = await db.select({ id: alarmScheduleAlerts.id, status: alarmScheduleAlerts.status })
+    .from(alarmScheduleAlerts).where(eq(alarmScheduleAlerts.dedupeKey, input.dedupeKey)).limit(1);
+  if (existing[0]) return { created: false as const, id: existing[0].id, status: existing[0].status };
+  try {
+    const result = await db.insert(alarmScheduleAlerts).values({
+      alarmSystemId: input.alarmSystemId,
+      scheduleId: input.scheduleId,
+      sourceEventId: input.sourceEventId || null,
+      alertType: input.alertType,
+      dedupeKey: input.dedupeKey,
+      alertDate: input.alertDate,
+      expectedAt: input.expectedAt,
+      currentState: input.currentState,
+      status: "active",
+      detectedAt: input.detectedAt || new Date(),
+    });
+    return { created: true as const, id: Number(result[0].insertId), status: "active" as const };
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_ENTRY") return { created: false as const };
+    throw error;
+  }
+}
+
+export async function resolveAlarmScheduleAlerts(input: { alarmSystemId: number; alertTypes?: Array<"missed_arm" | "unexpected_disarm">; resolvedAt?: Date }) {
+  const db = await getDb();
+  if (!db) return { updated: 0 };
+  const conditions = [eq(alarmScheduleAlerts.alarmSystemId, input.alarmSystemId), eq(alarmScheduleAlerts.status, "active")];
+  if (input.alertTypes?.length) conditions.push(inArray(alarmScheduleAlerts.alertType, input.alertTypes));
+  const result = await db.update(alarmScheduleAlerts).set({ status: "resolved", resolvedAt: input.resolvedAt || new Date() }).where(and(...conditions));
+  return { updated: Number(result[0].affectedRows || 0) };
+}
+
+function getSaoPauloDateKey(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${fields.year}-${fields.month}-${fields.day}`;
+}
+
+export async function sweepAlarmScheduleCompliance(now = new Date()) {
+  const db = await getDb();
+  if (!db) return { opened: [] as any[], skipped: 0, resolved: 0 };
+  const activeSchedules = await db.select().from(alarmSchedules).where(and(
+    eq(alarmSchedules.isActive, true),
+    eq(alarmSchedules.partition, 1),
+  ));
+  if (!activeSchedules.length) return { opened: [] as any[], skipped: 0, resolved: 0 };
+
+  const statuses = await getArmDisarmStatus();
+  const statusBySystem = new Map<number, any>();
+  for (const item of [...statuses.armed, ...statuses.disarmed]) statusBySystem.set(item.alarmSystemId, item);
+  const scheduledSystemIds = Array.from(new Set(activeSchedules.map((row) => row.alarmSystemId)));
+  const systemRows = await db.select({ system: alarmSystems, partnerCompanyId: clients.partnerCompanyId })
+    .from(alarmSystems)
+    .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(eq(alarmSystems.isActive, true), inArray(alarmSystems.id, scheduledSystemIds)));
+  const systemsById = new Map(systemRows.map((row) => [row.system.id, row]));
+  const partnerIds = Array.from(new Set(systemRows.map((row) => row.partnerCompanyId).filter((id): id is number => Boolean(id))));
+  const [allHolidays, allExceptions] = await Promise.all([
+    partnerIds.length ? db.select().from(partnerHolidays).where(inArray(partnerHolidays.partnerCompanyId, partnerIds)) : Promise.resolve([]),
+    db.select().from(alarmScheduleOverrides).where(and(eq(alarmScheduleOverrides.isActive, true), inArray(alarmScheduleOverrides.alarmSystemId, scheduledSystemIds))),
+  ]);
+  const opened: any[] = [];
+  let skipped = 0;
+  let resolved = 0;
+  for (const schedule of activeSchedules) {
+    const status = statusBySystem.get(schedule.alarmSystemId);
+    const systemRow = systemsById.get(schedule.alarmSystemId);
+    if (!status || !systemRow) { skipped += 1; continue; }
+    const partnerId = systemRow.partnerCompanyId;
+    const holidays = allHolidays
+      .filter((holiday) => holiday.partnerCompanyId === partnerId)
+      .map((holiday) => ({ date: holiday.date, holidayArm: schedule.holidayArm, holidayDisarm: schedule.holidayDisarm }));
+    const exceptions = allExceptions.filter((item) => item.alarmSystemId === schedule.alarmSystemId).map((item) => ({
+      date: item.overrideDate,
+      suspended: item.mode === "suspended",
+      override: item.mode === "override" ? {
+        ...(item.armAt ? { armAt: item.armAt } : {}),
+        ...(item.disarmAt ? { disarmAt: item.disarmAt } : {}),
+      } : null,
+    }));
+    const decision = evaluateAlarmSchedule({ schedule, holidays, exceptions, at: now, actualState: status.state });
+    if (decision.status === "missed_arm" && status.state === "disarmed" && decision.transition?.kind === "arm") {
+      const expectedAt = decision.transition.at;
+      const alertDate = getSaoPauloDateKey(expectedAt);
+      const dedupeKey = `${schedule.alarmSystemId}:${schedule.id}:missed_arm:${alertDate}:${expectedAt.toISOString()}`;
+      const created = await createAlarmScheduleComplianceAlert({
+        alarmSystemId: schedule.alarmSystemId,
+        scheduleId: schedule.id,
+        alertType: "missed_arm",
+        dedupeKey,
+        alertDate,
+        expectedAt,
+        currentState: "disarmed",
+        detectedAt: now,
+      });
+      if (created.created) opened.push({
+        id: created.id,
+        alarmSystemId: schedule.alarmSystemId,
+        account: systemRow.system.account,
+        brand: systemRow.system.brand,
+        alertType: "missed_arm",
+        alertDate,
+        expectedAt,
+        detectedAt: now,
+        status: "active",
+      });
+    } else {
+      const result = await resolveAlarmScheduleAlerts({ alarmSystemId: schedule.alarmSystemId, resolvedAt: now });
+      resolved += result.updated;
+    }
+  }
+  return { opened, skipped, resolved };
 }
 
 // ============================================================
@@ -2377,9 +2740,10 @@ export async function getLatestArmDisarmStatusForSystem(alarmSystemId: number) {
     brand: alarmEvents.brand,
     receivedAt: alarmEvents.receivedAt,
     alarmSystemId: alarmEvents.alarmSystemId,
+    description: alarmEvents.description,
   }).from(alarmEvents).where(and(
     eq(alarmEvents.alarmSystemId, alarmSystemId),
-    inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701"]),
+    inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"]),
   )).orderBy(desc(alarmEvents.receivedAt));
   return rows.find((event) => isArmDisarmStatusEvent(event));
 }
@@ -2388,8 +2752,8 @@ export async function getArmDisarmStatus() {
   const db = await getDb();
   if (!db) return { armed: [], disarmed: [] };
   
-  // Buscar o último evento de arme/desarme de cada conta
-  const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701"];
+  // Buscar os códigos de estado do painel; a classificação final considera marca e qualifier.
+  const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"];
   
   const lastEvents = await db.select().from(alarmEvents)
     .where(and(
@@ -2433,6 +2797,8 @@ export async function getArmDisarmStatus() {
     const entry = {
       account,
       qualifier: status.qualifier,
+      state: status.state,
+      eventCode: status.eventCode,
       lastEvent: status.receivedAt,
       clientName,
       clientFantasyName,
@@ -2445,7 +2811,7 @@ export async function getArmDisarmStatus() {
       model: systemInfo?.model || null,
     };
     
-    if (status.qualifier === 'R') {
+    if (status.state === "armed") {
       armed.push(entry);
     } else {
       disarmed.push(entry);
@@ -2459,7 +2825,7 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
   const db = await getDb();
   if (!db) return [];
 
-  const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701"];
+  const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"];
   const activeSystems = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isActive, true));
   const activeSystemIds = activeSystems.map((system) => system.id);
   if (activeSystemIds.length === 0) return [];

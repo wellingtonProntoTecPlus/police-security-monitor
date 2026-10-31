@@ -782,6 +782,22 @@ export const appRouter = router({
     stats: operatorProcedure.query(() => db.getDashboardStats()),
     armDisarmStatus: operatorProcedure.query(() => db.getArmDisarmStatus()),
     recentAutoFinalizedArmDisarm: operatorProcedure.query(() => db.listRecentAutoFinalizedArmDisarmConfirmations()),
+    scheduleAlerts: operatorProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role === "partner" && !ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+      return db.listAlarmScheduleAlerts({
+        status: "active",
+        limit: 500,
+        partnerCompanyId: ctx.user.role === "partner" ? ctx.user.partnerId! : undefined,
+      });
+    }),
+    acknowledgeScheduleAlert: operatorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const alert = await db.getAlarmScheduleAlertPartnerScope(input.id);
+      if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Alerta de agenda não encontrado" });
+      if (ctx.user.role === "partner" && alert.partnerCompanyId !== ctx.user.partnerId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Este alerta não pertence à sua empresa parceira" });
+      }
+      return db.acknowledgeAlarmScheduleAlert({ id: input.id, operatorId: ctx.user.id });
+    }),
     connectionStatus: operatorProcedure.query(() => db.listSystemsConnectionStatus()),
   }),
   remoteCommand: router({
@@ -1115,6 +1131,25 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmSchedules(input.alarmSystemId);
     }),
+    save: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      partition: z.number().int().min(1).max(8).default(1),
+      name: z.string().max(255).optional(),
+      isActive: z.boolean(),
+      mondayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), mondayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      tuesdayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), tuesdayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      wednesdayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), wednesdayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      thursdayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), thursdayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      fridayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), fridayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      saturdayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), saturdayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      sundayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), sundayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      holidayArm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(), holidayDisarm: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const result = await db.upsertAlarmSchedule(input);
+      if (!input.isActive) await db.resolveAlarmScheduleAlerts({ alarmSystemId: input.alarmSystemId });
+      return result;
+    }),
     create: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       partition: z.number().min(1).max(8).optional(),
@@ -1127,6 +1162,54 @@ export const appRouter = router({
       saturdayArm: z.string().optional(), saturdayDisarm: z.string().optional(),
       sundayArm: z.string().optional(), sundayDisarm: z.string().optional(),
     })).mutation(({ input }) => db.createAlarmSchedule(input)),
+    exceptions: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const [items, audit] = await Promise.all([
+        db.listAlarmScheduleOverrides(input.alarmSystemId),
+        db.listAlarmScheduleOverrideAudit(input.alarmSystemId),
+      ]);
+      return { items, audit };
+    }),
+    report: operatorProcedure.input(z.object({
+      limit: z.number().int().min(1).max(2000).optional(),
+      dateFrom: z.string().optional(), dateTo: z.string().optional(),
+      account: z.string().optional(), clientId: z.number().optional(), partnerCompanyId: z.number().optional(),
+    })).query(({ input, ctx }) => {
+      if (ctx.user.role === "partner" && !ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+      return db.listAlarmScheduleAlerts({
+        ...input,
+        status: "all",
+        partnerCompanyId: ctx.user.role === "partner" ? ctx.user.partnerId! : input.partnerCompanyId,
+      });
+    }),
+    saveException: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      overrideDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      mode: z.enum(["suspended", "override"]),
+      armAt: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      disarmAt: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
+      requester: z.string().trim().min(2).max(255),
+      reason: z.string().trim().min(5).max(2000),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema não encontrado" });
+      const requester = input.requester.trim();
+      const reason = input.reason.trim();
+      return db.saveAlarmScheduleOverride({
+        ...input,
+        requester,
+        reason,
+        operatorId: ctx.user.id,
+        operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
+      });
+    }),
+    cancelException: operatorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const override = await db.getAlarmScheduleOverride(input.id);
+      if (!override) throw new TRPCError({ code: "NOT_FOUND", message: "Exceção de agenda não encontrada" });
+      await assertPartnerSystemScope(ctx, override.alarmSystemId);
+      return db.cancelAlarmScheduleOverride({ id: input.id, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}` });
+    }),
   }),
   clientProcedure: router({
     list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {

@@ -10,7 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startReceivers, setEventCallback } from "../receiver/index";
-import { normalizeExistingRegistrationText, sweepKeepAliveDisconnects } from "../db";
+import { normalizeExistingRegistrationText, sweepAlarmScheduleCompliance, sweepKeepAliveDisconnects } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -67,8 +67,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-  // A VPS chama este endpoint apenas por loopback a cada minuto. O sweep é
-  // idempotente e abre uma única ocorrência depois de ultrapassar o prazo.
+  // A VPS chama este endpoint apenas por loopback a cada minuto. Os sweeps são
+  // idempotentes e só criam alertas depois de ultrapassar o prazo configurado.
   app.post("/api/internal/keep-alive-disconnect-sweep", async (req, res) => {
     const remoteAddress = req.socket.remoteAddress || "";
     const isLocal = remoteAddress === "127.0.0.1" || remoteAddress === "::1" || remoteAddress === "::ffff:127.0.0.1";
@@ -78,7 +78,21 @@ async function startServer() {
       for (const event of result.opened) {
         io.emit("alarm:event", { ...event, timestamp: event.receivedAt.getTime() });
       }
-      return res.json({ ok: true, opened: result.opened.length, skipped: result.skipped });
+      const scheduleResult = await sweepAlarmScheduleCompliance(new Date());
+      for (const alert of scheduleResult.opened) {
+        io.emit("alarm:event", {
+          kind: "alarm_schedule_alert",
+          ...alert,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return res.json({
+        ok: true,
+        opened: result.opened.length,
+        skipped: result.skipped,
+        scheduleAlertsOpened: scheduleResult.opened.length,
+        scheduleAlertsResolved: scheduleResult.resolved,
+      });
     } catch (error) {
       console.error("[KEEPALIVE] Falha no sweep de desconexão", error);
       return res.status(500).json({ error: error instanceof Error ? error.message : "unknown", timestamp: new Date().toISOString() });

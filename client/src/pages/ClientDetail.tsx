@@ -18,6 +18,7 @@ import { maskPhone } from "@/lib/masks";
 import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { getRemoteCommandCredentialProfiles } from "@shared/remoteCommandCredentialProfiles";
+import AlarmScheduleEditor from "@/components/AlarmScheduleEditor";
 
 const CONTACTS_PER_PAGE = 20;
 
@@ -157,6 +158,7 @@ export default function ClientDetail() {
             <TabsTrigger value="systems">Sistemas ({systems.length})</TabsTrigger>
             <TabsTrigger value="users">Usuários do Painel ({alarmUsers.length})</TabsTrigger>
             <TabsTrigger value="zones">Zonas/Setores ({zones.length})</TabsTrigger>
+            <TabsTrigger value="schedule">Agenda de Arme</TabsTrigger>
             <TabsTrigger value="cameras">Câmeras ({cameras.length})</TabsTrigger>
           </TabsList>
 
@@ -605,6 +607,11 @@ export default function ClientDetail() {
                 )}
               </>
             )}
+          </TabsContent>
+
+          <TabsContent value="schedule" className="mt-4 space-y-4">
+            {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para agenda</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(event) => setOperationalSystemId(Number(event.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand} {system.model || ""}</option>)}</select></div>}
+            <AlarmScheduleEditor system={activeSystem} />
           </TabsContent>
 
           {/* CÂMERAS */}

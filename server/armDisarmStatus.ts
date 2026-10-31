@@ -1,9 +1,13 @@
+import { classifyContactIdOperationalEvent } from "./alarmSchedulePolicy";
+
 export type ArmDisarmStatusEvent = {
   account: string;
   qualifier: string;
   receivedAt: Date | null;
   alarmSystemId: number | null;
   brand?: string | null;
+  eventCode?: string | null;
+  description?: string | null;
 };
 
 export type ArmDisarmStatusSystem = {
@@ -18,6 +22,8 @@ export type LatestArmDisarmStatus = {
   receivedAt: Date | null;
   alarmSystemId: number;
   brand?: string | null;
+  eventCode?: string | null;
+  state: "armed" | "disarmed";
 };
 
 export const STANDARD_ARM_DISARM_EVENT_CODES = ["401", "403", "407", "408", "409", "441"] as const;
@@ -25,8 +31,8 @@ export const STANDARD_ARM_DISARM_EVENT_CODES = ["401", "403", "407", "408", "409
 /** O 701 é Arme por aplicativo somente no protocolo Compatec; em outras marcas
  * pode representar eventos não operacionais e não deve alimentar este indicador. */
 export function isArmDisarmStatusEvent(event: Pick<ArmDisarmStatusEvent, "brand"> & { eventCode: string }) {
-  return STANDARD_ARM_DISARM_EVENT_CODES.includes(event.eventCode as typeof STANDARD_ARM_DISARM_EVENT_CODES[number])
-    || (event.brand === "COMPATEC" && event.eventCode === "701");
+  const result = classifyContactIdOperationalEvent(event as ArmDisarmStatusEvent);
+  return result.kind === "arm" || result.kind === "disarm";
 }
 
 /**
@@ -43,6 +49,9 @@ export function getLatestArmDisarmStatusBySystem(
 
   for (const event of events) {
     if (!event.alarmSystemId || statusBySystem.has(event.alarmSystemId)) continue;
+    if (!event.eventCode) continue;
+    const classification = classifyContactIdOperationalEvent(event);
+    if (classification.kind !== "arm" && classification.kind !== "disarm") continue;
     const system = systemsById.get(event.alarmSystemId);
     if (!system || system.isActive === false) continue;
     const canonicalAccount = system?.account?.trim() || event.account;
@@ -54,6 +63,8 @@ export function getLatestArmDisarmStatusBySystem(
       receivedAt: event.receivedAt,
       alarmSystemId: event.alarmSystemId,
       brand: event.brand,
+      eventCode: event.eventCode,
+      state: classification.state as "armed" | "disarmed",
     });
   }
 

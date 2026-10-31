@@ -765,3 +765,84 @@ WHERE keepAliveOfflineAfterMinutes IS NULL OR keepAliveOfflineAfterMinutes < 1;
 
 -- Carga idempotente dos códigos Contact ID, incluindo a tabela JFL.
 SOURCE deploy/seed_contact_ids.sql;
+
+-- Agenda operacional: horários próprios para feriados de cada conta.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `alarm_schedules` ADD `holidayArm` varchar(5) NULL',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_schedules' AND COLUMN_NAME = 'holidayArm'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `alarm_schedules` ADD `holidayDisarm` varchar(5) NULL',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_schedules' AND COLUMN_NAME = 'holidayDisarm'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+-- Exceções por data são vinculadas à central e preservam solicitante, motivo e operador.
+CREATE TABLE IF NOT EXISTS `alarm_schedule_overrides` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `alarmSystemId` int NOT NULL,
+  `overrideDate` varchar(10) NOT NULL,
+  `mode` enum('suspended','override') NOT NULL,
+  `armAt` varchar(5) NULL,
+  `disarmAt` varchar(5) NULL,
+  `requester` varchar(255) NOT NULL,
+  `reason` text NOT NULL,
+  `createdBy` int NOT NULL,
+  `updatedBy` int NOT NULL,
+  `isActive` tinyint(1) NOT NULL DEFAULT 1,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `alarm_schedule_overrides_system_date_unique` (`alarmSystemId`,`overrideDate`)
+);
+
+CREATE TABLE IF NOT EXISTS `alarm_schedule_override_audit` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `overrideId` int NULL,
+  `alarmSystemId` int NOT NULL,
+  `overrideDate` varchar(10) NOT NULL,
+  `action` enum('created','updated','cancelled') NOT NULL,
+  `operatorId` int NOT NULL,
+  `operatorName` varchar(255) NOT NULL,
+  `requester` varchar(255) NOT NULL,
+  `reason` text NOT NULL,
+  `previousSettings` text NULL,
+  `newSettings` text NULL,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+);
+
+-- Alertas persistentes e deduplicados para arme não executado e desarme fora da agenda.
+CREATE TABLE IF NOT EXISTS `alarm_schedule_alerts` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `alarmSystemId` int NOT NULL,
+  `scheduleId` int NULL,
+  `sourceEventId` int NULL,
+  `alertType` enum('missed_arm','unexpected_disarm') NOT NULL,
+  `dedupeKey` varchar(191) NOT NULL,
+  `alertDate` varchar(10) NOT NULL,
+  `expectedAt` timestamp NULL,
+  `detectedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `currentState` varchar(20) NULL,
+  `status` enum('active','acknowledged','resolved') NOT NULL DEFAULT 'active',
+  `acknowledgedBy` int NULL,
+  `acknowledgedAt` timestamp NULL,
+  `resolvedAt` timestamp NULL,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `alarm_schedule_alerts_dedupeKey_unique` (`dedupeKey`)
+);

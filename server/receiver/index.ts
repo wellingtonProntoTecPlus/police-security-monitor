@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -25,6 +25,7 @@ import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
 import { startViawebEventIntegration } from './viawebIntegration';
 import { getRadioengeKeepAliveObservationUntil, isRadioengeKeepAliveFailure, isRadioengeKeepAliveRestoration } from './radioengeKeepAlivePolicy';
+import { classifyContactIdOperationalEvent, evaluateAlarmSchedule, getAlarmScheduleEventAction } from '../alarmSchedulePolicy';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -960,13 +961,45 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
 
     const eventReceivedAt = new Date();
     const automaticAction = getAutomaticEventAction(evento.qualifier, codeInfo);
+    const operationalClassification = classifyContactIdOperationalEvent({
+      eventCode: evento.eventCode,
+      qualifier: evento.qualifier,
+      brand: evento.brand,
+      description,
+    });
+    let scheduleContext: Awaited<ReturnType<typeof getAlarmScheduleContext>> = null;
+    let scheduleDecision: ReturnType<typeof evaluateAlarmSchedule> | null = null;
+    if (system?.id && operationalClassification.kind !== "unknown" && !accountResolution.isSystemAccount) {
+      try {
+        scheduleContext = await getAlarmScheduleContext(system.id);
+        if (scheduleContext?.schedule?.isActive) {
+          scheduleDecision = evaluateAlarmSchedule({
+            schedule: scheduleContext.schedule,
+            holidays: scheduleContext.holidays,
+            exceptions: scheduleContext.exceptions,
+            at: eventReceivedAt,
+            event: { eventCode: evento.eventCode, qualifier: evento.qualifier, brand: evento.brand, description, receivedAt: eventReceivedAt },
+          });
+        }
+      } catch (error) {
+        console.error(`[AGENDA] Falha ao consultar agenda da central ${system.account}; mantendo regra segura do evento.`, error);
+      }
+    }
+    const scheduleRelevantState = operationalClassification.kind === "arm" || operationalClassification.kind === "disarm";
+    const scheduleEventAction = getAlarmScheduleEventAction({
+      classification: operationalClassification,
+      hasActiveSchedule: Boolean(scheduleContext?.schedule?.isActive),
+      decision: scheduleDecision,
+    });
+    const scheduleViolation = scheduleEventAction === "queue";
+    const eventOperationalAction = scheduleEventAction === "use_catalog" ? automaticAction : scheduleEventAction;
     const isRadioengeE361 = isRadioengeKeepAliveFailure({ brand: evento.brand, qualifier: evento.qualifier, eventCode: evento.eventCode })
       && Boolean(system?.id)
       && !accountResolution.isSystemAccount;
     const isRadioengeR361 = isRadioengeKeepAliveRestoration({ brand: evento.brand, qualifier: evento.qualifier, eventCode: evento.eventCode })
       && Boolean(system?.id)
       && !accountResolution.isSystemAccount;
-    const eventAutomaticAction = isRadioengeR361 ? "try_restoration" as const : automaticAction;
+    const eventAutomaticAction = isRadioengeR361 ? "try_restoration" as const : eventOperationalAction;
     const repeatedTrackedIncident = (eventAutomaticAction === "track_for_restoration" || isRadioengeE361) && system?.id
       ? await findOpenTrackedIncident({
         alarmSystemId: system.id,
@@ -998,7 +1031,21 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       systemInMaintenance,
     });
     const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident && !radioengeObservation;
-    const automaticFinalizationMessage = radioengeObservation
+    const automaticFinalizationMessage = scheduleRelevantState && !scheduleViolation
+      ? !scheduleContext?.schedule?.isActive
+        ? "Arme/Desarme sem agenda ativa; registrado somente no relatório"
+        : operationalClassification.mode === "stay"
+          ? "Arme Stay registrado somente no relatório"
+          : scheduleDecision?.status === "missed_arm"
+            ? "Arme realizado fora da janela de 10 minutos; registrado somente no relatório"
+          : "Arme/Desarme dentro da agenda; registrado somente no relatório"
+      : scheduleViolation
+      ? scheduleDecision?.status === "unexpected_disarm"
+        ? "Desarme fora do horário programado; encaminhado ao operador"
+        : "Arme atrasado ou fora da janela programada; encaminhado ao operador"
+      : operationalClassification.kind === "isolation"
+      ? "Isolamento/restauração de zona registrado somente no relatório"
+      : radioengeObservation
       ? "Falha de Keep Alive Radioenge E361 em observação por até 4 segundos, aguardando R361"
       : repeatedTrackedIncident
       ? "Falha repetida registrada no relatório; ocorrência operacional já aberta aguardando restauração"
@@ -1081,6 +1128,50 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       const databaseError = e?.cause?.message || e?.cause?.sqlMessage || e?.message;
       console.error(`[RECIP] Evento não emitido: falha ao persistir evento/incidente: ${databaseError}`);
       return false;
+    }
+
+    if (system?.id && scheduleRelevantState) {
+      try {
+        if (scheduleContext?.schedule?.isActive && scheduleViolation && scheduleDecision) {
+          const alertType = scheduleDecision.status === "unexpected_disarm" ? "unexpected_disarm" : "missed_arm";
+          const expectedAt = scheduleDecision.transition?.at || (alertType === "missed_arm" ? eventReceivedAt : null);
+          const alertDateAt = expectedAt || eventReceivedAt;
+          const localDateParts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+          }).formatToParts(alertDateAt);
+          const localDate = `${localDateParts.find((part) => part.type === "year")?.value}-${localDateParts.find((part) => part.type === "month")?.value}-${localDateParts.find((part) => part.type === "day")?.value}`;
+          const created = await createAlarmScheduleComplianceAlert({
+            alarmSystemId: system.id,
+            scheduleId: scheduleContext.schedule.id,
+            sourceEventId: savedEvent.id,
+            alertType,
+            dedupeKey: `${system.id}:${scheduleContext.schedule.id}:${alertType}:${localDate}:${evento.eventCode}:${evento.qualifier}:${savedEvent.id}`,
+            alertDate: localDate,
+            expectedAt,
+            currentState: operationalClassification.state === "armed" ? "armed" : "disarmed",
+            detectedAt: eventReceivedAt,
+          });
+          if (created.created) {
+            eventCallback?.({
+              kind: "alarm_schedule_alert",
+              id: created.id,
+              alarmSystemId: system.id,
+              account: effectiveAccount,
+              brand: evento.brand,
+              alertType,
+              alertDate: localDate,
+              expectedAt,
+              detectedAt: eventReceivedAt,
+              sourceEventId: savedEvent.id,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } else if (!scheduleViolation) {
+          await resolveAlarmScheduleAlerts({ alarmSystemId: system.id, resolvedAt: eventReceivedAt });
+        }
+      } catch (error) {
+        console.error(`[AGENDA] Falha ao registrar/atualizar alerta da conta ${effectiveAccount}`, error);
+      }
     }
 
     if (radioengeRestorationCandidate) {

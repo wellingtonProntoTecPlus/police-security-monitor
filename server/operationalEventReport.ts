@@ -40,9 +40,11 @@ export function resolveOperationalEventCategory(event: OperationalEvent, codes: 
 
 export function matchesOperationalEventGroup(event: OperationalEvent, category: string, group?: EventReportGroup) {
   if (!group || group === "all") return true;
-  if (group === "arm") return category === "arm_disarm" && event.qualifier === "R";
-  if (group === "disarm") return category === "arm_disarm" && event.qualifier === "E";
+  const classification = classifyContactIdOperationalEvent(event as any);
+  if (group === "arm") return classification.kind === "arm";
+  if (group === "disarm") return classification.kind === "disarm";
   if (group === "alarm") return category === "alarm" || category === "analytics";
   if (group === "test") return category === "test";
   return category === "fault" || category === "system" || category === "access";
 }
+import { classifyContactIdOperationalEvent } from "./alarmSchedulePolicy";

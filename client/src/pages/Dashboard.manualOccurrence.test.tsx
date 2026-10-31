@@ -92,6 +92,8 @@ vi.mock("@/lib/trpc", () => ({
     dashboard: {
       armDisarmStatus: { useQuery: () => ({ data: { armed: [], disarmed: [] } }) },
       recentAutoFinalizedArmDisarm: { useQuery: () => ({ data: [{ account: "0336", brand: "VETTI", stateLabel: "ARMADO", description: "Arme", eventCode: "401", receivedAt: new Date("2026-08-13T13:08:00.000Z") }] }) },
+      scheduleAlerts: { useQuery: () => ({ data: [] }) },
+      acknowledgeScheduleAlert: { useMutation: () => standardMutation },
       connectionStatus: { useQuery: () => ({ data: [] }) },
     },
     camera: { list: { useQuery: () => ({ data: [] }) } },
@@ -103,6 +105,7 @@ vi.mock("@/lib/trpc", () => ({
         connectionStatus: { invalidate: invalidateConnectionStatus },
         armDisarmStatus: { invalidate: invalidateArmDisarmStatus },
         recentAutoFinalizedArmDisarm: { invalidate: invalidateRecentAutoFinalizedArmDisarm },
+        scheduleAlerts: { invalidate: vi.fn().mockResolvedValue(undefined) },
       },
     }),
   },

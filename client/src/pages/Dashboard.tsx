@@ -7,7 +7,7 @@ import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X, Search,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
   ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2,
-  LogOut, Volume2, VolumeX, CarFront, Headphones,
+  LogOut, Volume2, VolumeX, CarFront, Headphones, CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -205,6 +205,7 @@ export default function Dashboard() {
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
+  const [scheduleAlertsModal, setScheduleAlertsModal] = useState(false);
   const [standaloneRemoteRequest, setStandaloneRemoteRequest] = useState<(any & { commandType: "arm" | "disarm" }) | null>(null);
   const [standaloneRemoteRequester, setStandaloneRemoteRequester] = useState("");
   const [standaloneRemoteAuthorizer, setStandaloneRemoteAuthorizer] = useState("");
@@ -351,6 +352,14 @@ export default function Dashboard() {
   const { data: operationalAlarmUsers = [] } = trpc.alarmUser.operationalList.useQuery(undefined);
   const { data: armDisarmData } = trpc.dashboard.armDisarmStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const { data: recentAutoFinalizedArmDisarm } = trpc.dashboard.recentAutoFinalizedArmDisarm.useQuery(undefined, { refetchInterval: 30_000, retry: false });
+  const { data: scheduleAlerts = [] } = trpc.dashboard.scheduleAlerts.useQuery(undefined, { refetchInterval: 30_000, retry: false });
+  const acknowledgeScheduleAlert = trpc.dashboard.acknowledgeScheduleAlert.useMutation({
+    onSuccess: async () => {
+      await utils.dashboard.scheduleAlerts.invalidate();
+      toast.success("Alerta de agenda reconhecido.");
+    },
+    onError: (error) => toast.error(`Não foi possível reconhecer o alerta: ${error.message}`),
+  });
   const { data: connectionSystemsData } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 30_000, retry: false });
   const selectedSystem = useMemo(() => {
     if (!selectedEvent) return null;
@@ -426,7 +435,7 @@ export default function Dashboard() {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
     realtimeEvents.forEach((ev) => {
-      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation" || ev.kind === "remote_command_confirmation" || ev.kind === "radioenge_observation_escalated") {
+      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation" || ev.kind === "remote_command_confirmation" || ev.kind === "radioenge_observation_escalated" || ev.kind === "alarm_schedule_alert") {
         const operationalKey = `${ev.kind}-${ev.alarmSystemId || "unknown"}-${ev.timestamp}`;
         if (processedOperationalRefreshesRef.current.has(operationalKey)) return;
         processedOperationalRefreshesRef.current.add(operationalKey);
@@ -449,6 +458,13 @@ export default function Dashboard() {
           void utils.incident.openQueue.invalidate();
           startAlertSound();
           toast.error(`Falha Radioenge E361 da conta ${ev.account} excedeu 4 segundos sem R361 e foi encaminhada para atendimento.`);
+        } else if (ev.kind === "alarm_schedule_alert") {
+          void utils.dashboard.scheduleAlerts.invalidate();
+          startAlertSound();
+          const alertMessage = ev.alertType === "unexpected_disarm"
+            ? `A conta ${ev.account} foi desarmada fora do horário da agenda.`
+            : `A conta ${ev.account} continua desarmada após o horário programado.`;
+          toast.error(alertMessage, { duration: 12_000 });
         } else {
           void utils.dashboard.armDisarmStatus.invalidate();
           void utils.dashboard.recentAutoFinalizedArmDisarm.invalidate();
@@ -1726,6 +1742,9 @@ export default function Dashboard() {
             <Button variant="outline" size="sm" className="shrink-0 border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold" onClick={() => { setOperationalStatusSearch(""); setArmDisarmModal('armed'); }}>
               <Shield className="h-3.5 w-3.5 mr-1" /> Armados ({armDisarmData?.armed?.length || 0})
             </Button>
+            <Button variant="outline" size="sm" className={`shrink-0 font-bold ${scheduleAlerts.length ? "border-amber-500/70 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20" : "border-border text-muted-foreground"}`} onClick={() => setScheduleAlertsModal(true)}>
+              <CalendarClock className="mr-1 h-3.5 w-3.5" /> Agenda ({scheduleAlerts.length})
+            </Button>
             <Button size="sm" className="shrink-0 bg-green-600 text-white font-bold hover:bg-green-700" onClick={() => { setOperationalStatusSearch(""); setConnectionStatusModal("online"); }}>
               <Wifi className="h-3.5 w-3.5 mr-1" /> Online ({onlineSystems.length})
             </Button>
@@ -2256,6 +2275,29 @@ export default function Dashboard() {
                 );
               })}
               {filteredBlockedClients.length === 0 && <p className="text-center text-muted-foreground py-8">Nenhum cliente bloqueado ou suspenso para esta busca.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scheduleAlertsModal && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-3" onClick={() => setScheduleAlertsModal(false)}>
+          <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-amber-500/30 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border bg-amber-500/10 px-4 py-3">
+              <div><h3 className="flex items-center gap-2 font-bold text-amber-200"><CalendarClock className="h-4 w-4" />Alertas da agenda ({scheduleAlerts.length})</h3><p className="mt-1 text-xs text-muted-foreground">Centrais que não seguiram os horários cadastrados. Prazo para atraso de Arme: 10 minutos.</p></div>
+              <Button variant="ghost" size="icon" aria-label="Fechar alertas de agenda" onClick={() => setScheduleAlertsModal(false)}><X className="h-5 w-5" /></Button>
+            </div>
+            <div className="overflow-y-auto p-3">
+              {scheduleAlerts.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">Nenhum alerta ativo de agenda.</p> : <div className="space-y-2">
+                {scheduleAlerts.map((alert: any) => <div key={alert.id} className="flex flex-col gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-foreground">{alert.alertType === "unexpected_disarm" ? "DESARME fora do horário" : "ARME não realizado no horário"} · Conta {alert.account} · {alert.brand} {alert.model || ""}</p>
+                    <p className="text-sm text-muted-foreground">{alert.fantasyName || alert.clientName || "Cliente não informado"}{alert.partnerName ? ` · Parceira: ${alert.partnerName}` : ""}</p>
+                    <p className="mt-1 text-xs text-amber-200">{alert.alertType === "unexpected_disarm" ? "O painel foi desarmado fora do horário esperado; a agenda previa que permanecesse armado." : "O painel continuava desarmado 10 minutos após o Arme programado."} {alert.expectedAt ? `Horário previsto: ${new Date(alert.expectedAt).toLocaleString("pt-BR")} · ` : ""}Detectado: {alert.detectedAt ? new Date(alert.detectedAt).toLocaleString("pt-BR") : "—"}</p>
+                  </div>
+                  <Button size="sm" variant="outline" disabled={acknowledgeScheduleAlert.isPending} onClick={() => acknowledgeScheduleAlert.mutate({ id: alert.id })}>Ciente</Button>
+                </div>)}
+              </div>}
             </div>
           </div>
         </div>

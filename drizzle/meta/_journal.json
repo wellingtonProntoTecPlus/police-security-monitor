@@ -267,6 +267,13 @@
       "when": 1793262987988,
       "tag": "0037_spicy_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1793488538859,
+      "tag": "0038_flowery_photon",
+      "breakpoints": true
     }
   ]
 }

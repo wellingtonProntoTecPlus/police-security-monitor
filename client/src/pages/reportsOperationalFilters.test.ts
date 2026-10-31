@@ -32,4 +32,13 @@ describe("Relatórios operacionais", () => {
     expect(source).toContain("limit: reportLimit");
     expect(source).toContain("Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.");
   });
+
+  it("inclui relatório histórico de alertas de agenda filtrável e exportável", () => {
+    expect(source).toContain('type ReportMode = "occurrences" | "events" | "connections" | "schedule"');
+    expect(source).toContain("trpc.alarmSchedule.report.useQuery");
+    expect(source).toContain("Histórico de alertas da agenda");
+    expect(source).toContain("Desarme fora da agenda");
+    expect(source).toContain("Arme atrasado");
+    expect(source).toContain("acknowledgedByName");
+  });
 });

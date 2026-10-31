@@ -837,3 +837,13 @@
 - [ ] Ajustar popups operacionais, Ocorrência Manual e Comandos Compatec para largura, altura e rolagem seguras em cada formato de tela
 - [x] Corrigir o popup de Comandos Compatec para caber integralmente em notebooks de 15 polegadas sem exigir zoom do navegador
 - [ ] Cobrir os ajustes responsivos com testes de interface e verificação visual em desktop, tablet e celular
+
+## Agenda Operacional de Arme e Desarme
+- [x] Configurar horários semanais e horários próprios de feriados por central, usando o calendário cadastrado pela parceira
+- [x] Registrar exceção diária com suspensão da agenda ou substituição parcial/total de horários, solicitante, motivo e operador
+- [x] Manter não abrindo fila os eventos Arme/Desarme sem agenda, Stay e isolamento/restauração de zona; preservar o registro em relatório
+- [x] Criar alerta ativo por desarme recebido fora de horário e alerta de Arme não realizado após 10 minutos
+- [x] Resolver alertas quando o estado do painel se regulariza ou a agenda é suspensa/alterada
+- [x] Exibir alertas ativos no Dashboard e histórico filtrável/exportável nos Relatórios
+- [x] Executar sweep de conformidade pelo endpoint local periódico existente, mantendo o cron por minuto
+- [ ] Aplicar migração da agenda e publicar a versão atualizada na VPS; conferir horários, fuso e alertas com uma conta de teste

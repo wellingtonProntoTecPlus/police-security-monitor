@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Activity, CalendarDays, Download, FileText, Radio, Search } from "lucide-react";
 import { buildOccurrenceReportCsv, formatReportDate, formatReportDuration } from "./reportExport";
 
-type ReportMode = "occurrences" | "events" | "connections";
+type ReportMode = "occurrences" | "events" | "connections" | "schedule";
 type PeriodPreset = "today" | "yesterday" | "week" | "month" | "custom";
 type EventGroup = "all" | "alarm" | "arm" | "disarm" | "test" | "system";
 
@@ -108,10 +108,18 @@ export default function Reports() {
     partnerCompanyId: appliedFilters.partnerCompanyId,
     status: appliedFilters.connectionStatus,
   }, { enabled: reportMode === "connections" });
+  const { data: scheduleRows = [], isLoading: isLoadingSchedule, error: scheduleError } = trpc.alarmSchedule.report.useQuery({
+    limit: reportLimit,
+    dateFrom: appliedFilters.dateFrom || undefined,
+    dateTo: appliedFilters.dateTo || undefined,
+    account: appliedFilters.account || undefined,
+    clientId: appliedFilters.clientId,
+    partnerCompanyId: appliedFilters.partnerCompanyId,
+  }, { enabled: reportMode === "schedule" });
 
-  const isLoading = reportMode === "occurrences" ? isLoadingOccurrences : reportMode === "events" ? isLoadingEvents : isLoadingConnections;
-  const error = reportMode === "occurrences" ? occurrencesError : reportMode === "events" ? eventsError : connectionsError;
-  const currentRows = reportMode === "occurrences" ? occurrences : reportMode === "events" ? events : connectionRows;
+  const isLoading = reportMode === "occurrences" ? isLoadingOccurrences : reportMode === "events" ? isLoadingEvents : reportMode === "connections" ? isLoadingConnections : isLoadingSchedule;
+  const error = reportMode === "occurrences" ? occurrencesError : reportMode === "events" ? eventsError : reportMode === "connections" ? connectionsError : scheduleError;
+  const currentRows = reportMode === "occurrences" ? occurrences : reportMode === "events" ? events : reportMode === "connections" ? connectionRows : scheduleRows;
 
   function currentInputFilters(overrides: Partial<{ dateFrom: string; dateTo: string }> = {}) {
     return {
@@ -155,7 +163,15 @@ export default function Reports() {
 
   function handleExport() {
     if (!currentRows.length) return;
-    const exportRows = currentRows.map((row: any) => reportMode === "connections" ? ({
+    const exportRows = currentRows.map((row: any) => reportMode === "schedule" ? ({
+      finalizedAt: row.detectedAt,
+      account: row.account,
+      clientName: row.fantasyName || row.clientName,
+      eventCode: row.alertType === "unexpected_disarm" ? "DESARME FORA DA AGENDA" : "ARME ATRASADO",
+      description: row.alertType === "unexpected_disarm" ? "Painel desarmado fora do horário programado" : "Painel permaneceu desarmado após horário de Arme",
+      observations: `Esperado: ${formatReportDate(row.expectedAt)} | Situação: ${row.status} | Detectado: ${formatReportDate(row.detectedAt)}`,
+      operatorName: row.status === "acknowledged" ? `Reconhecido por ${row.acknowledgedByName || `ID ${row.acknowledgedBy || "—"}`}` : "Sistema",
+    }) : reportMode === "connections" ? ({
       finalizedAt: row.lastKeepAliveAt,
       account: row.account,
       clientName: row.clientName,
@@ -183,7 +199,7 @@ export default function Reports() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="w-6 h-6" /> Relatórios Operacionais</h1>
-          <p className="text-sm text-muted-foreground mt-1">Consulte ocorrências finalizadas, eventos recebidos e o status atual das centrais.</p>
+          <p className="text-sm text-muted-foreground mt-1">Consulte ocorrências, eventos recebidos, status das centrais e alertas de descumprimento de agenda.</p>
         </div>
         <Badge variant="outline">{currentRows.length} registros</Badge>
       </div>
@@ -194,6 +210,7 @@ export default function Reports() {
             <Button size="sm" variant={reportMode === "occurrences" ? "default" : "outline"} onClick={() => setReportMode("occurrences")}><FileText className="w-4 h-4 mr-1.5" /> Ocorrências finalizadas</Button>
             <Button size="sm" variant={reportMode === "events" ? "default" : "outline"} onClick={() => setReportMode("events")}><Activity className="w-4 h-4 mr-1.5" /> Eventos recebidos</Button>
             <Button size="sm" variant={reportMode === "connections" ? "default" : "outline"} onClick={() => setReportMode("connections")}><Radio className="w-4 h-4 mr-1.5" /> Online e Offline</Button>
+            <Button size="sm" variant={reportMode === "schedule" ? "default" : "outline"} onClick={() => setReportMode("schedule")}><CalendarDays className="w-4 h-4 mr-1.5" /> Alertas de agenda</Button>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center border-y border-border py-3">
@@ -217,9 +234,9 @@ export default function Reports() {
       </Card>
 
       <Card>
-        <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="text-lg">{reportMode === "occurrences" ? "Ocorrências finalizadas" : reportMode === "events" ? "Eventos recebidos" : "Status atual das centrais"} ({currentRows.length})</CardTitle>{reportMode !== "connections" && !hasAppliedFilters && <p className="mt-1 text-xs text-muted-foreground">Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.</p>}</div><Button variant="outline" size="sm" onClick={handleExport} disabled={!currentRows.length}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button></div></CardHeader>
-        <CardContent><ScrollArea className="h-[500px]"><table className="w-full text-sm"><thead className="bg-muted sticky top-0"><tr>{reportMode === "connections" ? <><th className="p-2 text-left">Status</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Central</th><th className="p-2 text-left">Último Keep Alive</th><th className="p-2 text-left">Prazo</th></> : <><th className="p-2 text-left">Data/Hora</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Evento</th><th className="p-2 text-left">Descrição</th><th className="p-2 text-left">Finalização</th><th className="p-2 text-left">Tempo</th><th className="p-2 text-left">Operador</th></>}</tr></thead><tbody>
-          {isLoading ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Carregando relatório…</td></tr> : error ? <tr><td colSpan={8} className="p-4 text-center text-destructive">Não foi possível carregar o relatório. Atualize a página e tente novamente.</td></tr> : !currentRows.length ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhum registro encontrado para os filtros informados</td></tr> : reportMode === "connections" ? connectionRows.map((system: any) => <tr key={system.id} className="border-b hover:bg-muted/50"><td className="p-2"><Badge variant={system.connectionStatus === "online" ? "default" : "destructive"}>{system.connectionStatus === "online" ? "Online" : "Offline"}</Badge></td><td className="p-2 font-mono">{system.account}</td><td className="p-2">{system.clientName || "-"}</td><td className="p-2">{[system.brand, system.model].filter(Boolean).join(" · ")}</td><td className="p-2 whitespace-nowrap">{formatReportDate(system.lastKeepAliveAt)}</td><td className="p-2">{system.keepAliveOfflineAfterMinutes || "-"} min</td></tr>) : currentRows.map((row: any) => <tr key={row.id} className="border-b hover:bg-muted/50"><td className="p-2 whitespace-nowrap">{formatReportDate(row.finalizedAt || row.receivedAt)}</td><td className="p-2 font-mono">{row.account}</td><td className="p-2">{row.clientName || (row.account === "0000" ? "Conta do Sistema" : "-")}</td><td className="p-2"><Badge variant="outline">{row.qualifier || ""}{row.eventCode}</Badge></td><td className="p-2">{row.description || "-"}</td><td className="p-2 max-w-[220px] truncate">{row.observations || row.autoFinalizationReason || "-"}</td><td className="p-2 whitespace-nowrap">{formatReportDuration(row.attendingTimeMs)}</td><td className="p-2 font-medium">{row.operatorName || (row.autoFinalized ? "Sistema" : "-")}</td></tr>)}
+        <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="text-lg">{reportMode === "occurrences" ? "Ocorrências finalizadas" : reportMode === "events" ? "Eventos recebidos" : reportMode === "connections" ? "Status atual das centrais" : "Histórico de alertas da agenda"} ({currentRows.length})</CardTitle>{reportMode !== "connections" && !hasAppliedFilters && <p className="mt-1 text-xs text-muted-foreground">Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.</p>}</div><Button variant="outline" size="sm" onClick={handleExport} disabled={!currentRows.length}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button></div></CardHeader>
+        <CardContent><ScrollArea className="h-[500px]"><table className="w-full text-sm"><thead className="bg-muted sticky top-0"><tr>{reportMode === "connections" ? <><th className="p-2 text-left">Status</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Central</th><th className="p-2 text-left">Último Keep Alive</th><th className="p-2 text-left">Prazo</th></> : reportMode === "schedule" ? <><th className="p-2 text-left">Detectado em</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Central</th><th className="p-2 text-left">Alerta</th><th className="p-2 text-left">Horário previsto</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Parceira</th></> : <><th className="p-2 text-left">Data/Hora</th><th className="p-2 text-left">Conta</th><th className="p-2 text-left">Cliente</th><th className="p-2 text-left">Evento</th><th className="p-2 text-left">Descrição</th><th className="p-2 text-left">Finalização</th><th className="p-2 text-left">Tempo</th><th className="p-2 text-left">Operador</th></>}</tr></thead><tbody>
+          {isLoading ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Carregando relatório…</td></tr> : error ? <tr><td colSpan={8} className="p-4 text-center text-destructive">Não foi possível carregar o relatório. Atualize a página e tente novamente.</td></tr> : !currentRows.length ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhum registro encontrado para os filtros informados</td></tr> : reportMode === "connections" ? connectionRows.map((system: any) => <tr key={system.id} className="border-b hover:bg-muted/50"><td className="p-2"><Badge variant={system.connectionStatus === "online" ? "default" : "destructive"}>{system.connectionStatus === "online" ? "Online" : "Offline"}</Badge></td><td className="p-2 font-mono">{system.account}</td><td className="p-2">{system.clientName || "-"}</td><td className="p-2">{[system.brand, system.model].filter(Boolean).join(" · ")}</td><td className="p-2 whitespace-nowrap">{formatReportDate(system.lastKeepAliveAt)}</td><td className="p-2">{system.keepAliveOfflineAfterMinutes || "-"} min</td></tr>) : reportMode === "schedule" ? scheduleRows.map((row: any) => <tr key={row.id} className="border-b hover:bg-muted/50"><td className="p-2 whitespace-nowrap">{formatReportDate(row.detectedAt)}</td><td className="p-2 font-mono">{row.account}</td><td className="p-2">{row.fantasyName || row.clientName || "-"}</td><td className="p-2">{[row.brand, row.model].filter(Boolean).join(" · ")}</td><td className="p-2">{row.alertType === "unexpected_disarm" ? "Desarme fora da agenda" : "Arme atrasado"}</td><td className="p-2 whitespace-nowrap">{row.expectedAt ? formatReportDate(row.expectedAt) : "Central deveria permanecer armada"}</td><td className="p-2"><Badge variant={row.status === "active" ? "destructive" : "outline"}>{row.status === "active" ? "Ativo" : row.status === "acknowledged" ? `Ciente${row.acknowledgedByName ? ` · ${row.acknowledgedByName}` : ""}` : "Resolvido"}</Badge></td><td className="p-2">{row.partnerName || "-"}</td></tr>) : currentRows.map((row: any) => <tr key={row.id} className="border-b hover:bg-muted/50"><td className="p-2 whitespace-nowrap">{formatReportDate(row.finalizedAt || row.receivedAt)}</td><td className="p-2 font-mono">{row.account}</td><td className="p-2">{row.clientName || (row.account === "0000" ? "Conta do Sistema" : "-")}</td><td className="p-2"><Badge variant="outline">{row.qualifier || ""}{row.eventCode}</Badge></td><td className="p-2">{row.description || "-"}</td><td className="p-2 max-w-[220px] truncate">{row.observations || row.autoFinalizationReason || "-"}</td><td className="p-2 whitespace-nowrap">{formatReportDuration(row.attendingTimeMs)}</td><td className="p-2 font-medium">{row.operatorName || (row.autoFinalized ? "Sistema" : "-")}</td></tr>)}
         </tbody></table></ScrollArea></CardContent>
       </Card>
     </div>
