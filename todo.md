@@ -847,3 +847,10 @@
 - [x] Exibir alertas ativos no Dashboard e histórico filtrável/exportável nos Relatórios
 - [x] Executar sweep de conformidade pelo endpoint local periódico existente, mantendo o cron por minuto
 - [ ] Aplicar migração da agenda e publicar a versão atualizada na VPS; conferir horários, fuso e alertas com uma conta de teste
+
+## Desempenho de Abertura das Telas
+- [x] Retirar o runtime de edição de 367 KB da build de produção e carregar páginas e player HLS sob demanda
+- [x] Comprimir respostas, habilitar cache imutável nos assets versionados e manter HTML revalidável
+- [x] Mostrar estado e opção de nova tentativa durante falhas de abertura/autenticação/consultas
+- [x] Registrar de forma sanitizada requisições HTTP críticas acima de um segundo, sem tokens ou conteúdo privado
+- [ ] Publicar na VPS e comparar tempos de abertura nas máquinas e telas do operador

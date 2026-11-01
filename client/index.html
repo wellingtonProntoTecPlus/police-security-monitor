@@ -1,24 +1,48 @@
 <!doctype html>
-<html lang="en">
-
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>Police Security - Sistema de Monitoramento</title>    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="theme-color" content="#07101c" />
+    <title>Police Central - Sistema de Monitoramento</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    </noscript>
+    <style>
+      html, body, #root { min-height: 100%; margin: 0; background: #07101c; }
+      .app-boot { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #e5edf7; font: 500 15px system-ui, sans-serif; }
+      .app-boot-spinner { width: 28px; height: 28px; border: 3px solid #26364b; border-top-color: #1688f8; border-radius: 50%; animation: app-boot-spin .8s linear infinite; }
+      .app-boot-detail { max-width: 90vw; padding: 0 20px; color: #9aabc0; font-size: 13px; text-align: center; }
+      @keyframes app-boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .app-boot-spinner { animation-duration: 2s; } }
+    </style>
   </head>
-
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="app-boot" role="status" aria-live="polite">
+        <div class="app-boot-spinner" aria-hidden="true"></div>
+        <div>Conectando ao Police Central…</div>
+        <div id="app-boot-detail" class="app-boot-detail"></div>
+        <button id="app-boot-retry" type="button" onclick="window.location.reload()" style="display:none;border:1px solid #36506e;border-radius:8px;background:#13243a;color:#e5edf7;padding:9px 14px;cursor:pointer">Tentar novamente</button>
+      </div>
+    </div>
+    <script>
+      window.setTimeout(() => {
+        const detail = document.getElementById("app-boot-detail");
+        if (detail) detail.textContent = "A conexão está demorando. Verifique sua internet ou tente novamente.";
+        const retry = document.getElementById("app-boot-retry");
+        if (retry) retry.style.display = "inline-flex";
+      }, 12000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <script defer src="%VITE_ANALYTICS_ENDPOINT%/umami" data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
   </body>
-
 </html>

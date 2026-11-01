@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import Hls from "hls.js";
+import type Hls from "hls.js";
 import { Camera, AlertCircle, Loader2 } from "lucide-react";
 
 interface HLSPlayerProps {
@@ -17,6 +17,9 @@ export default function HLSPlayer({ url, label, className = "", autoPlay = true,
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+    let activeHls: Hls | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     if (!url || !videoRef.current) {
       setStatus("idle");
       return;
@@ -29,63 +32,77 @@ export default function HLSPlayer({ url, label, className = "", autoPlay = true,
     // Se o navegador suporta HLS nativamente (Safari)
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
-      video.addEventListener("loadedmetadata", () => {
+      const handleLoadedMetadata = () => {
         setStatus("playing");
         if (autoPlay) video.play().catch(() => {});
-      });
-      video.addEventListener("error", () => {
+      };
+      const handleNativeError = () => {
         setStatus("error");
         setErrorMsg("Erro ao carregar stream");
-      });
-      return;
-    }
-
-    // Usar hls.js
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 30,
-      });
-      hlsRef.current = hls;
-
-      hls.loadSource(url);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setStatus("playing");
-        if (autoPlay) video.play().catch(() => {});
-      });
-
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          setStatus("error");
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              setErrorMsg("Erro de rede - câmera offline?");
-              // Tentar reconectar após 5s
-              setTimeout(() => hls.startLoad(), 5000);
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              setErrorMsg("Erro de mídia");
-              hls.recoverMediaError();
-              break;
-            default:
-              setErrorMsg("Erro fatal no stream");
-              hls.destroy();
-              break;
-          }
-        }
-      });
-
-      return () => {
-        hls.destroy();
-        hlsRef.current = null;
       };
-    } else {
-      setStatus("error");
-      setErrorMsg("Navegador não suporta HLS");
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+      video.addEventListener("error", handleNativeError);
+      return () => {
+        cancelled = true;
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+        video.removeEventListener("error", handleNativeError);
+        video.removeAttribute("src");
+        video.load();
+      };
     }
+
+    // hls.js só é baixado quando uma câmera realmente precisa ser reproduzida.
+    void import("hls.js").then(({ default: HlsPlayer }) => {
+      if (cancelled) return;
+      if (HlsPlayer.isSupported()) {
+        const hls = new HlsPlayer({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 30,
+        });
+        activeHls = hls;
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
+          setStatus("playing");
+          if (autoPlay) video.play().catch(() => {});
+        });
+        hls.on(HlsPlayer.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            setStatus("error");
+            switch (data.type) {
+              case HlsPlayer.ErrorTypes.NETWORK_ERROR:
+                setErrorMsg("Erro de rede - câmera offline?");
+                retryTimer = setTimeout(() => hls.startLoad(), 5000);
+                break;
+              case HlsPlayer.ErrorTypes.MEDIA_ERROR:
+                setErrorMsg("Erro de mídia");
+                hls.recoverMediaError();
+                break;
+              default:
+                setErrorMsg("Erro fatal no stream");
+                hls.destroy();
+                break;
+            }
+          }
+        });
+      } else {
+        setStatus("error");
+        setErrorMsg("Navegador não suporta HLS");
+      }
+    }).catch(() => {
+      if (cancelled) return;
+      setStatus("error");
+      setErrorMsg("Falha ao carregar o suporte de vídeo");
+    });
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      activeHls?.destroy();
+      if (hlsRef.current === activeHls) hlsRef.current = null;
+    };
   }, [url, autoPlay]);
 
   // Sem URL - placeholder
@@ -141,4 +158,3 @@ export default function HLSPlayer({ url, label, className = "", autoPlay = true,
     </div>
   );
 }
-

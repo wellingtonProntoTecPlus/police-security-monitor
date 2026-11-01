@@ -1,6 +1,14 @@
 import { Skeleton } from './ui/skeleton';
+import { useEffect, useState } from 'react';
 
 export function DashboardLayoutSkeleton() {
+  const [connectionSlow, setConnectionSlow] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setConnectionSlow(true), 12_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar skeleton */}
@@ -40,6 +48,10 @@ export function DashboardLayoutSkeleton() {
           <Skeleton className="h-32 rounded-xl" />
         </div>
         <Skeleton className="h-64 rounded-xl" />
+        <div className="space-y-2 text-center" role="status" aria-live="polite">
+          <p className="text-sm text-muted-foreground">Conectando ao Police Central…</p>
+          {connectionSlow && <p className="text-sm text-amber-300">A conexão está demorando. Verifique sua internet ou tente novamente.</p>}
+        </div>
       </div>
     </div>
   );

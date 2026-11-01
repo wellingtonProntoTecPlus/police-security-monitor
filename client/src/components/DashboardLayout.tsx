@@ -23,6 +23,7 @@ import {
 import { useIsMobile } from "@/hooks/useMobile";
 import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
@@ -64,7 +65,7 @@ export default function DashboardLayout({
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
-  const { loading, user } = useAuth();
+  const { loading, user, error, refresh } = useAuth();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
@@ -75,6 +76,17 @@ export default function DashboardLayout({
   }
 
   if (!user) {
+    if (error) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background p-6">
+          <div className="w-full max-w-md space-y-4 text-center">
+            <h1 className="text-xl font-semibold">Não foi possível conectar ao sistema.</h1>
+            <p className="text-sm text-muted-foreground">Verifique sua internet e tente novamente.</p>
+            <Button onClick={() => void refresh()} disabled={loading}>Tentar novamente</Button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
@@ -126,6 +138,8 @@ function DashboardLayoutContent({
   workspaceMenuPlacement,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const queryClient = useQueryClient();
+  const [failedQueryCount, setFailedQueryCount] = useState(0);
   const [location] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -143,6 +157,23 @@ function DashboardLayoutContent({
   const changeShift = async () => {
     await logout();
     window.location.href = "/login?turno=1";
+  };
+
+  useEffect(() => {
+    const updateFailedQueryCount = () => {
+      const count = queryClient.getQueryCache().getAll().filter(
+        (query) => query.state.status === "error" && query.getObserversCount() > 0,
+      ).length;
+      setFailedQueryCount(count);
+    };
+    updateFailedQueryCount();
+    return queryClient.getQueryCache().subscribe(updateFailedQueryCount);
+  }, [queryClient]);
+
+  const retryFailedQueries = async () => {
+    await queryClient.refetchQueries({
+      predicate: (query) => query.state.status === "error" && query.getObserversCount() > 0,
+    });
   };
 
   const saveOwnPassword = async () => {
@@ -200,6 +231,12 @@ function DashboardLayoutContent({
 
   return (
     <>
+      {failedQueryCount > 0 && (
+        <div role="alert" className="fixed bottom-4 right-4 z-[100] flex max-w-[min(92vw,34rem)] items-center gap-3 rounded-lg border border-amber-500/50 bg-card p-3 text-sm text-foreground shadow-xl">
+          <span className="min-w-0">Não foi possível atualizar alguns dados. Verifique sua conexão e tente novamente.</span>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void retryFailedQueries()}>Tentar novamente</Button>
+        </div>
+      )}
       <div className="relative" ref={sidebarRef}>
         <Sidebar
           collapsible="icon"
