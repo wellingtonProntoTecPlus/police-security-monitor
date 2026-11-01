@@ -47,6 +47,10 @@ Após `0x96`, o sistema envia `0x15` para finalizar o acesso remoto e liberar o 
 
 O comando `0x10` é enviado a cada dez segundos enquanto a central aguarda uma resposta mais longa, como orienta o SDK; o ciclo termina ou falha no limite de 30 segundos.
 
+## Contact ID 403 na Intelbras
+
+A tabela de eventos enviada para a AMT-8000 define os estados separadamente: `E403` (`1 403`, evento novo) significa **Auto-desativação / Desarme automático**; `R403` (`3 403`, restauração) significa **Auto-ativação / Arme automático**. O PoliceCentral cataloga ambos somente para `INTELBRAS`, como eventos report-only, sem abrir atendimento e sem alterar o significado do código 403 de outras marcas. A captura da conta 0049/MAC 7B255F às 09:44 identificada como `E403` é, portanto, evidência de que aquela central se desarmou automaticamente nesse horário; sua captura bruta permanece preservada para auditoria.
+
 ## Travas e auditoria
 
 1. A identificação e a sessão usam MAC físico e conta compatíveis; conta ou IP isolados não autorizam comando.

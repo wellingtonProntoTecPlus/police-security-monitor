@@ -334,6 +334,15 @@ export function classifyContactIdOperationalEvent(event: ContactIdOperationalEve
   const qualifier = normalizeQualifier(event.qualifier);
   const brand = normalizeBrand(event.brand ?? (event as RecordValue).fabricante);
 
+  // Na tabela Intelbras, E403 = auto-desativação (desarme) e
+  // R403 = auto-ativação (arme). Outros fabricantes podem usar outro
+  // significado para 403, portanto a regra é restrita à marca Intelbras.
+  if (brand === "intelbras" && code === "403") {
+    if (qualifier === "E") return makeClassification("disarm", "disarmed");
+    if (qualifier === "R") return makeClassification("arm", "armed");
+    return makeClassification("unknown", "unknown");
+  }
+
   if (code === "403") {
     const catalogState = stateFromExactCatalog(event);
     if (catalogState === "arm") return makeClassification("arm", "armed");

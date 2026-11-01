@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { jflContactIdRecords } from './jfl_contact_id_records.mjs';
 import { radioengeContactIdRecords } from './radioenge_contact_id_records.mjs';
+import { intelbrasContactIdRecords } from './intelbras_contact_id_records.mjs';
 
 const source = readFileSync(new URL('../import_cid.sql', import.meta.url), 'utf8');
 const lines = source.split('\n').filter((line) => line.startsWith('INSERT INTO contact_id_codes'));
@@ -41,6 +42,7 @@ const records = lines.map((line) => {
 records.push(
   ...jflContactIdRecords,
   ...radioengeContactIdRecords,
+  ...intelbrasContactIdRecords,
   { code: '401', qualifier: 'R', fabricante: 'COMPATEC', isUniversal: false, description: 'Arme por Teclado', tipo: 'arme', cor: '#10B981', abreTela: 0, fechaAutomatico: 1, fechaComRestauracao: 0, codigoRestauracao: '', prioridade: 5, category: 'arm_disarm', priority: 'low' },
   { code: '701', qualifier: 'R', fabricante: 'COMPATEC', isUniversal: false, description: 'Arme por App', tipo: 'arme', cor: '#10B981', abreTela: 0, fechaAutomatico: 1, fechaComRestauracao: 0, codigoRestauracao: '', prioridade: 5, category: 'arm_disarm', priority: 'low' },
   { code: '401', qualifier: 'E', fabricante: 'UNIVERSAL', isUniversal: true, description: 'Desarme', tipo: 'desarme', cor: '#F97316', abreTela: 0, fechaAutomatico: 1, fechaComRestauracao: 0, codigoRestauracao: '', prioridade: 3, category: 'arm_disarm', priority: 'low' },
@@ -52,9 +54,11 @@ records.push(
 );
 
 const sql = [
-  '-- Carga idempotente dos códigos Compatec, Vetti, JFL, Radioenge e Universais.',
+  '-- Carga idempotente dos códigos Compatec, Vetti, JFL, Radioenge, Intelbras e Universais.',
   '-- Execute: mysql police_monitor < deploy/seed_contact_ids.sql',
   ...records.map(statement),
+  "UPDATE contact_id_codes SET isUniversal = 0, description = 'Auto-desativação (Desarme automático)', tipo = 'desarme', cor = '#F97316', abre_tela = 0, fecha_automatico = 1, fecha_com_restauracao = 0, codigo_restauracao = '', tempo_espera_segundos = 0, prioridade = 5, category = 'arm_disarm', priority = 'low' WHERE fabricante = 'INTELBRAS' AND code = '403' AND qualifier = 'E';",
+  "UPDATE contact_id_codes SET isUniversal = 0, description = 'Auto-ativação (Arme automático)', tipo = 'arme', cor = '#10B981', abre_tela = 0, fecha_automatico = 1, fecha_com_restauracao = 0, codigo_restauracao = '', tempo_espera_segundos = 0, prioridade = 5, category = 'arm_disarm', priority = 'low' WHERE fabricante = 'INTELBRAS' AND code = '403' AND qualifier = 'R';",
   "UPDATE contact_id_codes SET description = 'Desarme por Teclado', tipo = 'desarme', cor = '#F97316' WHERE fabricante = 'COMPATEC' AND code = '401' AND qualifier = 'E';",
   "UPDATE contact_id_codes SET description = 'Desarme por App', tipo = 'desarme', cor = '#F97316' WHERE fabricante = 'COMPATEC' AND code = '701' AND qualifier = 'E';",
   '',

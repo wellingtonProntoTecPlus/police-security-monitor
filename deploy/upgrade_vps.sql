@@ -753,8 +753,21 @@ UPDATE alarm_systems
 SET keepAliveOfflineAfterMinutes = 5
 WHERE keepAliveOfflineAfterMinutes IS NULL OR keepAliveOfflineAfterMinutes < 1;
 
--- Carga idempotente dos códigos Contact ID, incluindo a tabela JFL.
+-- Carga idempotente dos códigos Contact ID, incluindo tabelas JFL e Intelbras.
 SOURCE deploy/seed_contact_ids.sql;
+
+-- Corrige apenas a descrição legada de eventos Intelbras 403 que foram
+-- persistidos como não cadastrados; rawData e demais campos de auditoria ficam intactos.
+UPDATE alarm_events
+SET description = CASE
+  WHEN qualifier = 'E' THEN 'Auto-desativação (Desarme automático)'
+  WHEN qualifier = 'R' THEN 'Auto-ativação (Arme automático)'
+  ELSE description
+END
+WHERE UPPER(TRIM(COALESCE(brand, ''))) = 'INTELBRAS'
+  AND eventCode = '403'
+  AND qualifier IN ('E', 'R')
+  AND description LIKE 'EVENTO NÃO CADASTRADO%';
 
 -- Converter a tabela antiga (uma linha por dia) para uma agenda semanal por central.
 -- A tabela legada é preservada como backup e os horários são agrupados sem perda.

@@ -113,6 +113,21 @@ describe("classificação operacional Contact ID", () => {
     })).toEqual({ kind: "unknown", state: "unknown" });
   });
 
+  it("distingue E403 auto-desativação de R403 auto-ativação na tabela Intelbras", () => {
+    expect(classify({ eventCode: "403", qualifier: "E", brand: "INTELBRAS" })).toEqual({
+      kind: "disarm",
+      state: "disarmed",
+    });
+    expect(classify({ eventCode: "403", qualifier: "R", brand: "Intelbras" })).toEqual({
+      kind: "arm",
+      state: "armed",
+    });
+    expect(classify({ eventCode: "403", qualifier: "E", brand: "JFL" })).toEqual({
+      kind: "unknown",
+      state: "unknown",
+    });
+  });
+
   it("reconhece isolamento por códigos conhecidos, qualifier e descrição contextual", () => {
     expect(classify({ eventCode: "570", qualifier: "E", brand: "JFL" })).toEqual({
       kind: "isolation",

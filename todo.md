@@ -712,6 +712,7 @@
 - [x] Restringir a habilitação de bancada AMT-8000 a administrador, com justificativa e auditoria por central/MAC; o toggle não transmite comando
 - [x] Revisar a documentação oficial: manter E7/ISECProgram no fluxo operacional, sem confundir com E9 ou a sessão de fotos F0F0/0BB0/F0F1; manter 401E fora até homologação específica
 - [x] Ajustar a interface AMT-8000 para mostrar apenas ARMAR quando o estado confirmado está desarmado ou DESARME quando está armado, mantendo bloqueio sem estado confiável
+- [x] Cadastrar na tabela Intelbras o Contact ID oficial E403 como auto-desativação/desarme e R403 como auto-ativação/arme; classificar o estado respeitando fabricante e qualificador
 - [ ] Publicar na VPS a sequência corrigida e configurar em cadastro de teste a senha remota de seis dígitos e modo de bancada, sem transmitir comando físico
 - [ ] Homologar uma única ação física em AMT-8000 de bancada com autorização explícita, conferindo respostas 0x50/0x96/0x95, estado final e histórico antes de uso operacional
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
