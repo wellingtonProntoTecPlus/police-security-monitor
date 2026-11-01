@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import QuickScheduleExceptionDialog from "@/components/QuickScheduleExceptionDialog";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useSocket, AlarmEvent } from "@/hooks/useSocket";
@@ -46,6 +47,10 @@ function isStandalonePhysicalCommandSupported(brand?: string | null) {
 interface QueueEvent extends AlarmEvent {
   receivedAt?: string;
   incidentId?: number;
+  parentIncidentId?: number | null;
+  incidentOperatorId?: number | null;
+  incidentOperatorName?: string | null;
+  incidentVersion?: number;
   incidentClientId?: number | null;
   incidentSystemId?: number | null;
   incidentNotes?: string | null;
@@ -205,6 +210,7 @@ export default function Dashboard() {
   const [sendEmail, setSendEmail] = useState(false);
   const [sendPush, setSendPush] = useState(false);
   const [armDisarmModal, setArmDisarmModal] = useState<'armed' | 'disarmed' | null>(null);
+  const [quickScheduleSystem, setQuickScheduleSystem] = useState<any | null>(null);
   const [scheduleAlertsModal, setScheduleAlertsModal] = useState(false);
   const [standaloneRemoteRequest, setStandaloneRemoteRequest] = useState<(any & { commandType: "arm" | "disarm" }) | null>(null);
   const [standaloneRemoteRequester, setStandaloneRemoteRequester] = useState("");
@@ -252,6 +258,7 @@ export default function Dashboard() {
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
   const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
   const updateIncidentMut = trpc.incident.update.useMutation();
+  const assumeIncidentMut = trpc.incident.assume.useMutation();
   const bulkFinalizeMut = trpc.incident.bulkFinalize.useMutation();
   const observeIncidentMut = trpc.incident.observe.useMutation();
   const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
@@ -351,7 +358,7 @@ export default function Dashboard() {
     return () => window.removeEventListener("popstate", handleHistoryNavigation, true);
   }, [selectedEvent]);
 
-  const { connected, realtimeEvents } = useSocket();
+  const { connected, realtimeEvents, incidentUpdates } = useSocket();
   useEffect(() => {
     const reconcileOnVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -591,6 +598,16 @@ export default function Dashboard() {
     }
   }, [persistedQueueData, isPersistedQueueLoading, clientData, systemData]);
 
+  useEffect(() => {
+    const update = incidentUpdates?.[0];
+    if (!update) return;
+    void utils.incident.openQueue.invalidate();
+    void utils.incident.history.invalidate();
+    if (update.incidentStatus === "closed") {
+      setSelectedEvent((previous) => previous?.incidentId === update.incidentId ? null : previous);
+    }
+  }, [incidentUpdates?.[0]?.timestamp, utils]);
+
   // Função para tocar som de alerta por 5 segundos
   function startAlertSound() {
     if (!audioEnabled) {
@@ -744,19 +761,26 @@ export default function Dashboard() {
     }
   }
 
-  // Mover evento entre filas
-  const moveEvent = useCallback((ev: QueueEvent, newStatus: QueueStatus) => {
-    setQueues((prev) => prev.map((q) =>
-      q === ev || (q.queuedAt === ev.queuedAt && q.account === ev.account) ? { ...q, queueStatus: newStatus } : q
-    ));
-    if (selectedEvent && selectedEvent.queuedAt === ev.queuedAt && selectedEvent.account === ev.account) {
-      setSelectedEvent({ ...ev, queueStatus: newStatus });
+  // Reivindicação e transição são atômicas no servidor; só o incidente certo é atualizado.
+  const moveEvent = useCallback(async (ev: QueueEvent, newStatus: QueueStatus) => {
+    if (!ev.incidentId || (newStatus !== "attending" && newStatus !== "tactical")) return null;
+    try {
+      const result = await updateIncidentMut.mutateAsync({ id: ev.incidentId, status: newStatus === "tactical" ? "dispatched" : "attending" });
+      const queueStatus: QueueStatus = result.status === "dispatched" ? "tactical" : "attending";
+      setQueues((previous) => previous.map((item) => item.incidentId === ev.incidentId
+        ? { ...item, queueStatus, incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" }
+        : item));
+      setSelectedEvent((previous) => previous && ev.incidentId !== undefined && previous.incidentId === ev.incidentId
+        ? { ...previous, queueStatus, incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" }
+        : previous);
+      await utils.incident.openQueue.invalidate();
+      return result;
+    } catch (error: any) {
+      toast.error(error?.message || "Outro operador alterou este atendimento. A fila será atualizada.");
+      await utils.incident.openQueue.invalidate();
+      return null;
     }
-    if (ev.incidentId) {
-      updateIncidentMut.mutate({ id: ev.incidentId, status: queueStatusToIncidentStatus(newStatus), operatorId: user?.id });
-      void utils.incident.openQueue.invalidate();
-    }
-  }, [selectedEvent, updateIncidentMut, user?.id, utils]);
+  }, [updateIncidentMut, user?.id, user?.name, utils]);
 
   // Finalizar evento
   // finalizeEvent definido abaixo de selectedClient/selectedSystem
@@ -800,13 +824,17 @@ export default function Dashboard() {
     setLogs((prev) => [`[${time}] ${msg}`, ...prev]);
   }
 
-  function handleSelectEvent(ev: QueueEvent) {
+  async function handleSelectEvent(ev: QueueEvent) {
     // Parar som de alerta ao clicar no evento
     stopAlertSound();
     if (ev.queueStatus === "waiting") {
-      moveEvent(ev, "attending");
-      setSelectedEvent({ ...ev, queueStatus: "attending" });
-      addLog("Evento aberto para atendimento");
+      const claimed = await moveEvent(ev, "attending");
+      if (!claimed) return;
+      setSelectedEvent({ ...ev, queueStatus: "attending", incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" });
+      addLog("Atendimento reivindicado pelo operador logado.");
+    } else if (ev.incidentOperatorId && ev.incidentOperatorId !== user?.id && ev.queueStatus !== "observing") {
+      toast.info(`Atendimento em ${ev.queueStatus === "tactical" ? "andamento com o tático" : "andamento"} por ${ev.incidentOperatorName || "outro operador"}.`);
+      return;
     } else {
       setSelectedEvent(ev);
     }
@@ -814,6 +842,39 @@ export default function Dashboard() {
     setAttendingNotes("");
     setLogs([]);
     setActiveTab("cameras");
+  }
+
+  const isOtherOperatorObservation = Boolean(selectedEvent?.queueStatus === "observing" && selectedEvent.incidentOperatorId !== user?.id);
+
+  async function assumeSelectedObservation() {
+    if (!selectedEvent?.incidentId) return;
+    try {
+      const result = await assumeIncidentMut.mutateAsync({ incidentId: selectedEvent.incidentId });
+      const childEvent: QueueEvent = {
+        ...selectedEvent,
+        incidentId: result.id,
+        parentIncidentId: result.parentIncidentId,
+        incidentOperatorId: result.operatorId,
+        incidentOperatorName: result.operatorName,
+        incidentNotes: result.notes,
+        queueStatus: incidentStatusToQueueStatus(result.status),
+        queuedAt: Date.now(),
+      };
+      setQueues((previous) => [...previous.filter((item) => item.incidentId !== result.id), childEvent]);
+      setSelectedEvent(childEvent);
+      setAttendStartTime(Date.now());
+      setAttendingNotes("");
+      setLogs([result.alreadyAssigned
+        ? `Atendimento independente já existente retomado: #${result.id}; origem #${result.parentIncidentId}.`
+        : `Atendimento assumido de outro operador. Registro independente #${result.id}; origem #${result.parentIncidentId}.`]);
+      await utils.incident.openQueue.invalidate();
+      toast.success(result.alreadyAssigned
+        ? "Seu atendimento independente foi reaberto."
+        : "Atendimento assumido. Seu registro será independente e não altera o atendimento que segue em observação.");
+    } catch (error: any) {
+      toast.error(error?.message || "Não foi possível assumir o atendimento.");
+      await utils.incident.openQueue.invalidate();
+    }
   }
 
   const selectedCompatecDisarmEnabled = useMemo(() => {
@@ -1442,7 +1503,7 @@ export default function Dashboard() {
       <div
         onClick={() => handleSelectEvent(ev)}
         className={`w-full min-w-0 rounded-md border border-border/50 px-3 py-2 cursor-pointer hover:bg-primary/10 transition-colors relative border-l-4 shadow-sm ${
-          selectedEvent?.queuedAt === ev.queuedAt && selectedEvent?.account === ev.account ? 'bg-primary/15 border-l-primary' : (PRIORITY_BORDER[ev.priority] || PRIORITY_BORDER.medium)
+          selectedEvent?.incidentId === ev.incidentId ? 'bg-primary/15 border-l-primary' : (PRIORITY_BORDER[ev.priority] || PRIORITY_BORDER.medium)
         }`}
       >
         {sameClientCount > 0 && !groupedCard && (
@@ -1459,13 +1520,13 @@ export default function Dashboard() {
         <div className="text-[11px] text-cyan-300/90 truncate">Parceira: {eventPartner?.name || "Sem empresa parceira vinculada"}</div>
         {panelUserDisplayText && <div className="text-[11px] text-blue-200 truncate">{panelUserDisplayText}</div>}
         <div className="text-[11px] text-muted-foreground truncate">Central: {ev.systemModel}</div>
+        {ev.incidentOperatorName && ev.queueStatus !== "waiting" && <div className="mt-1 text-[10px] font-semibold text-sky-200">{ev.queueStatus === "observing" ? "Em observação" : "Em atendimento"} por {ev.incidentOperatorName}</div>}
+        {ev.parentIncidentId && <div className="mt-1 text-[10px] text-amber-200">Atendimento independente #{ev.incidentId} · origem #{ev.parentIncidentId}</div>}
         <div className="flex items-center gap-2 mt-1">
           <span className="font-mono text-xs text-muted-foreground">{ev.qualifier === 'E' ? '' : 'R'}{ev.eventCode}</span>
           <Badge className={`text-[10px] px-1.5 py-0 ${pri.color}`}>{pri.label}</Badge>
         </div>
-        {ev.observationUntil && ev.queueStatus === "observing" && (
-          <div className="text-[10px] text-purple-300 mt-1">Observação até {new Date(ev.observationUntil).toLocaleString("pt-BR")}</div>
-        )}
+        {ev.observationUntil && ev.queueStatus === "observing" && <div className="mt-1 text-[10px] text-purple-300">Observação até {new Date(ev.observationUntil).toLocaleString("pt-BR")}</div>}
         {sameClientCount > 0 && !groupedCard && (
           <div className="text-[10px] text-cyan-400 mt-1">+ {sameClientCount} eventos do mesmo cliente</div>
         )}
@@ -1546,6 +1607,8 @@ export default function Dashboard() {
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                     <span className="text-cyan-200">Parceira responsável: <strong className="text-foreground">{selectedPartner?.name || "Sem empresa parceira vinculada"}</strong></span>
+                    {selectedEvent.incidentOperatorName && <span className="text-sky-200">Responsável pelo atendimento: <strong className="text-foreground">{selectedEvent.incidentOperatorName}</strong></span>}
+                    {selectedEvent.parentIncidentId && <span className="text-amber-200">Registro independente #{selectedEvent.incidentId} · origem #{selectedEvent.parentIncidentId}</span>}
                     {getPanelUserDisplayText(selectedEvent, selectedPanelUser) && <span className="text-blue-200"><strong className="text-foreground">{getPanelUserDisplayText(selectedEvent, selectedPanelUser)}</strong></span>}
                   </div>
                   <p className={`mt-1 font-bold text-lg ${PRIORITY_TEXT_COLOR[selectedEvent.priority] || 'text-foreground'}`}>{selectedEvent.qualifier}{selectedEvent.eventCode} - {selectedEvent.description}</p>
@@ -1574,7 +1637,19 @@ export default function Dashboard() {
                 <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={requestCloseAttendance} aria-label="Fechar tratamento"><X className="h-5 w-5" /></button>
               </div>
             </div>
-            {selectedEvent.queueStatus === "maintenance" ? (
+            {isOtherOperatorObservation ? (
+              <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
+                <div className="w-full max-w-xl rounded-xl border border-amber-400/50 bg-amber-400/5 p-6 text-center">
+                  <Users className="mx-auto mb-3 h-10 w-10 text-amber-300" />
+                  <h3 className="text-lg font-bold text-amber-100">Atendimento em observação</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">Este registro pertence a <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Para trabalhar e finalizar sem interferir no registro dele, assuma o atendimento. Será criado um segundo registro vinculado a esta ocorrência.</p>
+                  {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
+                  <Button className="mt-5 bg-amber-500 font-bold text-black hover:bg-amber-400" disabled={assumeIncidentMut.isPending} onClick={() => void assumeSelectedObservation()}>
+                    <Users className="mr-2 h-4 w-4" />{assumeIncidentMut.isPending ? "Assumindo..." : "Assumir atendimento"}
+                  </Button>
+                </div>
+              </div>
+            ) : selectedEvent.queueStatus === "maintenance" ? (
               <div className="flex flex-1 items-center justify-center p-8">
                 <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
                   <Wrench className="mx-auto mb-3 h-10 w-10 text-yellow-400" />
@@ -1597,6 +1672,7 @@ export default function Dashboard() {
                 </div>
                 <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={openObservation}><Eye className="h-3.5 w-3.5" /> Observação</Button>
+                  {selectedSystem?.id && <Button variant="outline" size="sm" className="gap-1.5 border-amber-500/40 text-xs text-amber-200" onClick={() => setQuickScheduleSystem({ id: selectedSystem.id, account: selectedEvent.account, clientName: selectedClient?.fantasyName || selectedClient?.name || selectedEvent.clientName, brand: selectedSystem.brand, model: selectedSystem.model })}><CalendarClock className="h-3.5 w-3.5" /> Alterar agenda</Button>}
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-emerald-400" onClick={() => setTreatmentPanel("contacts")}><Phone className="h-3.5 w-3.5" /> Contatos ({treatmentContacts.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-blue-400" onClick={() => setTreatmentPanel("users")}><Users className="h-3.5 w-3.5" /> Usuários ({treatmentAlarmUsers.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
@@ -2373,8 +2449,9 @@ export default function Dashboard() {
                      <p className="text-sm font-bold text-foreground">{item.clientName}</p>
                      <p className="text-xs text-muted-foreground">Conta: {item.account} · {item.brand || "Marca não informada"} {item.model || ""}</p>
                    </div>
-                   <div className="flex shrink-0 items-center gap-2 text-right">
-                     {isStandalonePhysicalCommandSupported(item.brand) ? <Button size="sm" className={armDisarmModal === "disarmed" ? "h-8 bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700" : "h-8 bg-red-600 px-3 text-xs font-bold text-white hover:bg-red-700"} onClick={() => openStandaloneCommandRequest(item, armDisarmModal === "disarmed" ? "arm" : "disarm")}>{armDisarmModal === "disarmed" ? "ARMAR" : "DESARMAR"}</Button> : <span className="text-[10px] text-muted-foreground">Comando não homologado</span>}
+                  <div className="flex shrink-0 items-center gap-2 text-right">
+                    <Button size="sm" variant="outline" className="h-8 px-2 text-[11px] text-amber-200" disabled={!Number(item.alarmSystemId || item.systemId)} onClick={() => setQuickScheduleSystem({ id: Number(item.alarmSystemId || item.systemId), account: item.account, clientName: item.clientName, brand: item.brand, model: item.model })}>Alterar agenda</Button>
+                    {isStandalonePhysicalCommandSupported(item.brand) ? <Button size="sm" className={armDisarmModal === "disarmed" ? "h-8 bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700" : "h-8 bg-red-600 px-3 text-xs font-bold text-white hover:bg-red-700"} onClick={() => openStandaloneCommandRequest(item, armDisarmModal === "disarmed" ? "arm" : "disarm")}>{armDisarmModal === "disarmed" ? "ARMAR" : "DESARMAR"}</Button> : <span className="text-[10px] text-muted-foreground">Comando não homologado</span>}
                      <div>
                      <p className="text-xs text-muted-foreground">
                        {item.lastEvent ? new Date(item.lastEvent).toLocaleString('pt-BR') : '-'}
@@ -2437,6 +2514,14 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      {quickScheduleSystem && <QuickScheduleExceptionDialog
+        system={quickScheduleSystem}
+        onClose={() => setQuickScheduleSystem(null)}
+        onSaved={() => {
+          void utils.dashboard.scheduleAlerts.invalidate();
+          void utils.dashboard.armDisarmStatus.invalidate();
+        }}
+      />}
     </DashboardLayout>
   );
 }

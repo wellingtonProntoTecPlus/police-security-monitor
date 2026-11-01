@@ -23,6 +23,7 @@ describe("auth.login", () => {
       lastSignedIn: new Date(),
     } as any);
     vi.spyOn(db, "updateUserLastSignedIn").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "replaceActiveAuthSession").mockResolvedValue({ sessionId: 123, revokedSessionIds: [] });
 
     const ctx: TrpcContext = {
       user: null,
@@ -37,5 +38,6 @@ describe("auth.login", () => {
     expect(result).toMatchObject({ success: true, user: { id: 15, email: "operador@example.com" } });
     expect(cookieCalls).toHaveLength(1);
     expect(db.updateUserLastSignedIn).toHaveBeenCalledWith(15);
+    expect(db.replaceActiveAuthSession).toHaveBeenCalledWith(15, expect.any(String), expect.any(Date));
   });
 });

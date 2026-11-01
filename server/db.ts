@@ -1,7 +1,7 @@
-import { eq, and, or, desc, sql, like, inArray, gte, lte, ne, isNotNull, isNull } from "drizzle-orm";
+import { eq, and, or, desc, sql, like, inArray, gte, gt, lte, ne, isNotNull, isNull, notExists } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  InsertUser, users,
+  InsertUser, users, authSessions,
   managingCompanies, InsertManagingCompany,
   partnerCompanies, InsertPartnerCompany,
   registrationDocuments,
@@ -13,7 +13,7 @@ import {
   alarmUsers, InsertAlarmUser,
   cameras, InsertCamera,
   alarmEvents, InsertAlarmEvent,
-  incidents, InsertIncident,
+  incidents, InsertIncident, incidentHistory,
   contactIdCodes,
   systemTechnicalAccounts,
   systemKeepAliveSamples,
@@ -40,6 +40,7 @@ import { getLatestArmDisarmStatusBySystem, isArmDisarmStatusEvent, STANDARD_ARM_
 import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule } from "./alarmSchedulePolicy";
+import { getScheduleOverrideWindow, type ScheduleOverrideDuration } from "./alarmScheduleOverrideWindow";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
@@ -54,6 +55,7 @@ import { getPublicBrandingOrNull } from "./publicBrandingFallback";
 import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
 import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
+import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -125,6 +127,71 @@ export async function getUserById(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function replaceActiveAuthSession(userId: number, tokenHash: string, expiresAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível para iniciar sessão");
+  return db.transaction(async (tx) => {
+    // O lock da linha do usuário serializa logins simultâneos do mesmo operador.
+    const userRows = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update").limit(1);
+    if (!userRows[0]) throw new Error("Usuário não encontrado para iniciar sessão");
+    const previous = await tx.select({ id: authSessions.id }).from(authSessions).where(and(
+      eq(authSessions.userId, userId),
+      isNull(authSessions.revokedAt),
+    ));
+    const now = new Date();
+    if (previous.length) {
+      await tx.update(authSessions).set({ revokedAt: now }).where(and(
+        eq(authSessions.userId, userId),
+        isNull(authSessions.revokedAt),
+      ));
+    }
+    const inserted = await tx.insert(authSessions).values({ userId, tokenHash, expiresAt, lastSeenAt: now });
+    return { sessionId: Number(inserted[0].insertId), revokedSessionIds: previous.map(row => Number(row.id)) };
+  });
+}
+
+export async function getActiveAuthSessionByTokenHash(tokenHash: string, now = new Date()) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ sessionId: authSessions.id, user: users }).from(authSessions)
+    .innerJoin(users, eq(authSessions.userId, users.id))
+    .where(and(
+      eq(authSessions.tokenHash, tokenHash),
+      isNull(authSessions.revokedAt),
+      gt(authSessions.expiresAt, now),
+    )).limit(1);
+  return rows[0] || null;
+}
+
+export async function isAuthSessionActive(sessionId: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db.select({ id: authSessions.id }).from(authSessions).where(and(
+    eq(authSessions.id, sessionId),
+    isNull(authSessions.revokedAt),
+    gt(authSessions.expiresAt, now),
+  )).limit(1);
+  return rows.length > 0;
+}
+
+export async function revokeAuthSessionByTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.transaction(async (tx) => {
+    const rows = await tx.select({ id: authSessions.id }).from(authSessions).where(and(
+      eq(authSessions.tokenHash, tokenHash),
+      isNull(authSessions.revokedAt),
+    ));
+    if (rows.length) {
+      await tx.update(authSessions).set({ revokedAt: new Date() }).where(and(
+        eq(authSessions.tokenHash, tokenHash),
+        isNull(authSessions.revokedAt),
+      ));
+    }
+    return rows.map(row => Number(row.id));
+  });
 }
 
 // ============================================================
@@ -1727,22 +1794,32 @@ export async function listOpenQueueEvents() {
   }).where(and(
     eq(incidents.status, "observing"),
     lte(incidents.observationUntil, now),
-    sql`NOT (${alarmEvents.brand} = 'RADIOENGE' AND ${alarmEvents.qualifier} = 'E' AND ${alarmEvents.eventCode} = '361')`,
+    notExists(db.select({ id: alarmEvents.id }).from(alarmEvents).where(and(
+      eq(alarmEvents.id, incidents.eventId),
+      eq(alarmEvents.brand, "RADIOENGE"),
+      eq(alarmEvents.qualifier, "E"),
+      eq(alarmEvents.eventCode, "361"),
+    ))),
   ));
 
   const rows = await db
-    .select({ incident: incidents, event: alarmEvents })
+    .select({ incident: incidents, event: alarmEvents, incidentOperatorName: users.name })
     .from(incidents)
     .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .leftJoin(users, eq(incidents.operatorId, users.id))
     .where(inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]))
     .orderBy(desc(alarmEvents.receivedAt));
-  return rows.map(({ incident, event }) => ({
+  return rows.map(({ incident, event, incidentOperatorName }) => ({
     ...event,
     incidentId: incident.id,
+    parentIncidentId: incident.parentIncidentId,
     incidentStatus: incident.status,
+    incidentVersion: incident.version,
+    incidentClaimedAt: incident.claimedAt,
     incidentClientId: incident.clientId,
     incidentSystemId: incident.alarmSystemId,
     incidentOperatorId: incident.operatorId,
+    incidentOperatorName,
     incidentNotes: incident.notes,
     observationUntil: incident.observationUntil,
   }));
@@ -1767,6 +1844,7 @@ export async function bulkFinalizeOpenIncidents(input: {
     const conditions: any[] = [
       eq(alarmEvents.account, input.account),
       inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]),
+      or(eq(incidents.status, "waiting"), eq(incidents.operatorId, input.operatorId || 0)),
     ];
     if (input.alarmSystemId) conditions.push(eq(incidents.alarmSystemId, input.alarmSystemId));
 
@@ -1775,7 +1853,8 @@ export async function bulkFinalizeOpenIncidents(input: {
       .from(incidents)
       .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
       .where(and(...conditions))
-      .orderBy(desc(alarmEvents.receivedAt));
+      .orderBy(desc(alarmEvents.receivedAt))
+      .for("update");
 
     if (openRows.length === 0) return { count: 0 };
 
@@ -1783,6 +1862,7 @@ export async function bulkFinalizeOpenIncidents(input: {
       `[${finalizedAt.toLocaleTimeString("pt-BR")}] Finalização em massa: ${openRows.length} eventos da conta ${input.account}`,
     ]);
     const occurrenceRows = openRows.map(({ incident, event }) => ({
+      incidentId: incident.id,
       account: event.account,
       eventCode: event.eventCode,
       qualifier: event.qualifier,
@@ -1795,7 +1875,7 @@ export async function bulkFinalizeOpenIncidents(input: {
       clientName: input.clientName ?? null,
       systemId: input.alarmSystemId ?? incident.alarmSystemId ?? null,
       partnerCompanyId: input.partnerCompanyId ?? null,
-      operatorId: input.operatorId ?? null,
+      operatorId: input.operatorId ?? incident.operatorId ?? null,
       operatorName: input.operatorName ?? "Operador",
       observations: resolution,
       logs: log,
@@ -1821,15 +1901,131 @@ export async function bulkFinalizeOpenIncidents(input: {
   });
 }
 
-export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string }) {
+export async function transitionIncidentForOperator(input: {
+  incidentId: number;
+  operatorId: number;
+  operatorName: string;
+  status: "attending" | "dispatched";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
+    if (!current) throw new Error("Ocorrência aberta não encontrada");
+    const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
+    if (!action || action === "assume_child") throw new Error("Este atendimento pertence a outro operador. Atualize a fila e use ‘Assumir atendimento’ somente se estiver em observação.");
+    if (current.status === "waiting" && input.status !== "attending") throw new Error("Abra primeiro o atendimento antes de encaminhá-lo ao tático.");
+
+    const now = new Date();
+    const nextStatus = input.status;
+    await tx.update(incidents).set({
+      status: nextStatus,
+      operatorId: input.operatorId,
+      claimedAt: current.claimedAt || now,
+      observationUntil: null,
+      dispatchedAt: nextStatus === "dispatched" ? now : current.dispatchedAt,
+      version: (current.version || 0) + 1,
+    }).where(and(eq(incidents.id, current.id), eq(incidents.version, current.version || 0)));
+    await tx.insert(incidentHistory).values({
+      incidentId: current.id,
+      parentIncidentId: current.parentIncidentId,
+      operatorId: input.operatorId,
+      operatorName: input.operatorName.slice(0, 255),
+      action: action === "claim" ? "claimed" : action === "resume" ? "resumed" : "status_changed",
+      statusBefore: current.status,
+      statusAfter: nextStatus,
+      note: nextStatus === "dispatched" ? "Atendimento encaminhado ao tático." : action === "claim" ? "Atendimento assumido pelo operador." : null,
+    });
+    return { id: current.id, parentIncidentId: current.parentIncidentId, status: nextStatus, operatorId: input.operatorId, operatorName: input.operatorName, action };
+  });
+}
+
+export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string; operatorId: number; operatorName: string }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   if (input.until <= new Date()) throw new Error("Informe uma data e hora futura para a observação");
-  await db.update(incidents).set({
-    status: "observing",
-    observationUntil: input.until,
-    notes: input.notes || "Ocorrência colocada em observação",
-  }).where(eq(incidents.id, input.incidentId));
+  return db.transaction(async (tx) => {
+    const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
+    if (!current) throw new Error("Ocorrência aberta não encontrada");
+    const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
+    if (!action || action === "assume_child") throw new Error("Somente o operador responsável pode colocar este atendimento em observação.");
+    const now = new Date();
+    const note = input.notes?.trim() || "Ocorrência colocada em observação";
+    await tx.update(incidents).set({ status: "observing", operatorId: input.operatorId, claimedAt: current.claimedAt || now, observationUntil: input.until, notes: note, version: (current.version || 0) + 1 })
+      .where(and(eq(incidents.id, current.id), eq(incidents.version, current.version || 0)));
+    await tx.insert(incidentHistory).values({
+      incidentId: current.id, parentIncidentId: current.parentIncidentId,
+      operatorId: input.operatorId, operatorName: input.operatorName.slice(0, 255), action: "observing",
+      statusBefore: current.status, statusAfter: "observing", note,
+    });
+    return { id: current.id, parentIncidentId: current.parentIncidentId, status: "observing" as const, operatorId: input.operatorId, operatorName: input.operatorName };
+  });
+}
+
+export async function assumeObservedIncident(input: { incidentId: number; operatorId: number; operatorName: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    const [parent] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
+    if (!parent) throw new Error("Ocorrência aberta não encontrada");
+    const [activeChild] = await tx.select().from(incidents).where(and(
+      eq(incidents.parentIncidentId, parent.id),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+    )).for("update").limit(1);
+    if (activeChild) {
+      const childAction = resolveExistingActiveChildAction({ activeChildOperatorId: activeChild.operatorId, actingOperatorId: input.operatorId });
+      if (childAction === "reject_other_operator") {
+        throw new Error("Este evento já tem um atendimento independente ativo com outro operador.");
+      }
+      return {
+        id: activeChild.id,
+        parentIncidentId: parent.id,
+        eventId: activeChild.eventId,
+        alarmSystemId: activeChild.alarmSystemId,
+        clientId: activeChild.clientId,
+        status: activeChild.status,
+        operatorId: activeChild.operatorId,
+        operatorName: input.operatorName.slice(0, 255),
+        notes: activeChild.notes,
+        alreadyAssigned: true as const,
+      };
+    }
+    const action = resolveIncidentOwnershipAction({ status: parent.status, assignedOperatorId: parent.operatorId, actingOperatorId: input.operatorId });
+    if (action !== "assume_child") throw new Error(action === "resume" ? "Você já é responsável por este atendimento; atualize a fila para retomá-lo." : "Só é possível assumir um atendimento que esteja em observação por outro operador.");
+    const now = new Date();
+    const childNotes = `Atendimento assumido de ${parent.operatorId ? `operador ${parent.operatorId}` : "outro atendente"}. Registro independente para este operador.`;
+    const inserted = await tx.insert(incidents).values({
+      eventId: parent.eventId,
+      parentIncidentId: parent.id,
+      alarmSystemId: parent.alarmSystemId,
+      clientId: parent.clientId,
+      operatorId: input.operatorId,
+      status: "attending",
+      version: 0,
+      claimedAt: now,
+      priority: parent.priority,
+      notes: childNotes,
+    });
+    const childId = Number(inserted[0].insertId);
+    const operatorName = input.operatorName.slice(0, 255);
+    await tx.insert(incidentHistory).values([
+      { incidentId: parent.id, parentIncidentId: parent.parentIncidentId, operatorId: input.operatorId, operatorName, action: "assumed_by_another_operator", statusBefore: parent.status, statusAfter: parent.status, note: `Operador ${operatorName} abriu um atendimento independente.` },
+      { incidentId: childId, parentIncidentId: parent.id, operatorId: input.operatorId, operatorName, action: "assumed", statusBefore: "observing", statusAfter: "attending", note: childNotes },
+    ]);
+    return { id: childId, parentIncidentId: parent.id, eventId: parent.eventId, alarmSystemId: parent.alarmSystemId, clientId: parent.clientId, status: "attending" as const, operatorId: input.operatorId, operatorName, notes: childNotes, alreadyAssigned: false as const };
+  });
+}
+
+export async function getIncidentHistory(incidentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [incident] = await db.select({ id: incidents.id, parentIncidentId: incidents.parentIncidentId }).from(incidents).where(eq(incidents.id, incidentId)).limit(1);
+  if (!incident) return [];
+  const familyRootId = incident.parentIncidentId || incident.id;
+  return db.select().from(incidentHistory).where(or(
+    eq(incidentHistory.incidentId, familyRootId),
+    eq(incidentHistory.parentIncidentId, familyRootId),
+  )).orderBy(incidentHistory.createdAt).limit(200);
 }
 
 export async function putIncidentInMaintenance(input: { incidentId: number; endAt: Date; notes?: string }) {
@@ -2171,6 +2367,7 @@ export async function saveAlarmScheduleOverride(input: {
   alarmSystemId: number;
   overrideDate: string;
   mode: "suspended" | "override";
+  duration: ScheduleOverrideDuration;
   armAt?: string | null;
   disarmAt?: string | null;
   requester: string;
@@ -2180,6 +2377,7 @@ export async function saveAlarmScheduleOverride(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const window = getScheduleOverrideWindow({ overrideDate: input.overrideDate, duration: input.duration });
   return db.transaction(async (tx) => {
     const existingRows = await tx.select().from(alarmScheduleOverrides).where(and(
       eq(alarmScheduleOverrides.alarmSystemId, input.alarmSystemId),
@@ -2192,6 +2390,8 @@ export async function saveAlarmScheduleOverride(input: {
       mode: input.mode,
       armAt: input.mode === "suspended" ? null : input.armAt || null,
       disarmAt: input.mode === "suspended" ? null : input.disarmAt || null,
+      validFromAt: window.validFromAt,
+      validUntilAt: window.validUntilAt,
       requester: input.requester,
       reason: input.reason,
       createdBy: previous?.createdBy || input.operatorId,
@@ -2215,8 +2415,8 @@ export async function saveAlarmScheduleOverride(input: {
       operatorName: input.operatorName,
       requester: input.requester,
       reason: input.reason,
-      previousSettings: previous ? JSON.stringify({ mode: previous.mode, armAt: previous.armAt, disarmAt: previous.disarmAt, isActive: previous.isActive }) : null,
-      newSettings: JSON.stringify({ mode: values.mode, armAt: values.armAt, disarmAt: values.disarmAt, isActive: true }),
+      previousSettings: previous ? JSON.stringify({ mode: previous.mode, armAt: previous.armAt, disarmAt: previous.disarmAt, validFromAt: previous.validFromAt, validUntilAt: previous.validUntilAt, isActive: previous.isActive }) : null,
+      newSettings: JSON.stringify({ mode: values.mode, armAt: values.armAt, disarmAt: values.disarmAt, validFromAt: values.validFromAt, validUntilAt: values.validUntilAt, isActive: true }),
     });
     return { id: overrideId };
   });
@@ -2273,6 +2473,8 @@ export async function getAlarmScheduleContext(alarmSystemId: number) {
   }));
   const exceptions = exceptionRows.map((item) => ({
     date: item.overrideDate,
+    validFromAt: item.validFromAt,
+    validUntilAt: item.validUntilAt,
     suspended: item.mode === "suspended",
     override: item.mode === "override" ? {
       ...(item.armAt ? { armAt: item.armAt } : {}),
@@ -2445,6 +2647,8 @@ export async function sweepAlarmScheduleCompliance(now = new Date()) {
       .map((holiday) => ({ date: holiday.date, holidayArm: schedule.holidayArm, holidayDisarm: schedule.holidayDisarm }));
     const exceptions = allExceptions.filter((item) => item.alarmSystemId === schedule.alarmSystemId).map((item) => ({
       date: item.overrideDate,
+      validFromAt: item.validFromAt,
+      validUntilAt: item.validUntilAt,
       suspended: item.mode === "suspended",
       override: item.mode === "override" ? {
         ...(item.armAt ? { armAt: item.armAt } : {}),
@@ -2496,21 +2700,38 @@ export async function createOccurrence(data: InsertOccurrence) {
 }
 
 /** Fecha a ocorrência somente quando o relatório foi gravado com sucesso. */
-export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence) {
+export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence, actingOperatorId: number, actingOperatorName: string) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
-    const current = await tx.select({ status: incidents.status }).from(incidents).where(eq(incidents.id, incidentId)).limit(1);
-    if (!current[0]) throw new Error("Ocorrência aberta não encontrada");
-    if (current[0].status === "closed") throw new Error("Ocorrência já está finalizada");
-    const reportResult = await tx.insert(occurrences).values(occurrence);
+    const [current] = await tx.select().from(incidents).where(eq(incidents.id, incidentId)).for("update").limit(1);
+    if (!current) throw new Error("Ocorrência aberta não encontrada");
+    if (current.status === "closed") throw new Error("Ocorrência já está finalizada");
+    if (current.operatorId !== actingOperatorId) throw new Error("Este atendimento está atribuído a outro operador. Assuma o atendimento quando estiver em observação antes de finalizá-lo.");
+    const reportResult = await tx.insert(occurrences).values({
+      ...occurrence,
+      incidentId,
+      operatorId: actingOperatorId,
+      operatorName: actingOperatorName.slice(0, 255),
+    });
     const reportId = Number(reportResult[0].insertId);
     if (!canCloseIncidentAfterReport(reportId)) throw new Error("Relatório não foi persistido; ocorrência permanece aberta");
     await tx.update(incidents).set({
       status: "closed",
       resolution: occurrence.observations || "Finalizada pelo operador",
       closedAt: new Date(),
-    }).where(eq(incidents.id, incidentId));
+      version: (current.version || 0) + 1,
+    }).where(and(eq(incidents.id, incidentId), eq(incidents.operatorId, actingOperatorId), ne(incidents.status, "closed")));
+    await tx.insert(incidentHistory).values({
+      incidentId,
+      parentIncidentId: current.parentIncidentId,
+      operatorId: actingOperatorId,
+      operatorName: actingOperatorName.slice(0, 255),
+      action: "finalized",
+      statusBefore: current.status,
+      statusAfter: "closed",
+      note: occurrence.observations || "Finalizada pelo operador",
+    });
     return { id: reportId };
   });
 }

@@ -14,7 +14,10 @@ const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
 
   if (!ctx.user) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: ctx.authSessionInvalid ? "SESSION_REPLACED_OR_EXPIRED" : UNAUTHED_ERR_MSG,
+    });
   }
 
   return next({

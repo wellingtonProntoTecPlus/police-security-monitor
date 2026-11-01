@@ -12,7 +12,11 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startReceivers, setEventCallback } from "../receiver/index";
-import { normalizeExistingRegistrationText, sweepAlarmScheduleCompliance, sweepKeepAliveDisconnects } from "../db";
+import { getActiveAuthSessionByTokenHash, normalizeExistingRegistrationText, sweepAlarmScheduleCompliance, sweepKeepAliveDisconnects } from "../db";
+import { COOKIE_NAME } from "@shared/const";
+import { hashAuthSessionToken } from "./localSession";
+import { setAuthSessionRevocationHandler } from "./authSessionRuntime";
+import { setIncidentStateEventEmitter } from "./socketEvents";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -45,11 +49,37 @@ async function startServer() {
     path: "/api/socket.io",
   });
 
+  io.use(async (socket, next) => {
+    const cookieHeader = socket.handshake.headers.cookie || "";
+    const prefix = `${COOKIE_NAME}=`;
+    const value = cookieHeader.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
+    if (!value) return next(new Error("unauthorized-session"));
+    let token = "";
+    try { token = decodeURIComponent(value.slice(prefix.length)); } catch { return next(new Error("unauthorized-session")); }
+    try {
+      const session = await getActiveAuthSessionByTokenHash(hashAuthSessionToken(token));
+      if (!session) return next(new Error("unauthorized-session"));
+      socket.data.authSessionId = Number(session.sessionId);
+      socket.data.authUserId = session.user.id;
+      next();
+    } catch {
+      next(new Error("unauthorized-session"));
+    }
+  });
+
   io.on("connection", (socket) => {
+    const sessionId = Number(socket.data.authSessionId);
+    socket.join(`auth-session:${sessionId}`);
     console.log(`[Socket.IO] Cliente conectado: ${socket.id}`);
     socket.on("disconnect", () => {
       console.log(`[Socket.IO] Cliente desconectado: ${socket.id}`);
     });
+  });
+
+  setIncidentStateEventEmitter((event) => io.emit("incident:state", event));
+
+  setAuthSessionRevocationHandler((sessionIds) => {
+    for (const sessionId of sessionIds) io.in(`auth-session:${sessionId}`).disconnectSockets(true);
   });
 
   // Conectar receptor de eventos ao Socket.IO

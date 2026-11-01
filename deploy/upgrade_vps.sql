@@ -766,6 +766,51 @@ WHERE keepAliveOfflineAfterMinutes IS NULL OR keepAliveOfflineAfterMinutes < 1;
 -- Carga idempotente dos códigos Contact ID, incluindo a tabela JFL.
 SOURCE deploy/seed_contact_ids.sql;
 
+-- Converter a tabela antiga (uma linha por dia) para uma agenda semanal por central.
+-- A tabela legada é preservada como backup e os horários são agrupados sem perda.
+SET @statement = (
+  SELECT IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_schedules' AND COLUMN_NAME = 'dayOfWeek') > 0
+    AND (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_schedules' AND COLUMN_NAME = 'mondayArm') = 0
+    AND (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_schedules_legacy') = 0,
+    'RENAME TABLE `alarm_schedules` TO `alarm_schedules_legacy`',
+    'SELECT 1'
+  )
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
+CREATE TABLE IF NOT EXISTS `alarm_schedules` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `alarmSystemId` int NOT NULL,
+  `partition` int NOT NULL DEFAULT 1,
+  `name` varchar(255) NULL,
+  `mondayArm` varchar(5) NULL, `mondayDisarm` varchar(5) NULL,
+  `tuesdayArm` varchar(5) NULL, `tuesdayDisarm` varchar(5) NULL,
+  `wednesdayArm` varchar(5) NULL, `wednesdayDisarm` varchar(5) NULL,
+  `thursdayArm` varchar(5) NULL, `thursdayDisarm` varchar(5) NULL,
+  `fridayArm` varchar(5) NULL, `fridayDisarm` varchar(5) NULL,
+  `saturdayArm` varchar(5) NULL, `saturdayDisarm` varchar(5) NULL,
+  `sundayArm` varchar(5) NULL, `sundayDisarm` varchar(5) NULL,
+  `holidayArm` varchar(5) NULL, `holidayDisarm` varchar(5) NULL,
+  `isActive` tinyint(1) NOT NULL DEFAULT 1,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+);
+
+SET @statement = (
+  SELECT IF(COUNT(*) > 0,
+    'INSERT INTO `alarm_schedules` (`alarmSystemId`,`partition`,`name`,`mondayArm`,`mondayDisarm`,`tuesdayArm`,`tuesdayDisarm`,`wednesdayArm`,`wednesdayDisarm`,`thursdayArm`,`thursdayDisarm`,`fridayArm`,`fridayDisarm`,`saturdayArm`,`saturdayDisarm`,`sundayArm`,`sundayDisarm`,`isActive`,`createdAt`) SELECT grouped.`alarmSystemId`,1,''Agenda operacional'',grouped.`mondayArm`,grouped.`mondayDisarm`,grouped.`tuesdayArm`,grouped.`tuesdayDisarm`,grouped.`wednesdayArm`,grouped.`wednesdayDisarm`,grouped.`thursdayArm`,grouped.`thursdayDisarm`,grouped.`fridayArm`,grouped.`fridayDisarm`,grouped.`saturdayArm`,grouped.`saturdayDisarm`,grouped.`sundayArm`,grouped.`sundayDisarm`,grouped.`isActive`,grouped.`createdAt` FROM (SELECT `alarmSystemId`,MAX(CASE WHEN `dayOfWeek`=''mon'' THEN `armTime` END) AS `mondayArm`,MAX(CASE WHEN `dayOfWeek`=''mon'' THEN `disarmTime` END) AS `mondayDisarm`,MAX(CASE WHEN `dayOfWeek`=''tue'' THEN `armTime` END) AS `tuesdayArm`,MAX(CASE WHEN `dayOfWeek`=''tue'' THEN `disarmTime` END) AS `tuesdayDisarm`,MAX(CASE WHEN `dayOfWeek`=''wed'' THEN `armTime` END) AS `wednesdayArm`,MAX(CASE WHEN `dayOfWeek`=''wed'' THEN `disarmTime` END) AS `wednesdayDisarm`,MAX(CASE WHEN `dayOfWeek`=''thu'' THEN `armTime` END) AS `thursdayArm`,MAX(CASE WHEN `dayOfWeek`=''thu'' THEN `disarmTime` END) AS `thursdayDisarm`,MAX(CASE WHEN `dayOfWeek`=''fri'' THEN `armTime` END) AS `fridayArm`,MAX(CASE WHEN `dayOfWeek`=''fri'' THEN `disarmTime` END) AS `fridayDisarm`,MAX(CASE WHEN `dayOfWeek`=''sat'' THEN `armTime` END) AS `saturdayArm`,MAX(CASE WHEN `dayOfWeek`=''sat'' THEN `disarmTime` END) AS `saturdayDisarm`,MAX(CASE WHEN `dayOfWeek`=''sun'' THEN `armTime` END) AS `sundayArm`,MAX(CASE WHEN `dayOfWeek`=''sun'' THEN `disarmTime` END) AS `sundayDisarm`,MAX(`isActive`) AS `isActive`,MIN(`createdAt`) AS `createdAt` FROM `alarm_schedules_legacy` GROUP BY `alarmSystemId`) grouped WHERE NOT EXISTS (SELECT 1 FROM `alarm_schedules` current_schedule WHERE current_schedule.`alarmSystemId`=grouped.`alarmSystemId` AND current_schedule.`partition`=1)',
+    'SELECT 1'
+  )
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'alarm_schedules_legacy'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Agenda operacional: horários próprios para feriados de cada conta.
 SET @statement = (
   SELECT IF(COUNT(*) = 0,
@@ -846,3 +891,83 @@ CREATE TABLE IF NOT EXISTS `alarm_schedule_alerts` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `alarm_schedule_alerts_dedupeKey_unique` (`dedupeKey`)
 );
+
+
+-- Sessão exclusiva por usuário; armazena apenas o hash do token do navegador.
+CREATE TABLE IF NOT EXISTS `auth_sessions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `userId` int NOT NULL,
+  `tokenHash` varchar(64) NOT NULL,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expiresAt` timestamp NOT NULL,
+  `revokedAt` timestamp NULL,
+  `lastSeenAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `auth_sessions_tokenHash_unique` (`tokenHash`),
+  KEY `auth_sessions_user_active_idx` (`userId`,`revokedAt`,`expiresAt`)
+);
+
+-- Colunas aditivas de atendimento; preservar todos os incidentes existentes.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `incidents` ADD `parentIncidentId` int NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND COLUMN_NAME='parentIncidentId'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `incidents` ADD `version` int NOT NULL DEFAULT 0', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND COLUMN_NAME='version'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `incidents` ADD `claimedAt` timestamp NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND COLUMN_NAME='claimedAt'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+-- Remover unicidade antiga por evento para permitir um atendimento independente vinculado ao original.
+SET @statement = (
+  SELECT IF(COUNT(*) > 0, 'ALTER TABLE `incidents` DROP INDEX `incidents_event_id_unique`', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND INDEX_NAME='incidents_event_id_unique'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `incidents_event_id_idx` ON `incidents` (`eventId`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND INDEX_NAME='incidents_event_id_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `incidents_parent_status_idx` ON `incidents` (`parentIncidentId`,`status`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND INDEX_NAME='incidents_parent_status_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+CREATE TABLE IF NOT EXISTS `incident_history` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `incidentId` int NOT NULL,
+  `parentIncidentId` int NULL,
+  `operatorId` int NULL,
+  `operatorName` varchar(255) NOT NULL,
+  `action` varchar(40) NOT NULL,
+  `statusBefore` varchar(24) NULL,
+  `statusAfter` varchar(24) NULL,
+  `note` text NULL,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `incident_history_incident_created_idx` (`incidentId`,`createdAt`)
+);
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `occurrences` ADD `incidentId` int NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='occurrences' AND COLUMN_NAME='incidentId'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `alarm_schedule_overrides` ADD `validFromAt` timestamp NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_schedule_overrides' AND COLUMN_NAME='validFromAt'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `alarm_schedule_overrides` ADD `validUntilAt` timestamp NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_schedule_overrides' AND COLUMN_NAME='validUntilAt'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;

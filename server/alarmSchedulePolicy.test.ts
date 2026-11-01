@@ -259,6 +259,29 @@ describe("agenda operacional em America/Sao_Paulo", () => {
     expect(result.transition).toBeNull();
   });
 
+  it("aplica exceção temporária apenas durante sua janela de uma hora", () => {
+    const schedule: AlarmSchedule = {
+      weekly: { monday: { armAt: "20:00", disarmAt: "07:00" } },
+      exceptions: [{
+        date: "2026-10-26",
+        suspended: true,
+        validFromAt: local("2026-10-26T20:00"),
+        validUntilAt: local("2026-10-26T21:00"),
+      }],
+    };
+
+    const before = evaluateAlarmSchedule({ schedule, at: local("2026-10-26T19:59") });
+    expect(before.expectedState).toBe("disarmed");
+
+    const during = evaluateAlarmSchedule({ schedule, at: local("2026-10-26T20:30") });
+    expect(during.expectedState).toBe("unknown");
+    expect(during.status).toBe("report_only");
+    expect(during.transition).toBeNull();
+
+    const after = evaluateAlarmSchedule({ schedule, at: local("2026-10-26T21:01") });
+    expect(after.expectedState).toBe("armed");
+  });
+
   it("sobrepõe individualmente os horários e preserva o horário base faltante", () => {
     const schedule: AlarmSchedule = {
       weekly: { monday: { armAt: "20:00", disarmAt: "07:00" } },
@@ -285,6 +308,8 @@ describe("agenda operacional em America/Sao_Paulo", () => {
     expect(result.expectedState).toBe("armed");
     expect(result.transition).toMatchObject({ kind: "disarm", state: "disarmed" });
     expect(result.transition?.at.toISOString()).toBe("2026-10-26T11:00:00.000Z");
+    const afterOverride = evaluateAlarmSchedule({ schedule, at: local("2026-10-26T08:05") });
+    expect(afterOverride.expectedState).toBe("disarmed");
   });
 });
 

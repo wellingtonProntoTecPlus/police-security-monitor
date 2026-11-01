@@ -854,3 +854,13 @@
 - [x] Mostrar estado e opção de nova tentativa durante falhas de abertura/autenticação/consultas
 - [x] Registrar de forma sanitizada requisições HTTP críticas acima de um segundo, sem tokens ou conteúdo privado
 - [ ] Publicar na VPS e comparar tempos de abertura nas máquinas e telas do operador
+
+## Operação Multioperador e Exceções de Agenda
+- [x] Permitir que novo login do mesmo operador revogue a sessão anterior e derrube seus sockets/dispositivo anterior
+- [x] Atualizar filas em todas as telas por Socket.IO e reconciliar após retorno de aba suspensa
+- [x] Fazer claim atômico de eventos pendentes e mostrar operador/status para os demais
+- [x] Permitir assumir atendimento em observação com botão explícito, criando registro filho independente e preservando o atendimento original
+- [x] Proteger alterações/finalização pelo operador dono do atendimento; separar relatório do atendimento assumido
+- [x] Expor no Dashboard, sem sair do atendimento, as exceções de agenda por uma hora, um dia ou sete dias, com solicitante, justificativa e auditoria
+- [x] Exibir e permitir tentar novamente em caso de falha ao carregar/salvar agenda semanal
+- [ ] Migrar banco da VPS, implantar e homologar com dois operadores simultâneos antes do uso operacional

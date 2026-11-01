@@ -54,6 +54,8 @@ export type AlarmHolidayRule = AlarmDayRule & {
 
 export type AlarmDateException = {
   date?: string | Date | null;
+  validFromAt?: Date | string | null;
+  validUntilAt?: Date | string | null;
   suspended?: boolean | null;
   override?: AlarmDayRule | null;
   armAt?: string | number | null;
@@ -570,17 +572,41 @@ function exceptionCandidates(schedule: AlarmSchedule, input: ScheduleEvaluationI
 }
 
 function findException(dateKey: string, schedule: AlarmSchedule, input: ScheduleEvaluationInput): AlarmDateException | null {
+  const now = parseInstant(input.at ?? input.now);
+  const matches: Array<{ item: AlarmDateException; exactDate: boolean; duration: number }> = [];
   for (const candidate of exceptionCandidates(schedule, input)) {
     if (Array.isArray(candidate)) {
-      const found = candidate.find(item => isRecord(item) && parseDateKey(item.date) === dateKey);
-      if (found) return found as AlarmDateException;
+      for (const item of candidate) {
+        if (isRecord(item) && exceptionMatchesDateAndWindow(item, dateKey, now)) {
+          const from = parseInstant(item.validFromAt)?.getTime();
+          const until = parseInstant(item.validUntilAt)?.getTime();
+          matches.push({ item: item as AlarmDateException, exactDate: parseDateKey(item.date) === dateKey, duration: from !== undefined && until !== undefined ? until - from : Number.POSITIVE_INFINITY });
+        }
+      }
     } else if (isRecord(candidate)) {
       const mapped = candidate[dateKey];
-      if (isRecord(mapped)) return mapped as AlarmDateException;
-      if (parseDateKey(candidate.date) === dateKey) return candidate as AlarmDateException;
+      if (isRecord(mapped) && exceptionMatchesDateAndWindow(mapped, dateKey, now, true)) {
+        matches.push({ item: mapped as AlarmDateException, exactDate: true, duration: Number.POSITIVE_INFINITY });
+      }
+      if (exceptionMatchesDateAndWindow(candidate, dateKey, now)) {
+        const from = parseInstant(candidate.validFromAt)?.getTime();
+        const until = parseInstant(candidate.validUntilAt)?.getTime();
+        matches.push({ item: candidate as AlarmDateException, exactDate: parseDateKey(candidate.date) === dateKey, duration: from !== undefined && until !== undefined ? until - from : Number.POSITIVE_INFINITY });
+      }
     }
   }
-  return null;
+  matches.sort((left, right) => Number(right.exactDate) - Number(left.exactDate) || left.duration - right.duration);
+  return matches[0]?.item || null;
+}
+
+function exceptionMatchesDateAndWindow(item: RecordValue, dateKey: string, now: Date | null, allowImplicitDate = false) {
+  const from = parseInstant(item.validFromAt);
+  const until = parseInstant(item.validUntilAt);
+  if (from || until) {
+    if (!now || (from && now < from) || (until && now >= until)) return false;
+    return true;
+  }
+  return parseDateKey(item.date) === dateKey || (allowImplicitDate && item.date == null);
 }
 
 function resolveDayRule(dateKey: string, schedule: AlarmSchedule, input: ScheduleEvaluationInput): ResolvedDayRule | null {

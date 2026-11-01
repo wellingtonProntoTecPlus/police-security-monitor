@@ -1,9 +1,11 @@
-import { COOKIE_NAME, ONE_YEAR_MS, OAUTH_STATE_COOKIE, decodeOAuthState } from "@shared/const";
+import { COOKIE_NAME, OAUTH_STATE_COOKIE, decodeOAuthState } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
+import { AUTH_SESSION_LIFETIME_MS, createAuthSessionToken, hashAuthSessionToken } from "./localSession";
+import { notifyAuthSessionsRevoked } from "./authSessionRuntime";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -48,13 +50,18 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
-      const sessionToken = await sdk.createSessionToken(userInfo.openId, {
-        name: userInfo.name || "",
-        expiresInMs: ONE_YEAR_MS,
-      });
+      const user = await db.getUserByOpenId(userInfo.openId);
+      if (!user) throw new Error("Usuário não foi criado após autenticação OAuth");
+      const sessionToken = createAuthSessionToken();
+      const session = await db.replaceActiveAuthSession(
+        user.id,
+        hashAuthSessionToken(sessionToken),
+        new Date(Date.now() + AUTH_SESSION_LIFETIME_MS),
+      );
+      notifyAuthSessionsRevoked(session.revokedSessionIds);
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: AUTH_SESSION_LIFETIME_MS });
 
       res.redirect(302, "/");
     } catch (error) {

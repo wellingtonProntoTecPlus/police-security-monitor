@@ -58,6 +58,16 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("return refreshed ? { ...previous, ...refreshed } : null");
   });
 
+  it("mostra o responsável e permite assumir observação em registro independente", () => {
+    expect(source).toContain("incidentOperatorName");
+    expect(source).toContain("Responsável pelo atendimento:");
+    expect(source).toContain("isOtherOperatorObservation");
+    expect(source).toContain("Assumir atendimento");
+    expect(source).toContain("Registro independente");
+    expect(source).toContain("incidentStatusToQueueStatus(result.status)");
+    expect(source).toContain("utils.incident.openQueue.invalidate()");
+  });
+
   it("permite abrir outra tela sem fechar o atendimento atual", () => {
     expect(source).toContain("WorkspaceScreenMenu");
     expect(source).toContain("Abrir outra tela sem fechar este atendimento");

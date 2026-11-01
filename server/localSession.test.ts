@@ -1,28 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createLocalSessionToken, verifyLocalSessionToken } from "./_core/localSession";
+import { describe, expect, it } from "vitest";
+import { createAuthSessionToken, hashAuthSessionToken } from "./_core/localSession";
 
-describe("sessão local", () => {
-  const originalSecret = process.env.JWT_SECRET;
-
-  beforeEach(() => {
-    process.env.JWT_SECRET = "segredo-de-teste-police-central";
+describe("sessão operacional por usuário", () => {
+  it("gera tokens imprevisíveis e distintos", () => {
+    const first = createAuthSessionToken();
+    const second = createAuthSessionToken();
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
-  afterEach(() => {
-    process.env.JWT_SECRET = originalSecret;
-  });
-
-  it("assina e valida a identidade do usuário", () => {
-    const token = createLocalSessionToken({ id: 42, openId: "operador-42" });
-
-    expect(verifyLocalSessionToken(token)).toMatchObject({
-      userId: 42,
-      openId: "operador-42",
-    });
-  });
-
-  it("rejeita token alterado", () => {
-    const token = createLocalSessionToken({ id: 42, openId: "operador-42" });
-    expect(verifyLocalSessionToken(`${token}alterado`)).toBeNull();
+  it("produz hash SHA-256 determinístico sem retornar o token bruto", () => {
+    const token = createAuthSessionToken();
+    const hash = hashAuthSessionToken(token);
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(hash).not.toBe(token);
+    expect(hashAuthSessionToken(token)).toBe(hash);
   });
 });

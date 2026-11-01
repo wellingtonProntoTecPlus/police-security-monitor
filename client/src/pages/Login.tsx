@@ -7,12 +7,14 @@ import { Label } from "@/components/ui/label";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { Shield, LogIn } from "lucide-react";
+import { startLogin } from "@/const";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [, navigate] = useLocation();
   const isShiftChange = new URLSearchParams(window.location.search).get("turno") === "1";
+  const wasSessionReplaced = new URLSearchParams(window.location.search).get("motivo") === "sessao-substituida";
 
   const loginMut = trpc.auth.login.useMutation({
     onSuccess: (result) => {
@@ -46,6 +48,10 @@ export default function Login() {
           <p className="text-sm text-muted-foreground">{isShiftChange ? "Troca de turno: aguardando o próximo operador." : "Sistema de Monitoramento de Alarmes"}</p>
         </CardHeader>
         <CardContent>
+          {wasSessionReplaced && <div role="alert" className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+            Sua sessão foi encerrada porque este usuário entrou no sistema em outro computador. Entre novamente aqui somente se quiser transferir o acesso para esta máquina.
+            <Button type="button" variant="outline" className="mt-3 w-full" onClick={startLogin}>Entrar com conta corporativa</Button>
+          </div>}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>

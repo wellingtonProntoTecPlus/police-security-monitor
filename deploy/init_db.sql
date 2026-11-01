@@ -16,6 +16,17 @@ CREATE TABLE IF NOT EXISTS users (
   lastSignedIn TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  userId INT NOT NULL,
+  tokenHash VARCHAR(64) NOT NULL UNIQUE,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expiresAt TIMESTAMP NOT NULL,
+  revokedAt TIMESTAMP NULL,
+  lastSeenAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX auth_sessions_user_active_idx (userId, revokedAt, expiresAt)
+);
+
 CREATE TABLE IF NOT EXISTS managing_companies (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -191,11 +202,71 @@ CREATE TABLE IF NOT EXISTS alarm_pgms (
 CREATE TABLE IF NOT EXISTS alarm_schedules (
   id INT AUTO_INCREMENT PRIMARY KEY,
   alarmSystemId INT NOT NULL,
-  dayOfWeek ENUM('mon','tue','wed','thu','fri','sat','sun') NOT NULL,
-  armTime VARCHAR(5),
-  disarmTime VARCHAR(5),
+  `partition` INT NOT NULL DEFAULT 1,
+  name VARCHAR(255),
+  mondayArm VARCHAR(5), mondayDisarm VARCHAR(5),
+  tuesdayArm VARCHAR(5), tuesdayDisarm VARCHAR(5),
+  wednesdayArm VARCHAR(5), wednesdayDisarm VARCHAR(5),
+  thursdayArm VARCHAR(5), thursdayDisarm VARCHAR(5),
+  fridayArm VARCHAR(5), fridayDisarm VARCHAR(5),
+  saturdayArm VARCHAR(5), saturdayDisarm VARCHAR(5),
+  sundayArm VARCHAR(5), sundayDisarm VARCHAR(5),
+  holidayArm VARCHAR(5), holidayDisarm VARCHAR(5),
   isActive TINYINT(1) NOT NULL DEFAULT 1,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS alarm_schedule_overrides (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  overrideDate VARCHAR(10) NOT NULL,
+  mode ENUM('suspended','override') NOT NULL,
+  armAt VARCHAR(5),
+  disarmAt VARCHAR(5),
+  validFromAt TIMESTAMP NULL,
+  validUntilAt TIMESTAMP NULL,
+  requester VARCHAR(255) NOT NULL,
+  reason TEXT NOT NULL,
+  createdBy INT NOT NULL,
+  updatedBy INT NOT NULL,
+  isActive TINYINT(1) NOT NULL DEFAULT 1,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY alarm_schedule_overrides_system_date_unique (alarmSystemId, overrideDate)
+);
+
+CREATE TABLE IF NOT EXISTS alarm_schedule_override_audit (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  overrideId INT NULL,
+  alarmSystemId INT NOT NULL,
+  overrideDate VARCHAR(10) NOT NULL,
+  action ENUM('created','updated','cancelled') NOT NULL,
+  operatorId INT NOT NULL,
+  operatorName VARCHAR(255) NOT NULL,
+  requester VARCHAR(255) NOT NULL,
+  reason TEXT NOT NULL,
+  previousSettings TEXT NULL,
+  newSettings TEXT NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS alarm_schedule_alerts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  scheduleId INT NULL,
+  sourceEventId INT NULL,
+  alertType ENUM('missed_arm','unexpected_disarm') NOT NULL,
+  dedupeKey VARCHAR(191) NOT NULL UNIQUE,
+  alertDate VARCHAR(10) NOT NULL,
+  expectedAt TIMESTAMP NULL,
+  detectedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  currentState VARCHAR(20) NULL,
+  status ENUM('active','acknowledged','resolved') NOT NULL DEFAULT 'active',
+  acknowledgedBy INT NULL,
+  acknowledgedAt TIMESTAMP NULL,
+  resolvedAt TIMESTAMP NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS client_procedures (
@@ -265,6 +336,7 @@ CREATE TABLE IF NOT EXISTS contact_id_codes (
 
 CREATE TABLE IF NOT EXISTS occurrences (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  incidentId INT NULL,
   account VARCHAR(20) NOT NULL,
   eventCode VARCHAR(10) NOT NULL,
   qualifier VARCHAR(2),
@@ -293,17 +365,36 @@ CREATE TABLE IF NOT EXISTS occurrences (
 
 CREATE TABLE IF NOT EXISTS incidents (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  eventId INT,
+  eventId INT NOT NULL,
+  parentIncidentId INT NULL,
   alarmSystemId INT,
   clientId INT,
   operatorId INT,
   status ENUM('waiting','attending','observing','dispatched','maintenance','closed') NOT NULL DEFAULT 'waiting',
+  version INT NOT NULL DEFAULT 0,
+  claimedAt TIMESTAMP NULL,
   priority ENUM('critical','high','medium','low') DEFAULT 'medium',
   notes TEXT,
   resolution TEXT,
   createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  closedAt TIMESTAMP
+  closedAt TIMESTAMP NULL,
+  INDEX incidents_event_id_idx (eventId),
+  INDEX incidents_parent_status_idx (parentIncidentId, status)
+);
+
+CREATE TABLE IF NOT EXISTS incident_history (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  incidentId INT NOT NULL,
+  parentIncidentId INT NULL,
+  operatorId INT NULL,
+  operatorName VARCHAR(255) NOT NULL,
+  action VARCHAR(40) NOT NULL,
+  statusBefore VARCHAR(24) NULL,
+  statusAfter VARCHAR(24) NULL,
+  note TEXT NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX incident_history_incident_created_idx (incidentId, createdAt)
 );
 
 CREATE TABLE IF NOT EXISTS finalizations (

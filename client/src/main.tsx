@@ -26,6 +26,12 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (typeof window === "undefined") return;
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
+  if (error.message === "SESSION_REPLACED_OR_EXPIRED") {
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login?motivo=sessao-substituida";
+    }
+    return;
+  }
 
   if (!isUnauthorized) return;
 

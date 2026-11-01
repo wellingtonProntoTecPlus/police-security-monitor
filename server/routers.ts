@@ -6,9 +6,8 @@ import { adminProcedure as coreAdminProcedure, protectedProcedure, publicProcedu
 import * as db from "./db";
 import bcrypt from "bcryptjs";
 import { TRPCError } from "@trpc/server";
-import { sdk } from "./_core/sdk";
-import { ONE_YEAR_MS } from "@shared/const";
-import { createLocalSessionToken } from "./_core/localSession";
+import { AUTH_SESSION_LIFETIME_MS, createAuthSessionToken, hashAuthSessionToken } from "./_core/localSession";
+import { notifyAuthSessionsRevoked } from "./_core/authSessionRuntime";
 import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
 import { buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
@@ -18,6 +17,7 @@ import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 import { buildIntelbrasPhysicalPayload } from "./receiver/intelbrasIsecProgramTransport";
 import { buildRemoteCommandRequestNote } from "./remoteCommandEventCorrelation";
+import { emitIncidentStateChanged } from "./_core/socketEvents";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -34,6 +34,13 @@ const supervisorProcedure = protectedProcedure.use(({ ctx, next }) => {
 const operatorProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!ctx.user || !["admin", "supervisor", "operator"].includes(ctx.user.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Seu usuário não possui permissão operacional" });
+  }
+  return next({ ctx });
+});
+
+const scheduleOperatorProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!ctx.user || !["admin", "supervisor", "operator", "partner"].includes(ctx.user.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Seu usuário não pode administrar agendas operacionais" });
   }
   return next({ ctx });
 });
@@ -59,6 +66,16 @@ async function assertPartnerSystemScope(ctx: any, alarmSystemId: number) {
   await assertPartnerClientScope(ctx, system.clientId);
 }
 
+async function assertIncidentPartnerScope(ctx: any, incidentId: number) {
+  const incident = await db.getIncident(incidentId);
+  if (!incident) throw new TRPCError({ code: "NOT_FOUND", message: "Atendimento não encontrado" });
+  if (ctx.user?.role === "partner") {
+    if (!incident.alarmSystemId) throw new TRPCError({ code: "FORBIDDEN", message: "Atendimento sem central vinculada não pertence a uma parceira identificável" });
+    await assertPartnerSystemScope(ctx, incident.alarmSystemId);
+  }
+  return incident;
+}
+
 // ============================================================
 // APP ROUTER
 // ============================================================
@@ -67,7 +84,11 @@ export const appRouter = router({
 
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      if (ctx.authSessionTokenHash) {
+        const revoked = await db.revokeAuthSessionByTokenHash(ctx.authSessionTokenHash);
+        notifyAuthSessionsRevoked(revoked);
+      }
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
@@ -81,10 +102,15 @@ export const appRouter = router({
       if (!user.password) throw new Error("Usuário sem senha cadastrada");
       const valid = await bcrypt.compare(input.password, user.password);
       if (!valid) throw new Error("Email ou senha inválidos");
-      // Sessão própria: funciona também na VPS sem depender do OAuth do Manus.
-      const sessionToken = createLocalSessionToken({ id: user.id, openId: user.openId });
+      const sessionToken = createAuthSessionToken();
+      const session = await db.replaceActiveAuthSession(
+        user.id,
+        hashAuthSessionToken(sessionToken),
+        new Date(Date.now() + AUTH_SESSION_LIFETIME_MS),
+      );
+      notifyAuthSessionsRevoked(session.revokedSessionIds);
       const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: AUTH_SESSION_LIFETIME_MS });
       // Update lastSignedIn
       await db.updateUserLastSignedIn(user.id);
       return { success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
@@ -696,7 +722,14 @@ export const appRouter = router({
   incident: router({
     list: operatorProcedure.input(z.object({ status: z.string().optional() }).optional()).query(({ input }) => db.listIncidents(input?.status)),
     openQueue: operatorProcedure.query(() => db.listOpenQueueEvents()),
-    get: operatorProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getIncident(input.id)),
+    get: operatorProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.id);
+      return db.getIncident(input.id);
+    }),
+    history: operatorProcedure.input(z.object({ incidentId: z.number() })).query(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      return db.getIncidentHistory(input.incidentId);
+    }),
     create: operatorProcedure.input(z.object({
       eventId: z.number(),
       alarmSystemId: z.number().optional(),
@@ -706,16 +739,23 @@ export const appRouter = router({
     })).mutation(({ input, ctx }) => db.createIncident({ ...input, operatorId: ctx.user?.id || undefined })),
     update: operatorProcedure.input(z.object({
       id: z.number(),
-      status: z.enum(["waiting", "attending", "observing", "dispatched", "maintenance", "closed"]).optional(),
-      notes: z.string().optional(),
-      resolution: z.string().optional(),
-      operatorId: z.number().optional(),
-    })).mutation(({ input, ctx }) => {
-      const { id, ...data } = input;
-      if (data.status === 'dispatched') (data as any).dispatchedAt = new Date();
-      if (data.status === 'closed') (data as any).closedAt = new Date();
-      if (data.status === 'attending' && !data.operatorId) (data as any).operatorId = ctx.user.id;
-      return db.updateIncident(id, data);
+      status: z.enum(["attending", "dispatched"]),
+    })).mutation(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.id);
+      const result = await db.transitionIncidentForOperator({
+        incidentId: input.id,
+        operatorId: ctx.user.id,
+        operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
+        status: input.status,
+      });
+      emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: result.action === "claim" ? "claimed" : "status_changed" });
+      return result;
+    }),
+    assume: operatorProcedure.input(z.object({ incidentId: z.number() })).mutation(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      const result = await db.assumeObservedIncident({ incidentId: input.incidentId, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}` });
+      emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "assumed" });
+      return result;
     }),
     bulkFinalize: operatorProcedure.input(z.object({
       account: z.string().trim().min(1).max(20),
@@ -724,16 +764,23 @@ export const appRouter = router({
       clientName: z.string().optional(),
       partnerCompanyId: z.number().optional(),
       observations: z.string().trim().min(1, "Informe a descrição da finalização"),
-    })).mutation(({ input, ctx }) => db.bulkFinalizeOpenIncidents({
-      ...input,
-      operatorId: ctx.user.id,
-      operatorName: ctx.user.name,
-    })),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role === "partner" && !input.alarmSystemId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a central para finalizar apenas os atendimentos desta conta" });
+      if (input.alarmSystemId) await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const result = await db.bulkFinalizeOpenIncidents({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name });
+      if (result.count > 0) emitIncidentStateChanged({ incidentId: 0, incidentStatus: "closed", operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "status_changed" });
+      return result;
+    }),
     observe: operatorProcedure.input(z.object({
       incidentId: z.number(),
       until: z.date(),
       notes: z.string().max(2000).optional(),
-    })).mutation(({ input }) => db.putIncidentInObservation(input)),
+    })).mutation(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      const result = await db.putIncidentInObservation({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}` });
+      emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "observing" });
+      return result;
+    }),
   }),
 
   // ============================================================
@@ -1135,7 +1182,7 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmSchedules(input.alarmSystemId);
     }),
-    save: operatorProcedure.input(z.object({
+    save: scheduleOperatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       partition: z.number().int().min(1).max(8).default(1),
       name: z.string().max(255).optional(),
@@ -1154,7 +1201,7 @@ export const appRouter = router({
       if (!input.isActive) await db.resolveAlarmScheduleAlerts({ alarmSystemId: input.alarmSystemId });
       return result;
     }),
-    create: operatorProcedure.input(z.object({
+    create: scheduleOperatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       partition: z.number().min(1).max(8).optional(),
       name: z.string().optional(),
@@ -1186,10 +1233,11 @@ export const appRouter = router({
         partnerCompanyId: ctx.user.role === "partner" ? ctx.user.partnerId! : input.partnerCompanyId,
       });
     }),
-    saveException: operatorProcedure.input(z.object({
+    saveException: scheduleOperatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       overrideDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       mode: z.enum(["suspended", "override"]),
+      duration: z.enum(["hour", "day", "week"]).default("day"),
       armAt: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
       disarmAt: z.string().regex(/^(?:|(?:[01]?\d|2[0-3]):[0-5]\d)$/).optional(),
       requester: z.string().trim().min(2).max(255),
@@ -1208,7 +1256,7 @@ export const appRouter = router({
         operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
       });
     }),
-    cancelException: operatorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    cancelException: scheduleOperatorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const override = await db.getAlarmScheduleOverride(input.id);
       if (!override) throw new TRPCError({ code: "NOT_FOUND", message: "Exceção de agenda não encontrada" });
       await assertPartnerSystemScope(ctx, override.alarmSystemId);
@@ -1309,11 +1357,13 @@ export const appRouter = router({
       sendPush: z.boolean().optional(),
       eventReceivedAt: z.date().optional(),
       startedAt: z.date().optional(),
-    })).mutation(({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const { incidentId, ...occurrence } = input;
+      const operatorName = ctx.user.name || `Operador ${ctx.user.id}`;
+      if (incidentId) await assertIncidentPartnerScope(ctx, incidentId);
       return incidentId
-        ? db.createOccurrenceAndCloseIncident(incidentId, occurrence)
-        : db.createOccurrence(occurrence);
+        ? db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName)
+        : db.createOccurrence({ ...occurrence, operatorId: ctx.user.id, operatorName });
     }),
   }),
   systemUser: router({

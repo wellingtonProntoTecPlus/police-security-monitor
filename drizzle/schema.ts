@@ -1,4 +1,4 @@
-import { bigint, int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
+import { bigint, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
 
 // ============================================================
 // USERS (base auth - já existente)
@@ -19,6 +19,19 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+// Uma sessão de navegador por operador. O valor bruto do cookie nunca é gravado;
+// a tabela guarda somente SHA-256, permitindo revogação imediata no login seguinte.
+export const authSessions = mysqlTable("auth_sessions", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  revokedAt: timestamp("revokedAt"),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+}, (table) => [index("auth_sessions_user_active_idx").on(table.userId, table.revokedAt, table.expiresAt)]);
+export type AuthSession = typeof authSessions.$inferSelect;
 
 // ============================================================
 // EMPRESA GESTORA
@@ -361,10 +374,13 @@ export type InsertSystemTechnicalAccount = typeof systemTechnicalAccounts.$infer
 export const incidents = mysqlTable("incidents", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),
+  parentIncidentId: int("parentIncidentId"),
   alarmSystemId: int("alarmSystemId"),
   clientId: int("clientId"),
   operatorId: int("operatorId"),
   status: mysqlEnum("status", ["waiting", "attending", "observing", "dispatched", "maintenance", "closed"]).default("waiting").notNull(),
+  version: int("version").default(0).notNull(),
+  claimedAt: timestamp("claimedAt"),
   priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium").notNull(),
   notes: text("notes"),
   resolution: text("resolution"),
@@ -373,10 +389,27 @@ export const incidents = mysqlTable("incidents", {
   closedAt: timestamp("closedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [uniqueIndex("incidents_event_id_unique").on(table.eventId)]);
+}, (table) => [
+  index("incidents_event_id_idx").on(table.eventId),
+  index("incidents_parent_status_idx").on(table.parentIncidentId, table.status),
+]);
 
 export type Incident = typeof incidents.$inferSelect;
 export type InsertIncident = typeof incidents.$inferInsert;
+
+export const incidentHistory = mysqlTable("incident_history", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  incidentId: int("incidentId").notNull(),
+  parentIncidentId: int("parentIncidentId"),
+  operatorId: int("operatorId"),
+  operatorName: varchar("operatorName", { length: 255 }).notNull(),
+  action: varchar("action", { length: 40 }).notNull(),
+  statusBefore: varchar("statusBefore", { length: 24 }),
+  statusAfter: varchar("statusAfter", { length: 24 }),
+  note: text("note"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("incident_history_incident_created_idx").on(table.incidentId, table.createdAt)]);
+export type IncidentHistory = typeof incidentHistory.$inferSelect;
 
 // ============================================================
 // TABELA DE CÓDIGOS CONTACT ID
@@ -493,6 +526,8 @@ export const alarmScheduleOverrides = mysqlTable("alarm_schedule_overrides", {
   mode: mysqlEnum("mode", ["suspended", "override"]).notNull(),
   armAt: varchar("armAt", { length: 5 }),
   disarmAt: varchar("disarmAt", { length: 5 }),
+  validFromAt: timestamp("validFromAt"),
+  validUntilAt: timestamp("validUntilAt"),
   requester: varchar("requester", { length: 255 }).notNull(),
   reason: text("reason").notNull(),
   createdBy: int("createdBy").notNull(),
@@ -576,6 +611,7 @@ export type InsertPartnerHoliday = typeof partnerHolidays.$inferInsert;
 // ============================================================
 export const occurrences = mysqlTable("occurrences", {
   id: int("id").autoincrement().primaryKey(),
+  incidentId: int("incidentId"),
   // Dados do evento
   account: varchar("account", { length: 20 }).notNull(),
   eventCode: varchar("eventCode", { length: 10 }).notNull(),

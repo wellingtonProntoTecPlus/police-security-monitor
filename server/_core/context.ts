@@ -2,7 +2,7 @@ import type { CreateExpressContextOptions } from "@trpc/server/adapters/express"
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 import * as db from "../db";
-import { verifyLocalSessionToken } from "./localSession";
+import { hashAuthSessionToken } from "./localSession";
 import { COOKIE_NAME } from "@shared/const";
 
 function getCookie(req: CreateExpressContextOptions["req"], name: string) {
@@ -22,28 +22,56 @@ export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  authSessionId: number | null;
+  authSessionTokenHash: string | null;
+  authSessionInvalid: boolean;
 };
 
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
   let user: User | null = null;
+  let authSessionId: number | null = null;
+  let authSessionTokenHash: string | null = null;
+  let authSessionInvalid = false;
+  let sessionLookupSuccessful = false;
 
-  try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
+  const bearer = opts.req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const token = getCookie(opts.req, COOKIE_NAME) || bearer;
+  if (token) {
+    authSessionTokenHash = hashAuthSessionToken(token);
+    try {
+      const activeSession = await db.getActiveAuthSessionByTokenHash(authSessionTokenHash);
+      sessionLookupSuccessful = true;
+      if (activeSession) {
+        user = activeSession.user;
+        authSessionId = Number(activeSession.sessionId);
+      }
+    } catch (error) {
+      // Falha fechada: não aceitar token sem validar sua revogação no banco.
+      console.error("[Auth] Falha ao validar sessão ativa");
+      user = null;
+    }
+    if (sessionLookupSuccessful && !user) authSessionInvalid = true;
   }
 
+  // Autenticação de serviço interno para os sweeps do VPS continua separada.
+  // Tokens OAuth antigos de usuários não são aceitos como sessão operacional.
   if (!user) {
-    const session = verifyLocalSessionToken(getCookie(opts.req, COOKIE_NAME));
-    if (session) user = await db.getUserById(session.userId) ?? null;
+    try {
+      const serviceUser = await sdk.authenticateRequest(opts.req);
+      if (serviceUser?.openId?.startsWith("cron_")) user = serviceUser;
+    } catch {
+      user = null;
+    }
   }
 
   return {
     req: opts.req,
     res: opts.res,
     user,
+    authSessionId,
+    authSessionTokenHash,
+    authSessionInvalid,
   };
 }

@@ -31,6 +31,7 @@ vi.mock("@/lib/trpc", () => ({
     occurrence: { create: { useMutation: () => standardMutation } },
     alarmEvent: { createManual: { useMutation: () => manualMutation } },
     incident: {
+      assume: { useMutation: () => standardMutation },
       update: { useMutation: () => standardMutation },
       bulkFinalize: { useMutation: () => standardMutation },
       observe: { useMutation: () => standardMutation },

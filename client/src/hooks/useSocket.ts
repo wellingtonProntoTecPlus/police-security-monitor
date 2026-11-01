@@ -28,10 +28,22 @@ export interface AlarmEvent {
   sourceEventId?: number;
 }
 
+export interface IncidentStateUpdate {
+  kind: "incident_state_changed";
+  incidentId: number;
+  parentIncidentId?: number | null;
+  incidentStatus: "waiting" | "attending" | "observing" | "dispatched" | "maintenance" | "closed";
+  operatorId: number | null;
+  operatorName: string | null;
+  action: "claimed" | "assumed" | "status_changed" | "observing";
+  timestamp: string;
+}
+
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [realtimeEvents, setRealtimeEvents] = useState<AlarmEvent[]>([]);
+  const [incidentUpdates, setIncidentUpdates] = useState<IncidentStateUpdate[]>([]);
 
   useEffect(() => {
     const socket = io(window.location.origin, {
@@ -55,6 +67,10 @@ export function useSocket() {
       setRealtimeEvents((prev) => [event, ...prev].slice(0, 200));
     });
 
+    socket.on("incident:state", (event: IncidentStateUpdate) => {
+      setIncidentUpdates((prev) => [event, ...prev].slice(0, 100));
+    });
+
     return () => {
       socket.disconnect();
     };
@@ -64,5 +80,5 @@ export function useSocket() {
     setRealtimeEvents([]);
   }, []);
 
-  return { connected, realtimeEvents, clearEvents };
+  return { connected, realtimeEvents, incidentUpdates, clearEvents };
 }
