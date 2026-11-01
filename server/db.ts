@@ -50,6 +50,7 @@ import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
 import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
+import { getPublicBrandingOrNull } from "./publicBrandingFallback";
 import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
 import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
@@ -136,15 +137,21 @@ export async function listManagingCompanies() {
 }
 
 export async function getPublicManagingBranding() {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db
-    .select({ name: managingCompanies.name, logoUrl: managingCompanies.logoUrl })
-    .from(managingCompanies)
-    .where(eq(managingCompanies.isActive, true))
-    .orderBy(managingCompanies.id)
-    .limit(1);
-  return result[0] || null;
+  return getPublicBrandingOrNull(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const result = await db
+      .select({ name: managingCompanies.name, logoUrl: managingCompanies.logoUrl })
+      .from(managingCompanies)
+      .where(eq(managingCompanies.isActive, true))
+      .orderBy(managingCompanies.id)
+      .limit(1);
+    return result[0] || null;
+  }, () => {
+    // A marca na página inicial é somente decorativa; nunca bloquear o acesso
+    // nem gerar erro de API se o banco estiver temporariamente indisponível.
+    console.warn("[Public Branding] Consulta indisponível; usando marca padrão.");
+  });
 }
 
 export async function getManagingCompany(id: number) {
