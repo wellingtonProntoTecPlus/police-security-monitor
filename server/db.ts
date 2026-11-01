@@ -924,13 +924,36 @@ export async function createExclusiveIntelbrasPhysicalCommand(data: InsertAlarmR
       .from(alarmSystems)
       .where(eq(alarmSystems.id, data.alarmSystemId))
       .for("update");
+    const staleBefore = new Date(Date.now() - 45_000);
+    const expiredMessage = "Comando Intelbras expirado sem transmissão. Comandos de alternância não são executados após reconexão tardia.";
+    await tx.update(alarmRemoteCommands).set({
+      status: "expired",
+      responsePayload: expiredMessage,
+      executedAt: new Date(),
+    }).where(and(
+      eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
+      eq(alarmRemoteCommands.brand, "INTELBRAS"),
+      eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
+      eq(alarmRemoteCommands.status, "waiting_connection"),
+    ));
+    await tx.update(alarmRemoteCommands).set({
+      status: "expired",
+      responsePayload: expiredMessage,
+      executedAt: new Date(),
+    }).where(and(
+      eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
+      eq(alarmRemoteCommands.brand, "INTELBRAS"),
+      eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
+      eq(alarmRemoteCommands.status, "queued"),
+      lte(alarmRemoteCommands.createdAt, staleBefore),
+    ));
     const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
       .from(alarmRemoteCommands)
       .where(and(
         eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
         eq(alarmRemoteCommands.brand, "INTELBRAS"),
         eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
-        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "sent"]),
+        inArray(alarmRemoteCommands.status, ["queued", "sent"]),
       ))
       .orderBy(alarmRemoteCommands.id)
       .limit(1);
@@ -1227,15 +1250,46 @@ export async function getPendingIntelbrasPhysicalCommand(alarmSystemId: number) 
     eq(alarmRemoteCommands.brand, "INTELBRAS"),
     inArray(alarmRemoteCommands.commandType, ["arm", "disarm"]),
     eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
-    inArray(alarmRemoteCommands.status, ["queued", "waiting_connection"]),
+    eq(alarmRemoteCommands.status, "queued"),
   )).orderBy(alarmRemoteCommands.id).limit(1);
   return result[0];
 }
 
-export async function setAlarmSystemRemoteCommandLabEnabled(alarmSystemId: number, enabled: boolean) {
+export async function setAlarmSystemRemoteCommandLabEnabled(
+  alarmSystemId: number,
+  enabled: boolean,
+  audit?: { operatorId: number; reason: string },
+) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
-  await db.update(alarmSystems).set({ remoteCommandLabEnabled: enabled }).where(eq(alarmSystems.id, alarmSystemId));
+  await db.transaction(async (tx) => {
+    const [system] = await tx.select({ id: alarmSystems.id, brand: alarmSystems.brand, macAddress: alarmSystems.macAddress })
+      .from(alarmSystems)
+      .where(eq(alarmSystems.id, alarmSystemId))
+      .for("update");
+    if (!system) throw new Error("Sistema de alarme não encontrado");
+
+    await tx.update(alarmSystems).set({ remoteCommandLabEnabled: enabled }).where(eq(alarmSystems.id, alarmSystemId));
+    if (system.brand?.trim().toUpperCase() !== "INTELBRAS" || !audit) return;
+
+    const action = enabled ? "enable_bench_mode" : "disable_bench_mode";
+    await tx.insert(alarmRemoteCommands).values({
+      alarmSystemId,
+      incidentId: null,
+      operatorId: audit.operatorId,
+      brand: "INTELBRAS",
+      commandType: action,
+      transportMode: "admin_control",
+      status: enabled ? "authorized" : "disabled",
+      partition: null,
+      zoneNumber: null,
+      pgmNumber: null,
+      reason: audit.reason,
+      commandPayload: JSON.stringify({ mode: "audit", macAddress: system.macAddress, physicalCommandSent: false }),
+      responsePayload: `Modo de bancada ${enabled ? "habilitado" : "desabilitado"}; nenhum comando físico foi transmitido.`,
+      executedAt: new Date(),
+    });
+  });
   return getAlarmRemoteCredentialStatus(alarmSystemId);
 }
 
@@ -1281,7 +1335,7 @@ export async function getAlarmRemoteCredentialStatus(alarmSystemId: number) {
 }
 
 /** Uso exclusivo do transporte físico homologado; o segredo decifrado jamais atravessa a API. */
-export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer" | "vetti_command_user" | "intelbras_master") {
+export async function getAlarmRemoteCredentialForTransport(alarmSystemId: number, credentialKind: "vetti_installer" | "vetti_command_user" | "intelbras_master" | "intelbras_remote_configuration") {
   const db = await getDb();
   if (!db) return undefined;
   const [credential] = await db.select({ encryptedSecret: alarmRemoteCredentials.encryptedSecret })
@@ -1309,6 +1363,9 @@ export async function setAlarmRemoteCredential(input: { alarmSystemId: number; c
   if (!db) throw new Error("Banco de dados indisponível");
   if (input.credentialKind === "intelbras_master" && !/^\d{4}(\d{2})?$/.test(input.credential.trim())) {
     throw new Error("A Senha Master Intelbras deve ter exatamente 4 ou 6 dígitos numéricos");
+  }
+  if (input.credentialKind === "intelbras_remote_configuration" && !/^\d{6}$/.test(input.credential.trim())) {
+    throw new Error("A Senha de Acesso Remoto AMT-8000 deve ter exatamente 6 dígitos numéricos");
   }
   const encryptedSecret = encryptRemoteCommandCredential(input.credential);
   const technicalUserCode = input.credentialKind === "vetti_command_user"

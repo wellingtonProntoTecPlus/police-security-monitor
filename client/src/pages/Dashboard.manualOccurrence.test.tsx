@@ -70,6 +70,7 @@ vi.mock("@/lib/trpc", () => ({
         { id: 7, account: "0001", clientId: 5, brand: "COMPATEC", model: "Outro" },
         { id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X" },
       ] }) },
+      remoteCommandCredentialStatus: { useQuery: () => ({ data: { credentials: [] } }) },
       startMaintenance: { useMutation: () => standardMutation },
       endMaintenance: { useMutation: () => standardMutation },
     },

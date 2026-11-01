@@ -6,6 +6,11 @@ describe("perfis de credencial técnica por fabricante", () => {
     expect(getRemoteCommandCredentialProfiles("JFL").map((item) => item.kind)).toEqual(["jfl_master", "jfl_installer"]);
     expect(getRemoteCommandCredentialProfiles("INTELBRAS").map((item) => item.kind)).toEqual(["intelbras_master", "intelbras_installer", "intelbras_remote_configuration"]);
     expect(getRemoteCommandCredentialProfiles("VETTI").map((item) => item.kind)).toEqual(["vetti_installer", "vetti_command_user"]);
+    const intelbrasAccess = getRemoteCommandCredentialProfiles("INTELBRAS").find((item) => item.kind === "intelbras_remote_configuration");
+    expect(intelbrasAccess?.label).toContain("Acesso Remoto");
+    expect(intelbrasAccess?.help).toContain("6 dígitos");
+    expect(intelbrasAccess?.supportsRemoteCommand).toBe(true);
+    expect(getRemoteCommandCredentialProfiles("INTELBRAS").find((item) => item.kind === "intelbras_master")?.supportsRemoteCommand).toBeFalsy();
   });
 
   it("deriva o usuário Vetti a partir dos dois primeiros dígitos da senha de comando", () => {

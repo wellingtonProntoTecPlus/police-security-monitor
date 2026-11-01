@@ -1,46 +1,69 @@
-# Intelbras AMT-8000 — Arme e Desarme físico
+# Intelbras AMT-8000 — Arme e Desarme físico via ISECnet
 
-## Escopo
+## Situação
 
-Esta integração é exclusiva para sistemas cadastrados como **Intelbras AMT-8000**. O comando físico só pode ser solicitado por operador autenticado, dentro do escopo da parceira, com motivo operacional de pelo menos cinco caracteres e credencial técnica Intelbras cadastrada.
+O PoliceCentral passa a montar a sequência autenticada documentada pelo SDK Intelbras: login remoto `E7/0x11`, alternância de Arme/Desarme `E7/0x16`, leitura da resposta de estado `E7/0x96` e encerramento `E7/0x15` com ACK `E7/0x95` para liberar o teclado. O código, a interface e os quadros foram validados por testes automatizados contra os exemplos reais publicados pela Intelbras.
 
-A Senha Master é cifrada no banco. Ela não é devolvida pela API e não aparece no payload, histórico ou log do comando. No fluxo operacional `E7/0x16` a senha não é serializada dentro do quadro; o PoliceCentral a exige como trava administrativa de autorização técnica. Isso é diferente do fluxo autenticado `F0F0`, usado pela AMT-8000 para uma sessão remota específica, como a leitura de fotos.
+**Nenhum comando físico foi transmitido durante esta etapa.** A transmissão só pode ser iniciada após um administrador habilitar o modo de bancada naquela AMT-8000 e um operador confirmar a ação no Dashboard. Homologação física controlada ainda é necessária antes de liberar uso operacional.
 
-## Protocolo usado
+## Requisitos antes do teste de bancada
 
-A documentação oficial `SDKCentraisDeAlarmeIntelbras-v1.0.1` orienta que a AMT-8000 use o encaminhamento `E7` no Receptor IP, inclusive para a comunicação com AMT Mobile V3. O comando interno documentado é `0x16`, que alterna o estado atual:
+- Central ativa cadastrada como Intelbras AMT-8000 e associada por MAC físico e conta conferidos na sessão `0x94`.
+- Senha de Acesso Remoto de seis dígitos cadastrada no perfil próprio do sistema. Essa é a credencial ISECProgram `0x11`; **não** é a Senha Master do painel nem a Senha de Instalador.
+- Administrador habilita o modo de bancada na janela de credenciais do cadastro da própria central e informa motivo. O sistema registra quem habilitou/desabilitou, o MAC, a data e a justificativa. Ativar essa chave não transmite nenhum comando.
+- Um operador confere o estado físico atual, informa o motivo e confirma ARMAR ou DESARMAR no Dashboard. A interface exibe somente a ação inversa do estado mais recente confirmado.
+- A AMT-8000 deve ter uma sessão ativa no receptor. Se estiver desconectada, a tentativa é recusada e não fica guardada para envio posterior.
+
+## Sequência e vetores do SDK
+
+O comando `0x11` autentica a senha remota de seis dígitos em BCD, acrescenta a versão `0x99` e aguarda `0x50` (aceito) ou `0x53` (senha recusada). Após o login, `0x16` alterna o estado atual do sistema. A operação `0x00` abrange todas as partições; esta etapa não transmite operações individuais nem Stay. A senha não é gravada no histórico nem impressa em logs.
+
+Vetor oficial do login para senha de teste `878787`:
 
 ```text
-[length] E7 02 16 [operação] [CRC Hi] [CRC Lo] [checksum]
+09 E7 05 11 87 87 87 99 68 F1 82
+Resposta aceita: 05 E7 01 50 87 E3 28
 ```
 
-A operação `0x00` representa todas as partições; `0x01`, `0x02`, `0x04` e `0x08` representam as partições A, B, C e D nos modelos compatíveis. Como `0x16` é toggle, o PoliceCentral não o chama diretamente de “toggle” na tela: a tela mostra apenas **ARMAR** para uma central desarmada ou **DESARME** para uma central armada. O servidor repete a mesma conferência antes do envio, portanto o botão visual não é a única trava.
+Vetor real de Arme/Desarme total `0x16`:
 
-O retorno esperado é `E7/0x96`. O retorno só é considerado confirmação quando o quadro tem formato e verificação válidos, o status não indica falha e os bits de partição confirmam o estado desejado. Respostas desconhecidas, timeout ou fechamento da sessão são auditados como falha/resultado indeterminado, nunca como sucesso.
+```text
+06 E7 02 16 00 C2 91 A6
+Resposta de exemplo com estado 03: 06 E7 02 96 03 76 94 48
+```
 
-## Travas de identidade e exclusividade
+Vetor de exemplo do SDK para operação `0x04`:
 
-1. O receptor só mantém sessão de comando depois de validar o `0x94` da própria conexão, conferindo checksum, MAC físico, conta coerente e cadastro Intelbras ativo.
-2. O comando nunca é entregue por conta ou IP isoladamente.
-3. Há no máximo um comando físico `queued`, `waiting_connection` ou `sent` por central.
-4. Se a central estiver desconectada, o comando fica `waiting_connection` e só é enviado após nova identificação `0x94` da mesma central.
-5. Se não houver estado Armado/Desarmado confirmado no histórico do próprio sistema, o servidor bloqueia o envio para evitar uma alternância errada.
-6. O botão da tela pede confirmação explícita com conta, central, MAC, operador e motivo.
+```text
+06 E7 02 16 04 42 8A 39
+Resposta de exemplo: 06 E7 02 96 06 76 8A 53
+```
 
-## E9 / ISECMobile não é o caminho da AMT-8000
+O parser confere comprimento, CRC ISECProgram e checksum externo do frame. No retorno `0x96`, os bits baixos indicam partições A–D armadas; o bit 7 indica zonas abertas. Arme só é considerado confirmado quando alguma partição está armada e não há indicação de zona aberta. Desarme só é confirmado quando não há partições armadas.
 
-A aba de comando ISECMobile documenta outro protocolo, encapsulado em `E9`, com senha ASCII e comandos `0x41`/`0x44`. A aba de conexão do SDK, entretanto, determina `E7` especificamente para a AMT-8000. Portanto, o PoliceCentral não usa `E9/0x41` ou `E9/0x44` como se fossem comandos físicos da AMT-8000.
+Os quadros `0x16` e respostas `0x96` usam bytes finais observados nos exemplos reais da aba `5-Programar central via APP`; a máscara não é a regra genérica `XOR com FF` usada pelo ACK de login `0x50`. Os testes reproduzem as sequências byte a byte, inclusive rejeição de checksum/CRC incorretos.
 
-## F0F0 / 401E: sessão remota distinta
+Após `0x96`, o sistema envia `0x15` para finalizar o acesso remoto e liberar o teclado. Só marca o ciclo como concluído após `0x95`. Se a ação foi confirmada, mas a liberação do teclado falha, o histórico preserva a confirmação da ação e registra separadamente a falha de finalização.
 
-O material específico da AMT-8000 também registra a autenticação `F0F0` e o comando `401E`. O guia de integração fornecido pela Intelbras cita `F0F0` no processo de autenticação para leitura de fotos após um evento `0xB5`, seguido de `0x0BB0` e encerramento `F0F1`. Esse é um canal de sessão remota distinto do comando operacional direto de monitoramento.
+O comando `0x10` é enviado a cada dez segundos enquanto a central aguarda uma resposta mais longa, como orienta o SDK; o ciclo termina ou falha no limite de 30 segundos.
 
-O PoliceCentral não mistura os dois fluxos: Arme/Desarme usa somente o quadro oficial `E7/0x16` já validado no SDK para a AMT-8000. O fluxo `F0F0/401E` não é enviado nem presumido pelo receptor atual; ele só poderá ser acrescentado depois de homologação separada do transporte, identificação de origem/destino e retorno da própria AMT-8000. Isso evita inventar uma sessão de programação ou transmitir um comando ambiguamente encapsulado.
+## Travas e auditoria
 
-## Simulação
+1. A identificação e a sessão usam MAC físico e conta compatíveis; conta ou IP isolados não autorizam comando.
+2. Apenas AMT-8000 ativa com MAC cadastrado pode habilitar bancada; a ativação/desativação Intelbras é restrita a administrador e auditada com justificativa.
+3. Antes de reservar, o servidor exige modo de bancada, credencial remota válida de seis dígitos, sessão TCP ativa e estado conhecido que corresponda à ação solicitada. Após o login, verifica novamente a autorização e o estado antes de enviar `0x16`.
+4. Há no máximo um comando físico em andamento por central. Requisições desconectadas não são aceitas como fila.
+5. Comandos antigos em `waiting_connection` e reservas antigas ainda não transmitidas expiram. Uma reconexão futura nunca executa silenciosamente uma alternância solicitada antes.
+6. Timeout, senha recusada, checksum/CRC inválido, queda de sessão, estado não confirmado e falha de desbloqueio ficam registrados como falhas ou resultado indeterminado, sem serem apresentados como sucesso.
+7. O histórico guarda operador, motivo, resultado e quadros operacionais sem senha. A ativação da bancada deixa registro separado e informa explicitamente que nenhum comando foi transmitido.
 
-A simulação E7/0x16 existente permanece separada: registra um quadro calculado, mas não transmite. O transporte físico está em `server/receiver/intelbrasPhysicalTransport.ts` e só marca o comando como confirmado após a resposta da central.
+## Fluxos que não são confundidos
 
-## Homologação obrigatória
+- `E7/0x11 → 0x16 → 0x15` é o fluxo ISECProgram descrito pelo SDK para controle pelo Receptor IP.
+- `E9/ISECMobile` é outro protocolo e não é usado como substituto do fluxo AMT-8000 via `E7`.
+- O material de fotos/programação menciona autenticação `F0F0`, troca `0x0BB0` e encerramento `F0F1`; esse é um canal remoto separado. Este fluxo não é usado pelo comando operacional descrito acima.
+- A mensagem `401E` deve permanecer fora desta implementação até que a Intelbras confirme o enquadramento, a sessão de destino e a confirmação apropriados para comando remoto operacional.
 
-A implementação foi preparada e testada por software, mas nenhum comando físico foi transmitido nesta etapa. Antes de usar em produção, deve ser feito um teste único e observado em uma AMT-8000 de bancada autorizada: conferir o estado físico inicial, executar apenas a ação autorizada, conferir o retorno `E7/0x96`, confirmar o estado final no painel e revisar o histórico do PoliceCentral. Não reutilizar o teste em produção nem executar Arme e Desarme em sequência sem nova confirmação operacional.
+## Homologação física pendente
+
+O operador e o administrador devem preparar uma AMT-8000 de bancada identificada e obter autorização explícita para o teste físico. Durante esse teste único, confirmar o estado físico inicial, a senha remota correta, a resposta `0x50`, o quadro `0x16`, o resultado `0x96`, o envio/resposta `0x15/0x95`, o estado final no painel e o histórico no PoliceCentral. Não testar em central de cliente nem enviar um segundo toggle para “corrigir” a primeira tentativa sem nova confirmação explícita.

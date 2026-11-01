@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { useRoute } from "wouter";
 import { useState } from "react";
@@ -39,6 +40,7 @@ function requiresJflVersion5OrLaterSerial(brand: string, firmwareVersion: string
 }
 
 export default function ClientDetail() {
+  const { user } = useAuth();
   const [, params] = useRoute("/clients/:id");
   const clientId = Number(params?.id);
 
@@ -56,9 +58,14 @@ export default function ClientDetail() {
   const { data: zones = [], refetch: refetchZones } = trpc.alarmZone.list.useQuery({ alarmSystemId: activeSystemId || 0 }, { enabled: !!activeSystemId });
   const { data: alarmUsers = [], refetch: refetchAlarmUsers } = trpc.alarmUser.list.useQuery({ alarmSystemId: activeSystemId || 0 }, { enabled: !!activeSystemId });
   const [credentialSystem, setCredentialSystem] = useState<any>(null);
+  const [intelbrasBenchReason, setIntelbrasBenchReason] = useState("");
   const { data: remoteCredentialStatus, refetch: refetchRemoteCredentialStatus } = trpc.alarmSystem.remoteCommandCredentialStatus.useQuery({ alarmSystemId: credentialSystem?.id || 0 }, { enabled: Boolean(credentialSystem?.id) });
   const isVettiBenchCredentialSystem = credentialSystem?.brand === "VETTI"
     && (credentialSystem?.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().endsWith("2DE4A8");
+  const isIntelbrasBenchCredentialSystem = credentialSystem?.brand?.trim().toUpperCase() === "INTELBRAS"
+    && String(credentialSystem?.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().includes("AMT8000")
+    && String(credentialSystem?.macAddress || "").replace(/[^A-Z0-9]/gi, "").length >= 6
+    && credentialSystem?.isActive !== false;
 
   // Mutations
   const createContact = trpc.clientContact.create.useMutation({ onSuccess: () => { refetchContacts(); toast.success("Contato adicionado!"); } });
@@ -84,7 +91,7 @@ export default function ClientDetail() {
     },
   });
   const clearRemoteCredential = trpc.alarmSystem.clearRemoteCommandCredential.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Credencial técnica removida."); } });
-  const setRemoteCommandLaboratory = trpc.alarmSystem.setRemoteCommandLaboratory.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); toast.success("Modo de bancada atualizado."); } });
+  const setRemoteCommandLaboratory = trpc.alarmSystem.setRemoteCommandLaboratory.useMutation({ onSuccess: async () => { await refetchRemoteCredentialStatus(); setIntelbrasBenchReason(""); toast.success("Modo de bancada atualizado."); }, onError: (error) => toast.error(error.message) });
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
   const updateCamera = trpc.camera.update.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera atualizada!"); setEditingCamera(null); } });
@@ -485,7 +492,7 @@ export default function ClientDetail() {
                   toast.info("Aguarde a confirmação da atualização da credencial antes de fechar esta janela.");
                   return;
                 }
-                if (!open) { setCredentialSystem(null); setRemoteCredentialValues({}); }
+                if (!open) { setCredentialSystem(null); setRemoteCredentialValues({}); setIntelbrasBenchReason(""); }
               }}>
                 <DialogContent className="sm:max-w-lg">
                   <DialogHeader><DialogTitle>Credencial técnica de comando remoto</DialogTitle></DialogHeader>
@@ -497,11 +504,12 @@ export default function ClientDetail() {
                     <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs text-cyan-50"><strong>Operador:</strong> a sessão ativa registra quem solicitou a ação; ela não substitui a credencial técnica do painel.</div>
                     {credentialSystem.brand === "COMPATEC" && <div className="rounded-md border border-orange-400/30 bg-orange-400/5 p-3"><p className="text-sm font-semibold text-orange-100">Consultas técnicas MicroBus de bancada</p><p className="mt-1 text-xs text-muted-foreground">Ative somente na central física de testes. Este modo controla as consultas técnicas MB=AK0 e MB=AK1. O Desarme físico das centrais Compatec cadastradas possui confirmação própria no atendimento e não depende deste modo.</p><Button className="mt-3" size="sm" variant={remoteCredentialStatus?.laboratoryEnabled ? "destructive" : "outline"} disabled={setRemoteCommandLaboratory.isPending} onClick={() => { const enabled = !remoteCredentialStatus?.laboratoryEnabled; if (confirm(enabled ? "Ativar consultas MicroBus exclusivamente para esta central de bancada?" : "Desativar consultas MicroBus desta central?")) setRemoteCommandLaboratory.mutate({ alarmSystemId: credentialSystem.id, enabled }); }}>{remoteCredentialStatus?.laboratoryEnabled ? "Desativar consultas de bancada" : "Ativar consultas de bancada"}</Button></div>}
                     {isVettiBenchCredentialSystem && <div className="rounded-md border border-orange-400/30 bg-orange-400/5 p-3"><p className="text-sm font-semibold text-orange-100">Modo de bancada VSec</p><p className="mt-1 text-xs text-muted-foreground">Ative somente para a central Vetti de testes identificada pelo MAC final 2DE4A8. Enquanto desligado, nem a consulta física de status será enviada. Nesta etapa, a ativação permite apenas a consulta VSec 0x14 dentro de uma Ocorrência Manual; Arme, Desarme, Zona e PGM continuam em simulação.</p><Button className="mt-3" size="sm" variant={remoteCredentialStatus?.laboratoryEnabled ? "destructive" : "outline"} disabled={setRemoteCommandLaboratory.isPending} onClick={() => { const enabled = !remoteCredentialStatus?.laboratoryEnabled; if (confirm(enabled ? "Ativar consulta VSec real exclusivamente para a central Vetti de bancada MAC 2DE4A8?" : "Desativar consulta VSec real desta central?")) setRemoteCommandLaboratory.mutate({ alarmSystemId: credentialSystem.id, enabled }); }}>{remoteCredentialStatus?.laboratoryEnabled ? "Desativar modo de bancada VSec" : "Ativar modo de bancada VSec"}</Button></div>}
+                    {isIntelbrasBenchCredentialSystem && user?.role === "admin" && <div className="rounded-md border border-orange-400/30 bg-orange-400/5 p-3"><p className="text-sm font-semibold text-orange-100">Autorização de bancada AMT-8000</p><p className="mt-1 text-xs text-muted-foreground">Esta autorização é por central e MAC. Ela não transmite nada; permite ao operador solicitar o Arme/Desarme contextual no Dashboard após confirmação.</p><Input className="mt-3" value={intelbrasBenchReason} onChange={(event) => setIntelbrasBenchReason(event.target.value)} placeholder="Motivo obrigatório para auditoria" maxLength={2000} /><Button className="mt-3" size="sm" variant={remoteCredentialStatus?.laboratoryEnabled ? "destructive" : "outline"} disabled={setRemoteCommandLaboratory.isPending || intelbrasBenchReason.trim().length < 5} onClick={() => { const enabled = !remoteCredentialStatus?.laboratoryEnabled; if (confirm(`${enabled ? "Habilitar" : "Desabilitar"} comandos físicos AMT-8000 somente para esta central? Nenhum comando será enviado agora.`)) setRemoteCommandLaboratory.mutate({ alarmSystemId: credentialSystem.id, enabled, reason: intelbrasBenchReason.trim() }); }}>{remoteCredentialStatus?.laboratoryEnabled ? "Desabilitar bancada AMT-8000" : "Habilitar bancada AMT-8000"}</Button></div>}
                     <div className="space-y-3">{getRemoteCommandCredentialProfiles(credentialSystem.brand).map((profile) => {
                       const saved = remoteCredentialStatus?.credentials.find((credential) => credential.credentialKind === profile.kind);
                       const value = remoteCredentialValues[profile.kind] || "";
                       const vettiUserPreview = profile.kind === "vetti_command_user" && /^\d{2}/.test(value) ? `3${value.slice(0, 2)}` : null;
-                      return <div key={profile.kind} className="rounded-lg border border-border bg-background/40 p-3"><div className="flex items-start justify-between gap-3"><div><Label>{profile.label}</Label><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{profile.help}</p>{saved?.technicalUserCode && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti registrado: {saved.technicalUserCode}</p>}{vettiUserPreview && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti que será registrado: {vettiUserPreview}</p>}</div><Badge variant={saved ? "default" : "secondary"}>{saved ? "Cadastrada" : "Não cadastrada"}</Badge></div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><Input type="password" autoComplete="new-password" value={value} onChange={(event) => setRemoteCredentialValues({ ...remoteCredentialValues, [profile.kind]: event.target.value })} placeholder={saved ? "Digite somente para substituir" : "Digite a credencial"} /><div className="flex gap-2"><Button size="sm" disabled={setRemoteCredential.isPending || !value.trim()} onClick={() => setRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind, credential: value })}>{setRemoteCredential.isPending ? "Salvando..." : saved ? "Substituir" : "Salvar"}</Button>{saved && <Button variant="destructive" size="sm" disabled={clearRemoteCredential.isPending} onClick={() => { if (confirm(`Remover ${profile.label}?`)) clearRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind }); }}>Remover</Button>}</div></div></div>;
+                      return <div key={profile.kind} className="rounded-lg border border-border bg-background/40 p-3"><div className="flex items-start justify-between gap-3"><div><Label>{profile.label}</Label><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{profile.help}</p>{saved?.technicalUserCode && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti registrado: {saved.technicalUserCode}</p>}{vettiUserPreview && <p className="mt-1 text-xs font-semibold text-primary">Usuário Vetti que será registrado: {vettiUserPreview}</p>}</div><Badge variant={saved ? "default" : "secondary"}>{saved ? "Cadastrada" : "Não cadastrada"}</Badge></div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><Input type="password" autoComplete="new-password" inputMode={profile.kind === "intelbras_remote_configuration" ? "numeric" : undefined} maxLength={profile.kind === "intelbras_remote_configuration" ? 6 : undefined} value={value} onChange={(event) => setRemoteCredentialValues({ ...remoteCredentialValues, [profile.kind]: event.target.value })} placeholder={saved ? "Digite somente para substituir" : "Digite a credencial"} /><div className="flex gap-2"><Button size="sm" disabled={setRemoteCredential.isPending || !value.trim()} onClick={() => setRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind, credential: value })}>{setRemoteCredential.isPending ? "Salvando..." : saved ? "Substituir" : "Salvar"}</Button>{saved && <Button variant="destructive" size="sm" disabled={clearRemoteCredential.isPending} onClick={() => { if (confirm(`Remover ${profile.label}?`)) clearRemoteCredential.mutate({ alarmSystemId: credentialSystem.id, credentialKind: profile.kind }); }}>Remover</Button>}</div></div></div>;
                     })}</div>
                     <div className="flex justify-end"><Button variant="outline" disabled={setRemoteCredential.isPending} onClick={() => { setCredentialSystem(null); setRemoteCredentialValues({}); }}>{setRemoteCredential.isPending ? "Salvando credencial..." : "Concluir"}</Button></div>
                   </div>

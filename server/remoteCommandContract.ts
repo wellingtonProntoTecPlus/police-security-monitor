@@ -20,7 +20,7 @@ export const intelbrasPhysicalCommandInputSchema = z.object({
   incidentId: z.number().optional(),
   commandType: z.enum(["arm", "disarm"]),
   reason: z.string().trim().min(5, "Informe o motivo operacional do comando físico").max(2000),
-  partition: z.number().int().min(0).max(4).optional(),
+  partition: z.number().int().min(0).max(0).optional(),
 });
 
 export type IntelbrasPhysicalCommandType = "arm" | "disarm";
@@ -72,8 +72,8 @@ export function validateIntelbrasPhysicalTarget(input: {
   if (input.commandType !== "arm" && input.commandType !== "disarm") {
     return "A AMT-8000 aceita somente Arme ou Desarme físico nesta etapa";
   }
-  if (input.partition !== undefined && input.partition !== null && (!Number.isInteger(input.partition) || input.partition < 0 || input.partition > 4)) {
-    return "A partição Intelbras deve ser 0 (central completa) ou de 1 a 4";
+  if (input.partition !== undefined && input.partition !== null && input.partition !== 0) {
+    return "Nesta etapa, a AMT-8000 aceita somente a operação homologável para todas as partições (0x00)";
   }
   return undefined;
 }
@@ -115,9 +115,20 @@ export function isConfirmedVettiBenchSystem(system: { brand?: string | null; mac
   return Boolean(system.remoteCommandLabEnabled) && isKnownVettiBenchSystem(system);
 }
 
-/** Um modo de bancada só pode ser ativado nos dois painéis físicos homologados. */
-export function isKnownRemoteCommandBenchSystem(system: { brand?: string | null; macAddress?: string | null }) {
-  return isKnownCompatecBenchSystem(system) || isKnownVettiBenchSystem(system);
+export function isKnownIntelbrasBenchSystem(system: { brand?: string | null; model?: string | null; macAddress?: string | null; isActive?: boolean | null }) {
+  const normalizedModel = (system.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const normalizedMac = (system.macAddress || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  return system.brand?.trim().toUpperCase() === "INTELBRAS"
+    && normalizedModel.includes("AMT8000")
+    && system.isActive !== false
+    && normalizedMac.length >= 6;
+}
+
+/** O modo de bancada só se aplica a Compatec/Vetti homologadas ou AMT-8000 identificada. */
+export function isKnownRemoteCommandBenchSystem(system: { brand?: string | null; model?: string | null; macAddress?: string | null; isActive?: boolean | null }) {
+  return isKnownCompatecBenchSystem(system)
+    || isKnownVettiBenchSystem(system)
+    || isKnownIntelbrasBenchSystem(system);
 }
 
 export function buildCompatecSimulationPayload(input: {

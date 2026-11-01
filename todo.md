@@ -706,11 +706,14 @@
 - [ ] Instalar a correção de três dígitos Intelbras na VPS e confirmar que o próximo evento E407 seja exibido com Usuário 198
 - [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
 - [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
-- [x] Implementar localmente Arme/Desarme físico exclusivo para Intelbras AMT-8000 via E7/0x16, com sessão 0x94 por MAC/conta, senha Master cifrada, trava de exclusividade, timeout e confirmação E7/0x96
-- [x] Revisar a documentação oficial AMT-8000: manter Arme/Desarme no fluxo E7/0x16; F0F0/0BB0/F0F1 pertence à sessão remota de leitura de fotos e 401E exige homologação separada
+- [x] Implementar localmente a sequência ISECProgram AMT-8000 via E7: login remoto 0x11, alternância 0x16, validação do estado 0x96 e liberação do teclado 0x15/0x95
+- [x] Reproduzir vetores reais oficiais de CRC/checksum para login, Arme/Desarme total, resposta de estado e finalização; manter partições individuais bloqueadas
+- [x] Exigir Senha de Acesso Remoto de seis dígitos cifrada, distinta da Senha Master/Instalador, e impedir envio tardio após reconexão
+- [x] Restringir a habilitação de bancada AMT-8000 a administrador, com justificativa e auditoria por central/MAC; o toggle não transmite comando
+- [x] Revisar a documentação oficial: manter E7/ISECProgram no fluxo operacional, sem confundir com E9 ou a sessão de fotos F0F0/0BB0/F0F1; manter 401E fora até homologação específica
 - [x] Ajustar a interface AMT-8000 para mostrar apenas ARMAR quando o estado confirmado está desarmado ou DESARME quando está armado, mantendo bloqueio sem estado confiável
-- [ ] Publicar na VPS o comando físico Intelbras AMT-8000 sem executar transmissão; confirmar que a Senha Master de 4 ou 6 dígitos pode ser cadastrada de forma cifrada
-- [ ] Homologar um único Arme ou Desarme físico em AMT-8000 de bancada autorizada, conferindo estado inicial, resposta E7/0x96, estado final e histórico auditável antes de qualquer uso em produção
+- [ ] Publicar na VPS a sequência corrigida e configurar em cadastro de teste a senha remota de seis dígitos e modo de bancada, sem transmitir comando físico
+- [ ] Homologar uma única ação física em AMT-8000 de bancada com autorização explícita, conferindo respostas 0x50/0x96/0x95, estado final e histórico antes de uso operacional
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão
@@ -801,12 +804,12 @@
 - [x] Diagnosticar e restaurar a resposta do ambiente de desenvolvimento após a indisponibilidade reportada
 - [x] Substituir o campo genérico por credenciais técnicas específicas no cadastro de cada sistema
 - [x] Cadastrar para JFL Senha Master do Usuário 0 e Senha de Instalador do Programador JFL
-- [x] Cadastrar para Intelbras Senha Master do Usuário 0, Senha de Instalador e Senha de Configuração Remota
+- [x] Cadastrar para Intelbras Senha Master do Usuário 0, Senha de Instalador e Senha de Acesso Remoto AMT-8000
 - [x] Cadastrar para Vetti Senha de Instalador e Senha de Usuário de Comando, exibindo o usuário derivado da senha
 - [x] Derivar e validar o usuário Vetti como prefixo `3` mais os dois primeiros dígitos da senha de comando
 - [x] Mapear por fabricante a credencial técnica necessária ao comando remoto, separada da autenticação do operador
 - [x] Criar no cadastro do sistema a credencial técnica protegida para comandos remotos
-- [ ] Usar a senha Master do painel nos fluxos JFL e Intelbras, e a credencial de protocolo exigida por Vetti e Compatec
+- [x] Separar perfis de credencial Intelbras: a AMT-8000 usa Senha de Acesso Remoto (6 dígitos) no login ISECProgram 0x11, distinta da Senha Master e de Instalador
 - [x] Remover a dependência da senha do operador como credencial da central na simulação Compatec
 - [x] Remover o campo de senha do operador da confirmação de comando, mantendo sessão, motivo e confirmação explícita
 - [x] Diagnosticar a senha do operador recusada na confirmação dos comandos Compatec

@@ -15,9 +15,13 @@ describe("contrato de comandos remotos Compatec", () => {
     expect(isConfirmedVettiBenchSystem({ brand: "COMPATEC", macAddress: "FC0FE72DE4A8", remoteCommandLabEnabled: true })).toBe(false);
   });
 
-  it("reconhece somente os dois MACs físicos que podem ter modo de bancada ativado", () => {
+  it("reconhece as bancadas Compatec/Vetti e a AMT-8000 ativa, sempre por identidade física", () => {
     expect(isKnownRemoteCommandBenchSystem({ brand: "COMPATEC", macAddress: "F024F9C1BDCB" })).toBe(true);
     expect(isKnownRemoteCommandBenchSystem({ brand: "VETTI", macAddress: "2DE4A8" })).toBe(true);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "INTELBRAS", model: "AMT-8000", macAddress: "1C17E4", isActive: true })).toBe(true);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "INTELBRAS", model: "AMT-8000", macAddress: "", isActive: true })).toBe(false);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "INTELBRAS", model: "AMT-2018", macAddress: "1C17E4", isActive: true })).toBe(false);
+    expect(isKnownRemoteCommandBenchSystem({ brand: "INTELBRAS", model: "AMT-8000", macAddress: "1C17E4", isActive: false })).toBe(false);
     expect(isKnownRemoteCommandBenchSystem({ brand: "VETTI", macAddress: "AABBCC" })).toBe(false);
     expect(isKnownRemoteCommandBenchSystem({ brand: "JFL", macAddress: "2DE4A8" })).toBe(false);
   });
@@ -75,8 +79,9 @@ describe("contrato de comandos remotos Compatec", () => {
     expect(isPhysicalIntelbrasSystem({ brand: "INTELBRAS", model: "AMT-2018", macAddress: "7B255F", isActive: true })).toBe(false);
     expect(isPhysicalIntelbrasSystem({ brand: "JFL", model: "AMT-8000", macAddress: "7B255F", isActive: true })).toBe(false);
     expect(validateIntelbrasPhysicalTarget({ commandType: "arm", partition: 0 })).toBeUndefined();
-    expect(validateIntelbrasPhysicalTarget({ commandType: "disarm", partition: 4 })).toBeUndefined();
-    expect(validateIntelbrasPhysicalTarget({ commandType: "arm", partition: 5 })).toContain("partição");
+    expect(validateIntelbrasPhysicalTarget({ commandType: "disarm", partition: 0 })).toBeUndefined();
+    expect(validateIntelbrasPhysicalTarget({ commandType: "arm", partition: 4 })).toContain("todas as partições");
     expect(intelbrasPhysicalCommandInputSchema.parse({ alarmSystemId: 49, commandType: "arm", reason: "Teste físico controlado", partition: 0 })).toMatchObject({ alarmSystemId: 49, commandType: "arm" });
+    expect(() => intelbrasPhysicalCommandInputSchema.parse({ alarmSystemId: 49, commandType: "arm", reason: "Teste físico controlado", partition: 1 })).toThrow();
   });
 });

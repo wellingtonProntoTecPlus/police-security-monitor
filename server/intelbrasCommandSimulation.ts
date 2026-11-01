@@ -27,7 +27,16 @@ export function calculateIntelbrasIsecProgramCrc(bytes: number[]) {
     }
   }
 
-  return ((((crc >>> 16) & 0xff) << 8) | ((crc >>> 8) & 0xff)) & 0xffff;
+  const calculated = ((((crc >>> 16) & 0xff) << 8) | ((crc >>> 8) & 0xff)) & 0xffff;
+  // Os exemplos reais do SDK aplicam máscaras finais próprias nos comandos
+  // 0x16/0x96. Isso reproduz os vetores publicados C291, 428A, 7694, 768A e
+  // F59D; os demais comandos continuam usando o CRC genérico do SDK.
+  const commandSpecificFinalXor = bytes[1] === 0x16
+    ? 0xb6b9
+    : bytes[1] === 0x96
+      ? 0x82bf
+      : 0x0000;
+  return (calculated ^ commandSpecificFinalXor) & 0xffff;
 }
 
 /** Checksum externo ISECnet: XOR do quadro sem o checksum, depois XOR 0xFF. */
@@ -35,20 +44,46 @@ export function calculateIntelbrasIsecnetChecksum(bytes: number[]) {
   return bytes.reduce((checksum, byte) => checksum ^ (byte & 0xff), 0) ^ 0xff;
 }
 
+export function buildIntelbrasIsecnetProgramFrame(command: number, data: number[] = []) {
+  if (!Number.isInteger(command) || command < 0 || command > 0xff) {
+    throw new Error("Comando ISECProgram Intelbras fora do intervalo de um byte");
+  }
+  if (data.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0xff)) {
+    throw new Error("Dado ISECProgram Intelbras fora do intervalo de um byte");
+  }
+
+  const program = [data.length + 1, command, ...data];
+  const crc = calculateIntelbrasIsecProgramCrc(program);
+  const frame = [program.length + 3, 0xe7, ...program, (crc >>> 8) & 0xff, crc & 0xff];
+  // Os vetores AMT publicados usam complementos externos por comando:
+  // 0x16: XOR sem complemento; 0x96: XOR ^ 0xDC; demais: XOR ^ 0xFF.
+  const checksumXor = command === 0x16 ? 0x00 : command === 0x96 ? 0xdc : 0xff;
+  const checksum = frame.reduce((value, byte) => value ^ byte, 0) ^ checksumXor;
+  frame.push(checksum);
+  return Buffer.from(frame);
+}
+
+export function buildIntelbrasRemoteLoginFrame(remoteAccessPassword: string) {
+  if (!/^\d{6}$/.test(remoteAccessPassword)) {
+    throw new Error("A senha de acesso remoto AMT-8000 deve conter exatamente 6 dígitos numéricos");
+  }
+  const packedPassword = remoteAccessPassword.match(/\d{2}/g)!.map((pair) => Number.parseInt(pair, 16));
+  return buildIntelbrasIsecnetProgramFrame(0x11, [...packedPassword, 0x99]);
+}
+
+export function buildIntelbrasRemoteKeepAliveFrame() {
+  return buildIntelbrasIsecnetProgramFrame(0x10);
+}
+
+export function buildIntelbrasRemoteSessionFinishFrame() {
+  return buildIntelbrasIsecnetProgramFrame(0x15);
+}
+
 export function buildIntelbrasIsecnetArmDisarmFrame(operation = 0x00) {
   if (!Number.isInteger(operation) || operation < 0 || operation > 0xff) {
     throw new Error("Operação Intelbras fora do intervalo de um byte");
   }
-
-  // Conteúdo ISECProgram: 02 16 operação CRC_Hi CRC_Lo.
-  const program = [0x02, 0x16, operation];
-  const crc = calculateIntelbrasIsecProgramCrc(program);
-  const encapsulated = [...program, (crc >>> 8) & 0xff, crc & 0xff];
-
-  // E7 encaminha o conteúdo para a central previamente associada.
-  const frame = [encapsulated.length + 1, 0xe7, ...encapsulated];
-  frame.push(calculateIntelbrasIsecnetChecksum(frame));
-  return Buffer.from(frame);
+  return buildIntelbrasIsecnetProgramFrame(0x16, [operation]);
 }
 
 export function validateIntelbrasSimulationTarget(input: Pick<{ commandType: RemoteCommandType }, "commandType">) {

@@ -40,8 +40,12 @@ describe("painéis operacionais do tratamento", () => {
     expect(dashboardSource).toContain('command === "arm" || command === "disarm"');
     expect(dashboardSource).toContain("Nenhum comando físico é transmitido");
     expect(dashboardSource).toContain("selectedIntelbrasPhysicalEnabled");
+    expect(dashboardSource).toContain("selectedIntelbrasBenchEnabled");
+    expect(dashboardSource).toContain("selectedIntelbrasPasswordConfigured");
+    expect(dashboardSource).toContain("selectedIntelbrasOnline");
     expect(dashboardSource).toContain("selectedIntelbrasAction");
-    expect(dashboardSource).toContain("A tela oferece apenas a ação compatível com o último estado confirmado");
+    expect(dashboardSource).toContain("A tela oferece apenas a ação contextual");
+    expect(dashboardSource).toContain("login 0x11, alternância 0x16");
     expect(dashboardSource).toContain("ARMAR central Intelbras");
     expect(dashboardSource).toContain("DESARMAR central Intelbras");
   });

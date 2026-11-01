@@ -30,7 +30,7 @@ import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStat
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
-type RemoteCommandHistoryType = RemoteCommandType | "query_status";
+type RemoteCommandHistoryType = RemoteCommandType | "query_status" | "enable_bench_mode" | "disable_bench_mode";
 
 const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   arm: "Armar central",
@@ -39,7 +39,24 @@ const REMOTE_COMMAND_LABELS: Record<RemoteCommandType, string> = {
   restore_zone: "Restaurar zona",
   activate_pgm: "Acionar PGM",
 };
-const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = { ...REMOTE_COMMAND_LABELS, query_status: "Consultar status da central" };
+const REMOTE_COMMAND_HISTORY_LABELS: Record<RemoteCommandHistoryType, string> = {
+  ...REMOTE_COMMAND_LABELS,
+  query_status: "Consultar status da central",
+  enable_bench_mode: "Habilitar bancada AMT-8000",
+  disable_bench_mode: "Desabilitar bancada AMT-8000",
+};
+const REMOTE_COMMAND_STATUS_LABELS: Record<string, string> = {
+  simulated: "Simulado",
+  queued: "Reservado",
+  waiting_connection: "Aguardando conexão",
+  sent: "Enviado · aguardando central",
+  responded: "Confirmado pela central",
+  authorized: "Autorizado · sem transmissão",
+  disabled: "Desativado · sem transmissão",
+  failed: "Falhou · não confirmado",
+  finalization_failed: "Ação confirmada · liberação falhou",
+  expired: "Expirou sem transmissão",
+};
 function isStandalonePhysicalCommandSupported(brand?: string | null) {
   const normalized = String(brand || "").trim().toUpperCase();
   return normalized === "COMPATEC";
@@ -421,7 +438,14 @@ export default function Dashboard() {
   const selectedRemoteSystemId = selectedRemoteIdentity.systemId;
   const selectedRemoteBrand = selectedRemoteIdentity.brand;
   const { data: remoteCommandPgms = [] } = trpc.alarmPgm.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0 }, { enabled: Boolean(selectedRemoteSystemId) });
-  const { data: remoteCommandHistory = [] } = trpc.remoteCommand.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0, limit: 8 }, { enabled: Boolean(selectedRemoteSystemId) });
+  const { data: remoteCredentialStatus } = trpc.alarmSystem.remoteCommandCredentialStatus.useQuery(
+    { alarmSystemId: selectedRemoteSystemId || 0 },
+    { enabled: Boolean(selectedRemoteSystemId) && selectedRemoteBrand === "INTELBRAS", refetchInterval: 10_000, retry: false },
+  );
+  const { data: remoteCommandHistory = [] } = trpc.remoteCommand.list.useQuery(
+    { alarmSystemId: selectedRemoteSystemId || 0, limit: 8 },
+    { enabled: Boolean(selectedRemoteSystemId), refetchInterval: 3000 },
+  );
   const persistedQueue = persistedQueueData ?? EMPTY_QUEUE;
   const connectionSystems = connectionSystemsData ?? EMPTY_CONNECTION_SYSTEMS;
   const selectedArmDisarmState = useMemo<"armed" | "disarmed" | undefined>(() => {
@@ -893,12 +917,19 @@ export default function Dashboard() {
       && selectedSystem?.isActive !== false
       && normalizedModel.includes("AMT8000");
   }, [selectedRemoteBrand, selectedSystem]);
+  const selectedIntelbrasBenchEnabled = Boolean(remoteCredentialStatus?.laboratoryEnabled);
+  const selectedIntelbrasPasswordConfigured = Boolean(remoteCredentialStatus?.credentials.some(
+    (credential) => credential.credentialKind === "intelbras_remote_configuration",
+  ));
+  const selectedIntelbrasOnline = connectionSystems.some(
+    (system: any) => system.id === selectedRemoteSystemId && system.connectionStatus === "online",
+  );
   const selectedIntelbrasAction = useMemo<"arm" | "disarm" | undefined>(() => {
-    if (!selectedIntelbrasPhysicalEnabled) return undefined;
+    if (!selectedIntelbrasPhysicalEnabled || !selectedIntelbrasBenchEnabled || !selectedIntelbrasPasswordConfigured || !selectedIntelbrasOnline) return undefined;
     if (selectedArmDisarmState === "armed") return "disarm";
     if (selectedArmDisarmState === "disarmed") return "arm";
     return undefined;
-  }, [selectedIntelbrasPhysicalEnabled, selectedArmDisarmState]);
+  }, [selectedIntelbrasPhysicalEnabled, selectedIntelbrasBenchEnabled, selectedIntelbrasPasswordConfigured, selectedIntelbrasOnline, selectedArmDisarmState]);
 
   const selectedClient = useMemo(() => {
     if (!selectedEvent) return null;
@@ -1237,7 +1268,7 @@ export default function Dashboard() {
     }
     const actionLabel = commandType === "arm" ? "ARMAR" : "DESARMAR";
     const confirmed = window.confirm(
-      `CONFIRMAR ${actionLabel} FÍSICO DA INTELBRAS?\n\nConta ${selectedEvent.account} · ${selectedEvent.systemModel}\nMAC ${selectedSystem?.macAddress || "não informado"}\nOperador ${user?.name || "autenticado"}\n\nMotivo: ${remoteCommandReason.trim()}\n\nO comando será enviado somente se a sessão desta central estiver identificada e a resposta confirmar o novo estado.`,
+      `CONFIRMAR ${actionLabel} FÍSICO DA INTELBRAS?\n\nConta ${selectedEvent.account} · ${selectedEvent.systemModel}\nMAC ${selectedSystem?.macAddress || "não informado"}\nOperador ${user?.name || "autenticado"}\n\nMotivo: ${remoteCommandReason.trim()}\n\nSequência autenticada: login 0x11, alternância 0x16, resposta de estado 0x96 e liberação do teclado 0x15/0x95. Se a sessão cair, não haverá reenvio tardio.`,
     );
     if (!confirmed) return;
     sendIntelbrasPhysicalMut.mutate({
@@ -1249,7 +1280,8 @@ export default function Dashboard() {
     }, {
       onSuccess: (result) => {
         addLog(`${actionLabel} físico Intelbras registrado; status ${result.status}.`);
-        toast.success(result.message || `Comando ${actionLabel} registrado.`);
+        if (result.status === "failed") toast.error(result.message || `O comando ${actionLabel} falhou e não foi confirmado pela central.`);
+        else toast.success(result.message || `Comando ${actionLabel} registrado.`);
         void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedRemoteSystemId, limit: 8 });
       },
       onError: (error) => toast.error(error.message),
@@ -1760,6 +1792,10 @@ export default function Dashboard() {
                 {selectedRemoteBrand === "COMPATEC" && <><Button className="w-full border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false || armCompatecAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchArmAll}>{armCompatecAllMut.isPending ? "Enviando Arme..." : "Armar central Compatec (MB=AK4[4])"}</Button><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button><Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmBenchAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchDisarmAll}>{disarmBenchAllMut.isPending ? "Enviando Desarme..." : "Desarmar central Compatec (MB=AK4[12])"}</Button><p className="text-center text-[11px] text-muted-foreground">Desarme físico oficial do MW1: MB=AK4[12]. Arme oficial MB=AK4[4] disponível para centrais Compatec ativas e cadastradas; partições, setores, Toggle e PGMs continuam bloqueados. Toda ação exige motivo, operador e confirmação explícita.</p></>}
                 {selectedRemoteBrand === "VETTI" && <><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryVettiBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchStatusQuery}>{queryVettiBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar status da central de testes (VSec 0x14)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmVettiBenchMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchDisarm}>{disarmVettiBenchMut.isPending ? "Enviando Desarme..." : "Desarmar central de testes (VSec 0x43)"}</Button><p className="text-center text-[11px] text-muted-foreground">Na bancada Vetti 0336, a consulta `0x14` e o Desarme `0x43` exigem modo de bancada ativo, login remoto, auditoria e resposta da central. Arme, Zona e PGM continuam somente em simulação.</p></>}
                 {selectedRemoteBrand === "INTELBRAS" && <div className="space-y-2">
+                  {!selectedIntelbrasPhysicalEnabled && <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">O comando físico está disponível somente para uma AMT-8000 ativa com MAC cadastrado.</div>}
+                  {selectedIntelbrasPhysicalEnabled && !selectedIntelbrasBenchEnabled && <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">Comandos bloqueados. Um administrador deve habilitar a bancada AMT-8000 no cadastro desta central.</div>}
+                  {selectedIntelbrasPhysicalEnabled && selectedIntelbrasBenchEnabled && !selectedIntelbrasPasswordConfigured && <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">Cadastre no sistema a Senha de Acesso Remoto AMT-8000 (6 dígitos); a Senha Master não serve para este login.</div>}
+                  {selectedIntelbrasPhysicalEnabled && selectedIntelbrasBenchEnabled && selectedIntelbrasPasswordConfigured && !selectedIntelbrasOnline && <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">A central está sem sessão ativa no receptor. O comando não será guardado para envio tardio.</div>}
                   {selectedIntelbrasAction === "arm" ? (
                     <Button className="w-full border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={sendIntelbrasPhysicalMut.isPending || remoteCommandReason.trim().length < 5} onClick={() => submitIntelbrasPhysical("arm")}>
                       {sendIntelbrasPhysicalMut.isPending ? "Aguardando..." : "ARMAR central Intelbras"}
@@ -1769,16 +1805,16 @@ export default function Dashboard() {
                       {sendIntelbrasPhysicalMut.isPending ? "Aguardando..." : "DESARMAR central Intelbras"}
                     </Button>
                   ) : (
-                    <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">O comando físico fica bloqueado até haver um estado Armado ou Desarmado confirmado para esta central.</div>
+                    selectedIntelbrasPhysicalEnabled && selectedIntelbrasBenchEnabled && selectedIntelbrasPasswordConfigured && selectedIntelbrasOnline && <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">O comando fica bloqueado até haver um estado Armado ou Desarmado confirmado para esta central.</div>
                   )}
-                  <p className="text-center text-[11px] text-muted-foreground">A tela oferece apenas a ação compatível com o último estado confirmado. A central precisa estar identificada por MAC/conta; sem resposta E7/0x96, a tentativa será registrada como falha.</p>
+                  <p className="text-center text-[11px] text-muted-foreground">Sequência oficial AMT-8000: login remoto autenticado, E7/0x16, validação do estado 0x96 e encerramento E7/0x15 para liberar o teclado. A tela oferece apenas a ação contextual e nenhuma tentativa desconectada será enviada depois.</p>
                 </div>}
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
-                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "O Arme AK4[4] e o Desarme AK4[12] exigem confirmação explícita e conexão autenticada da própria central. Toggle, Zona e PGM permanecem bloqueados para transmissão." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O comando físico só fica confirmado após resposta E7/0x96 válida; a Senha Master nunca é exibida." : "A consulta VSec 0x14 e o Desarme 0x43 da central de testes podem ser físicos; Arme, Zona e PGM Vetti permanecem simulados."}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "O Arme AK4[4] e o Desarme AK4[12] exigem confirmação explícita e conexão autenticada da própria central. Toggle, Zona e PGM permanecem bloqueados para transmissão." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O fluxo físico autenticado usa a senha remota de seis dígitos, valida a resposta do painel e libera o teclado no encerramento. A senha não aparece no histórico." : "A consulta VSec 0x14 e o Desarme 0x43 da central de testes podem ser físicos; Arme, Zona e PGM Vetti permanecem simulados."}</p>
                 <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "simulated" ? "Simulado" : command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{getRemoteProtocolMode(command.commandPayload) === "physical" ? "Quadro físico (senha não armazenada)" : "Quadro simulado"}</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{REMOTE_COMMAND_STATUS_LABELS[command.status] || command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{getRemoteProtocolMode(command.commandPayload) === "physical" ? "Quadro físico (senha não armazenada)" : "Quadro simulado"}</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>

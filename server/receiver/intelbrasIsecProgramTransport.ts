@@ -1,60 +1,68 @@
 import {
   buildIntelbrasIsecnetArmDisarmFrame,
+  buildIntelbrasRemoteLoginFrame,
+  buildIntelbrasRemoteSessionFinishFrame,
   calculateIntelbrasIsecProgramCrc,
 } from "../intelbrasCommandSimulation";
 
 export type IntelbrasPhysicalCommandType = "arm" | "disarm";
 
 export type IntelbrasIsecProgramResponse = {
-  status: number;
-  accepted: boolean;
+  command: number;
+  data: Buffer;
   frame: Buffer;
 };
 
-/**
- * AMT-8000: o SDK orienta usar E7 para o encaminhamento do comando de
- * Arme/Desarme. O comando interno 0x16 alterna o estado atual; por isso a
- * camada de autorização precisa validar o estado desejado antes do envio.
- */
+/** AMT-8000: login remoto ISECProgram 0x11, com senha de acesso remoto. */
+export function buildIntelbrasPhysicalLoginFrame(remoteAccessPassword: string) {
+  return buildIntelbrasRemoteLoginFrame(remoteAccessPassword);
+}
+
+/** ISECProgram 0x16 alterna o estado; o servidor valida antes da transmissão. */
 export function buildIntelbrasPhysicalArmDisarmFrame(operation = 0x00) {
   return buildIntelbrasIsecnetArmDisarmFrame(operation);
 }
 
+/** Finaliza o acesso remoto e libera o teclado da central com o comando E7/0x15. */
+export function buildIntelbrasPhysicalSessionFinishFrame() {
+  return buildIntelbrasRemoteSessionFinishFrame();
+}
+
+function hasValidIsecnetChecksum(frame: Buffer, command: number) {
+  let checksum = 0;
+  for (let index = 0; index < frame.length - 1; index += 1) checksum ^= frame[index]!;
+  const finalXor = command === 0x16 ? 0x00 : command === 0x96 ? 0xdc : 0xff;
+  return (checksum ^ finalXor) === frame[frame.length - 1];
+}
+
 /**
- * Resposta E7/0x96 documentada pelo SDK:
- * 06 E7 02 96 [status] [CRC Hi] [CRC Lo] [checksum].
+ * Decodifica respostas ISECProgram encapsuladas em E7. O tamanho, CRC interno
+ * e checksum externo são validados conforme o XOR final dos vetores reais
+ * publicados pela Intelbras para o comando de resposta.
  */
 export function parseIntelbrasIsecProgramResponse(frame: Buffer): IntelbrasIsecProgramResponse | undefined {
   if (
-    frame.length !== 8
-    || frame[0] !== 0x06
+    frame.length < 7
     || frame[1] !== 0xe7
-    || frame[2] !== 0x02
-    || frame[3] !== 0x96
+    || frame.length !== frame[0]! + 2
   ) return undefined;
 
-  const expectedCrc = calculateIntelbrasIsecProgramCrc([0x02, 0x96, frame[4]]);
-  const receivedCrc = (frame[5] << 8) | frame[6];
-  const sdkExample = [
-    "06E7029603769448",
-    "06E7029680F59D41",
-  ].includes(frame.toString("hex").toUpperCase());
-  let checksum = 0;
-  for (let index = 0; index < frame.length - 1; index += 1) checksum ^= frame[index];
-  const standardChecksum = (checksum ^ 0xff) === frame[frame.length - 1];
-  if (!sdkExample && (!standardChecksum || expectedCrc !== receivedCrc)) return undefined;
+  const programEnd = frame.length - 3;
+  const program = Array.from(frame.subarray(2, programEnd));
+  if (program.length < 2 || program[0] !== program.length - 1) return undefined;
+  if (!hasValidIsecnetChecksum(frame, program[1]!)) return undefined;
+
+  const receivedCrc = (frame[programEnd]! << 8) | frame[programEnd + 1]!;
+  if (calculateIntelbrasIsecProgramCrc(program) !== receivedCrc) return undefined;
 
   return {
-    status: frame[4],
-    accepted: (frame[4] & 0x80) === 0,
+    command: program[1]!,
+    data: Buffer.from(program.slice(2)),
     frame: Buffer.from(frame),
   };
 }
 
-/**
- * O byte 7 indica zonas abertas durante a ativação. Os quatro bits baixos
- * representam o estado das partições A-D no retorno do SDK.
- */
+/** O status 0x96: bit 7 = zonas abertas; bits 0-3 = partições A-D armadas. */
 export function isIntelbrasPhysicalStateConfirmed(
   commandType: IntelbrasPhysicalCommandType,
   status: number,
@@ -70,6 +78,8 @@ export function buildIntelbrasPhysicalPayload(input: {
   commandType: IntelbrasPhysicalCommandType;
   partition?: number | null;
 }) {
+  // 0x16 é alternância: o payload registra a ação contextual solicitada pelo
+  // operador, mas o quadro transmitido utiliza a operação oficial do modelo.
   const operation = input.partition && input.partition > 0
     ? 1 << (input.partition - 1)
     : 0x00;
@@ -82,7 +92,7 @@ export function buildIntelbrasPhysicalPayload(input: {
     operation,
     partition: input.partition ?? null,
     frames: [frame.toString("hex").match(/../g)?.join(" ").toUpperCase() || ""],
-    note: "Quadro E7 preparado para envio somente no socket da central identificada por MAC e conta.",
+    note: "Quadro E7 preparado para envio somente após login remoto e na sessão da central identificada por MAC e conta.",
   });
 }
 
@@ -108,6 +118,7 @@ export function getIntelbrasPhysicalFrameFromPayload(payload: string) {
 }
 
 export function getIntelbrasPhysicalResponseDescription(response: IntelbrasIsecProgramResponse) {
-  const statusHex = response.status.toString(16).toUpperCase().padStart(2, "0");
-  return `Resposta E7/0x96 da central: status 0x${statusHex}; quadro ${response.frame.toString("hex").toUpperCase()}`;
+  const dataHex = response.data.toString("hex").toUpperCase();
+  const frameHex = response.frame.toString("hex").toUpperCase();
+  return `Resposta E7/0x${response.command.toString(16).toUpperCase().padStart(2, "0")}${dataHex ? ` (dados ${dataHex})` : ""}; quadro ${frameHex}`;
 }

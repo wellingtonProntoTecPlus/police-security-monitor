@@ -13,6 +13,7 @@ import { buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, is
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
 import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery, sendIntelbrasPhysicalCommand } from "./receiver";
+import { isIntelbrasSessionActive } from "./receiver/intelbrasPhysicalTransport";
 import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 import { buildIntelbrasPhysicalPayload } from "./receiver/intelbrasIsecProgramTransport";
@@ -545,13 +546,29 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.clearAlarmRemoteCredential(input);
     }),
-    setRemoteCommandLaboratory: operatorProcedure.input(z.object({ alarmSystemId: z.number(), enabled: z.boolean() })).mutation(async ({ input, ctx }) => {
+    setRemoteCommandLaboratory: operatorProcedure.input(z.object({
+      alarmSystemId: z.number(),
+      enabled: z.boolean(),
+      reason: z.string().trim().max(2000).optional(),
+    })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getAlarmSystem(input.alarmSystemId);
       if (!system || !isKnownRemoteCommandBenchSystem(system)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O modo de bancada é exclusivo para as centrais físicas de testes identificadas por MAC" });
       }
-      return db.setAlarmSystemRemoteCommandLabEnabled(input.alarmSystemId, input.enabled);
+      const isIntelbras = system.brand?.trim().toUpperCase() === "INTELBRAS";
+      if (isIntelbras && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Somente administrador pode habilitar ou desabilitar o modo de bancada AMT-8000" });
+      }
+      const reason = input.reason?.trim();
+      if (isIntelbras && (!reason || reason.length < 5)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe um motivo de pelo menos 5 caracteres para auditar a bancada AMT-8000" });
+      }
+      return db.setAlarmSystemRemoteCommandLabEnabled(
+        input.alarmSystemId,
+        input.enabled,
+        isIntelbras ? { operatorId: ctx.user.id, reason: reason! } : undefined,
+      );
     }),
   }),
 
@@ -909,16 +926,22 @@ export const appRouter = router({
       if (!isPhysicalIntelbrasSystem(system)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "O comando físico está disponível somente para uma central Intelbras ativa, cadastrada e identificada por MAC" });
       }
+      if (!system.remoteCommandLabEnabled) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O comando físico AMT-8000 está bloqueado: um administrador precisa habilitar o modo de bancada dessa central." });
+      }
       const targetError = validateIntelbrasPhysicalTarget(input);
       if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
 
       const credentials = await db.getAlarmRemoteCredentialStatus(system.id);
-      if (!credentials.credentials.some((credential) => credential.credentialKind === "intelbras_master")) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a Senha Master Intelbras de 4 ou 6 dígitos antes de transmitir o comando físico" });
+      if (!credentials.credentials.some((credential) => credential.credentialKind === "intelbras_remote_configuration")) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a Senha de Acesso Remoto AMT-8000 de 6 dígitos antes de transmitir o comando físico" });
       }
-      const masterCredential = await db.getAlarmRemoteCredentialForTransport(system.id, "intelbras_master");
-      if (!masterCredential || !/^\d{4}(\d{2})?$/.test(masterCredential)) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A Senha Master Intelbras cadastrada é inválida; informe exatamente 4 ou 6 dígitos numéricos" });
+      const remoteAccessPassword = await db.getAlarmRemoteCredentialForTransport(system.id, "intelbras_remote_configuration");
+      if (!remoteAccessPassword || !/^\d{6}$/.test(remoteAccessPassword)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A Senha de Acesso Remoto AMT-8000 é inválida; informe exatamente 6 dígitos numéricos" });
+      }
+      if (!isIntelbrasSessionActive(system.id)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A AMT-8000 está desconectada. Conecte a central e tente novamente; o comando não ficará em fila para execução tardia." });
       }
 
       const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
@@ -940,13 +963,22 @@ export const appRouter = router({
         pgmNumber: null,
         reason: input.reason,
         commandPayload: buildIntelbrasPhysicalPayload(input),
-        responsePayload: "Aguardando a sessão Intelbras identificada por MAC e conta.",
+        responsePayload: "Reserva imediata criada para a sessão física AMT-8000 já identificada por MAC e conta.",
         executedAt: null,
       });
       if (!reservation.created) {
         throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Intelbras em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
       }
 
+      const dispatched = await sendIntelbrasPhysicalCommand({ alarmSystemId: system.id, commandId: reservation.id });
+      if (!dispatched.sent) {
+        await db.updateAlarmRemoteCommandDelivery(reservation.id, {
+          status: "failed",
+          responsePayload: dispatched.message,
+          executedAt: new Date(),
+        });
+        return { id: reservation.id, status: "failed" as const, message: dispatched.message };
+      }
       if (input.incidentId) {
         await db.appendIncidentNote(input.incidentId, buildRemoteCommandRequestNote({
           commandId: reservation.id,
@@ -954,17 +986,6 @@ export const appRouter = router({
           operatorName: ctx.user.name || "Operador autenticado",
           reason: input.reason,
         }));
-      }
-
-      const dispatched = await sendIntelbrasPhysicalCommand({ alarmSystemId: system.id, commandId: reservation.id });
-      if (!dispatched.sent) {
-        const waitingForConnection = dispatched.message.includes("aguardando uma conexão identificada");
-        await db.updateAlarmRemoteCommandDelivery(reservation.id, {
-          status: waitingForConnection ? "waiting_connection" : "failed",
-          responsePayload: dispatched.message,
-          executedAt: waitingForConnection ? null : new Date(),
-        });
-        return { id: reservation.id, status: waitingForConnection ? "waiting_connection" as const : "failed" as const, message: dispatched.message };
       }
       return { id: reservation.id, status: "sent" as const, message: dispatched.message };
     }),

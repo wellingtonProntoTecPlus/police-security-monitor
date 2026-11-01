@@ -11,7 +11,7 @@ import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSa
 import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
 import { buildJflActive8wConnectionAcknowledgement, buildJflStatusRequest, isJflActive8wV8Connection, isJflActive8wV8StatusReply } from './jflActive8wProtocol';
 import { getConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
-import { clearIntelbrasSession, consumeIntelbrasPhysicalResponse, deliverPendingIntelbrasPhysicalCommand, rememberActiveIntelbrasSession, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
+import { clearIntelbrasSession, consumeIntelbrasPhysicalResponse, rememberActiveIntelbrasSession, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
 import { getAutomaticOccurrenceAssociation } from './automaticOccurrenceAssociation';
@@ -44,7 +44,7 @@ type EventCallback = (event: any) => void;
 
 export { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 export { sendVettiBenchStatusQuery } from './vettiBenchTransport';
-export { sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
+export { isIntelbrasSessionActive, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 
 let eventCallback: EventCallback | null = null;
 const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
@@ -295,9 +295,8 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
     // ACK oficial do comando de identificação. Não é resposta de evento nem
     // habilita controle remoto.
     socket.write(Buffer.from([0xfe]));
-    if (system && system.account === identification.account) {
-      await deliverPendingIntelbrasPhysicalCommand(system, socket);
-    }
+    // Comandos Intelbras de alternância nunca são disparados automaticamente
+    // ao reconectar: a confirmação do operador deve ocorrer com sessão viva.
     return;
   }
 

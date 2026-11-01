@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
+const databaseSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
   it("preserva a simulação Intelbras legada sem transformar seu quadro em transmissão física", () => {
@@ -13,16 +14,24 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(receiverSource).not.toContain("buildIntelbrasIsecnetArmDisarmFrame");
   });
 
-  it("mantém o comando físico Intelbras separado e exige estado, credencial e sessão identificada", () => {
+  it("mantém o comando físico Intelbras separado e exige bancada, senha remota, estado e sessão identificada agora", () => {
     expect(source).toContain("sendIntelbrasPhysical: operatorProcedure");
     expect(source).toContain("isPhysicalIntelbrasSystem(system)");
-    expect(source).toContain('credential.credentialKind === "intelbras_master"');
+    expect(source).toContain('credential.credentialKind === "intelbras_remote_configuration"');
+    expect(source).toContain('getAlarmRemoteCredentialForTransport(system.id, "intelbras_remote_configuration")');
+    expect(source).toContain("system.remoteCommandLabEnabled");
+    expect(source).toContain("isIntelbrasSessionActive(system.id)");
     expect(source).toContain("getLatestArmDisarmStatusForSystem");
     expect(source).toContain('transportMode: "intelbras_amt8000_e7"');
     expect(source).not.toContain('transportMode: "intelbras_e9"');
+    expect(source).not.toContain('getAlarmRemoteCredentialForTransport(system.id, "intelbras_master")');
     expect(receiverSource).toContain("rememberActiveIntelbrasSession");
     expect(receiverSource).toContain("consumeIntelbrasPhysicalResponse");
-    expect(receiverSource).toContain("deliverPendingIntelbrasPhysicalCommand");
+    expect(receiverSource).not.toContain("deliverPendingIntelbrasPhysicalCommand");
+    expect(receiverSource).toContain("Comandos Intelbras de alternância nunca são disparados automaticamente");
+    const pendingQuery = databaseSource.slice(databaseSource.indexOf("export async function getPendingIntelbrasPhysicalCommand"), databaseSource.indexOf("export async function setAlarmSystemRemoteCommandLabEnabled"));
+    expect(pendingQuery).toContain('eq(alarmRemoteCommands.status, "queued")');
+    expect(pendingQuery).not.toContain('inArray(alarmRemoteCommands.status, ["queued", "waiting_connection"])');
   });
 
   it("mantém consultas restritas à bancada e permite o Desarme somente para Compatec ativa", () => {
@@ -69,10 +78,12 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(source).toContain('commandType: "disarm", transportMode: "vsec_bench"');
   });
 
-  it("permite ao operador ativar o modo de bancada somente para os MACs físicos homologados", () => {
+  it("exige admin e justificativa para habilitar a bancada Intelbras e audita sem transmitir", () => {
     const laboratoryRoute = source.slice(source.indexOf("setRemoteCommandLaboratory:"), source.indexOf("  }),\n\n  // ============================================================\n  // ALARM ZONES"));
     expect(source).toContain("setRemoteCommandLaboratory: operatorProcedure");
     expect(laboratoryRoute).toContain("isKnownRemoteCommandBenchSystem(system)");
+    expect(laboratoryRoute).toContain('ctx.user.role !== "admin"');
+    expect(laboratoryRoute).toContain("auditar a bancada AMT-8000");
     expect(laboratoryRoute).not.toContain('system.brand !== "COMPATEC"');
   });
 

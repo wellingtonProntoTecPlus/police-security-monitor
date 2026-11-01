@@ -24,9 +24,9 @@ export function getRemoteCommandCredentialProfiles(brand: string): RemoteCommand
     { kind: "jfl_installer", label: "Senha de Instalador", help: "Usada para acessar o painel no Programador JFL e para programações da central." },
   ];
   if (brand === "INTELBRAS") return [
-    { kind: "intelbras_master", label: "Senha Master (Usuário 0)", help: "Usada para comandos e registrada no monitoramento como Usuário 0.", supportsRemoteCommand: true },
+    { kind: "intelbras_master", label: "Senha Master (Usuário 0)", help: "Credencial do usuário Master do painel. Não é a senha usada pelo login remoto AMT-8000." },
     { kind: "intelbras_installer", label: "Senha de Instalador", help: "Usada para programações pelo teclado da central." },
-    { kind: "intelbras_remote_configuration", label: "Senha de Configuração Remota", help: "Usada na programação remota da central Intelbras." },
+    { kind: "intelbras_remote_configuration", label: "Senha de Acesso Remoto (AMT-8000)", help: "Exatamente 6 dígitos. Usada no login remoto ISECProgram 0x11 antes do Arme/Desarme AMT-8000.", supportsRemoteCommand: true },
   ];
   if (brand === "VETTI") return [
     { kind: "vetti_installer", label: "Senha de Instalador", help: "Credencial técnica de acesso e programação da central Vetti." },
