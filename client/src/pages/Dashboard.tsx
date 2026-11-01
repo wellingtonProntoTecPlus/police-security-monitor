@@ -230,6 +230,9 @@ export default function Dashboard() {
   const persistedQueueSignatureRef = useRef("");
   const processedOperationalRefreshesRef = useRef<Set<string>>(new Set());
   const lastConnectionStatusRefreshAtRef = useRef(0);
+  const lastDashboardReconciliationAtRef = useRef(0);
+  const previousSocketConnectedRef = useRef<boolean | null>(null);
+  const wasDashboardBackgroundedRef = useRef(false);
   const [observationOpen, setObservationOpen] = useState(false);
   const [observationUntil, setObservationUntil] = useState(() => dateTimeLocalValue(new Date(Date.now() + 30 * 60_000)));
   const [observationNotes, setObservationNotes] = useState("");
@@ -268,6 +271,20 @@ export default function Dashboard() {
   const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | null>(null);
   const [showProceduresModal, setShowProceduresModal] = useState(false);
   const utils = trpc.useUtils();
+  const reconcileDashboardData = useCallback(() => {
+    // Tablets e navegadores em segundo plano podem pausar Socket.IO e timers.
+    // Ao voltar à tela, a fila persistida volta a ser imediatamente a fonte de verdade.
+    const now = Date.now();
+    if (now - lastDashboardReconciliationAtRef.current < 2_000) return;
+    lastDashboardReconciliationAtRef.current = now;
+    void Promise.all([
+      utils.incident.openQueue.invalidate(),
+      utils.dashboard.armDisarmStatus.invalidate(),
+      utils.dashboard.recentAutoFinalizedArmDisarm.invalidate(),
+      utils.dashboard.connectionStatus.invalidate(),
+      utils.dashboard.scheduleAlerts.invalidate(),
+    ]);
+  }, [utils]);
 
   const quickFinalizationOptions = useMemo(
     () => getQuickFinalizationOptions(finalizacoes, finalizationSearch),
@@ -335,6 +352,31 @@ export default function Dashboard() {
   }, [selectedEvent]);
 
   const { connected, realtimeEvents } = useSocket();
+  useEffect(() => {
+    const reconcileOnVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        wasDashboardBackgroundedRef.current = true;
+        return;
+      }
+      if (!wasDashboardBackgroundedRef.current) return;
+      wasDashboardBackgroundedRef.current = false;
+      reconcileDashboardData();
+    };
+    const reconcileOnPageRestore = (event: PageTransitionEvent) => {
+      if (event.persisted) reconcileDashboardData();
+    };
+    window.addEventListener("pageshow", reconcileOnPageRestore);
+    document.addEventListener("visibilitychange", reconcileOnVisibilityChange);
+    return () => {
+      window.removeEventListener("pageshow", reconcileOnPageRestore);
+      document.removeEventListener("visibilitychange", reconcileOnVisibilityChange);
+    };
+  }, [reconcileDashboardData]);
+  useEffect(() => {
+    const previousConnected = previousSocketConnectedRef.current;
+    previousSocketConnectedRef.current = connected;
+    if (previousConnected === false && connected) reconcileDashboardData();
+  }, [connected, reconcileDashboardData]);
 
   // Queries
   const { data: persistedQueueData, isLoading: isPersistedQueueLoading } = trpc.incident.openQueue.useQuery(undefined, {
@@ -541,7 +583,10 @@ export default function Dashboard() {
       setSelectedEvent((previous) => {
         if (!previous?.incidentId) return previous;
         const refreshed = initial.find((event) => event.incidentId === previous.incidentId);
-        return refreshed ? { ...previous, ...refreshed } : previous;
+        // Outra tela pode finalizar o atendimento enquanto esta aba estava
+        // suspensa. Não manter um modal de atendimento para uma ocorrência
+        // que já não existe mais na fila persistida.
+        return refreshed ? { ...previous, ...refreshed } : null;
       });
     }
   }, [persistedQueueData, isPersistedQueueLoading, clientData, systemData]);

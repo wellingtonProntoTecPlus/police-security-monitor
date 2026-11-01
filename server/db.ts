@@ -135,6 +135,18 @@ export async function listManagingCompanies() {
   return db.select().from(managingCompanies).orderBy(managingCompanies.name);
 }
 
+export async function getPublicManagingBranding() {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select({ name: managingCompanies.name, logoUrl: managingCompanies.logoUrl })
+    .from(managingCompanies)
+    .where(eq(managingCompanies.isActive, true))
+    .orderBy(managingCompanies.id)
+    .limit(1);
+  return result[0] || null;
+}
+
 export async function getManagingCompany(id: number) {
   const db = await getDb();
   if (!db) return undefined;

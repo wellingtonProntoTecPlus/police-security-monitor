@@ -50,6 +50,14 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("O tratamento será aberto em uma janela operacional segura.");
   });
 
+  it("reconcilia a fila persistida ao retornar de uma aba ou tablet em segundo plano", () => {
+    expect(source).toContain("reconcileDashboardData");
+    expect(source).toContain("wasDashboardBackgroundedRef");
+    expect(source).toContain('document.addEventListener("visibilitychange", reconcileOnVisibilityChange)');
+    expect(source).toContain("utils.incident.openQueue.invalidate()");
+    expect(source).toContain("return refreshed ? { ...previous, ...refreshed } : null");
+  });
+
   it("permite abrir outra tela sem fechar o atendimento atual", () => {
     expect(source).toContain("WorkspaceScreenMenu");
     expect(source).toContain("Abrir outra tela sem fechar este atendimento");

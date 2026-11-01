@@ -4,10 +4,18 @@ import { Shield, Monitor, Bell, Users, Radio } from "lucide-react";
 import { Redirect } from "wouter";
 import { useLocation } from "wouter";
 import { LogIn } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { useEffect, useState } from "react";
 
 export default function Home() {
   const { user, isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
+  const { data: branding } = trpc.publicBranding.get.useQuery(undefined, { retry: false });
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [branding?.logoUrl]);
 
   if (loading) {
     return (
@@ -31,7 +39,19 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-border px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/manus-storage/police-logo_4726d461.png" alt="Police Central" className="h-12 object-contain" />
+          {branding?.logoUrl && !logoFailed ? (
+            <img
+              src={branding.logoUrl}
+              alt={branding.name || "Police Central"}
+              className="h-12 max-w-52 object-contain object-left"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <div className="flex items-center gap-2 text-foreground">
+              <Shield className="h-7 w-7 text-primary" />
+              <span className="font-bold tracking-tight">{branding?.name || "Police Central"}</span>
+            </div>
+          )}
         </div>
         <div className="flex gap-3">
           <Button onClick={handleDirectAccess} variant="default" size="lg" className="font-bold">

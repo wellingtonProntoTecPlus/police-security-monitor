@@ -115,6 +115,10 @@ export const appRouter = router({
     }),
   }),
 
+  publicBranding: router({
+    get: publicProcedure.query(() => db.getPublicManagingBranding()),
+  }),
+
   // ============================================================
   // MANAGING COMPANIES
   // ============================================================
