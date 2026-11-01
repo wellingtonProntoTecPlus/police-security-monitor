@@ -868,4 +868,5 @@
 - [x] Proteger alterações/finalização pelo operador dono do atendimento; separar relatório do atendimento assumido
 - [x] Expor no Dashboard, sem sair do atendimento, as exceções de agenda por uma hora, um dia ou sete dias, com solicitante, justificativa e auditoria
 - [x] Exibir e permitir tentar novamente em caso de falha ao carregar/salvar agenda semanal
+- [x] Corrigir migração VPS para não criar índice único em incidents.eventId quando há atendimentos independentes vinculados ao mesmo evento e cobrir com teste de regressão
 - [ ] Migrar banco da VPS, implantar e homologar com dois operadores simultâneos antes do uso operacional
