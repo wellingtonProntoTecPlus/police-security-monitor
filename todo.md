@@ -703,7 +703,7 @@
 - [x] Corrigir o Arme Intelbras AMT-8000 recebido em 0xB0 que foi associado à conta 0000 em vez da conta física 0049, preservando e auditando o quadro original
 - [ ] Instalar a correção da associação Intelbras 0xB0 na VPS e confirmar que o próximo Arme manual seja gravado somente na conta 0049
 - [x] Corrigir a leitura do argumento de três dígitos nos eventos Intelbras, pois o usuário 198 foi exibido como 18 no Police Central
-- [ ] Instalar a correção de três dígitos Intelbras na VPS e confirmar que o próximo evento E407 seja exibido com Usuário 198
+- [x] Instalar a correção de três dígitos Intelbras na VPS e confirmar que o próximo evento E407 seja exibido com Usuário 198
 - [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
 - [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
 - [x] Implementar localmente a sequência ISECProgram AMT-8000 via E7: login remoto 0x11, alternância 0x16, validação do estado 0x96 e liberação do teclado 0x15/0x95
@@ -713,6 +713,7 @@
 - [x] Revisar a documentação oficial: manter E7/ISECProgram no fluxo operacional, sem confundir com E9 ou a sessão de fotos F0F0/0BB0/F0F1; manter 401E fora até homologação específica
 - [x] Ajustar a interface AMT-8000 para mostrar apenas ARMAR quando o estado confirmado está desarmado ou DESARME quando está armado, mantendo bloqueio sem estado confiável
 - [x] Cadastrar na tabela Intelbras o Contact ID oficial E403 como auto-desativação/desarme e R403 como auto-ativação/arme; classificar o estado respeitando fabricante e qualificador
+- [x] Cadastrar R407 como arme por aplicativo e E407 como desarme por aplicativo; manter o argumento como número do usuário do painel (ex.: 198), sem misturar com comandos físicos do PoliceCentral
 - [ ] Publicar na VPS a sequência corrigida e configurar em cadastro de teste a senha remota de seis dígitos e modo de bancada, sem transmitir comando físico
 - [ ] Homologar uma única ação física em AMT-8000 de bancada com autorização explícita, conferindo respostas 0x50/0x96/0x95, estado final e histórico antes de uso operacional
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08

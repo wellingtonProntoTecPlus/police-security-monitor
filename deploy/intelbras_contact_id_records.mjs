@@ -14,6 +14,22 @@ const base = {
 export const intelbrasContactIdRecords = [
   {
     ...base,
+    code: "407",
+    qualifier: "R",
+    description: "Armado por aplicativo",
+    tipo: "arme",
+    cor: "#10B981",
+  },
+  {
+    ...base,
+    code: "407",
+    qualifier: "E",
+    description: "Desarmado por aplicativo",
+    tipo: "desarme",
+    cor: "#F97316",
+  },
+  {
+    ...base,
     code: "403",
     qualifier: "E",
     description: "Auto-desativação (Desarme automático)",

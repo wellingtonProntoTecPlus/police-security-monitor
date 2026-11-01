@@ -16,6 +16,12 @@ describe("interpretação do argumento Contact ID", () => {
     expect(getContactIdArgumentContext({ eventCode: "401", qualifier: "E", value: "002" }).description).toBe("Desarmado por Usuário 2");
     expect(getContactIdArgumentContext({ eventCode: "407", qualifier: "E", value: "002" }).description).toBe("Desarmado por aplicativo Usuário 2");
     expect(getContactIdArgumentContext({ eventCode: "407", qualifier: "R", value: "002" }).description).toBe("Armado por aplicativo Usuário 2");
+    expect(getContactIdArgumentContext({ eventCode: "407", qualifier: "R", value: "198" })).toMatchObject({
+      label: "Usuário",
+      value: "198",
+      description: "Armado por aplicativo Usuário 198",
+    });
+    expect(getContactIdArgumentContext({ eventCode: "407", qualifier: "E", value: "198" }).description).toBe("Desarmado por aplicativo Usuário 198");
   });
 
   it("preserva Zona isolada e PGM como contextos próprios", () => {

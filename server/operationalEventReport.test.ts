@@ -6,6 +6,8 @@ describe("filtros operacionais de eventos", () => {
     { code: "130", qualifier: "E", fabricante: "JFL", category: "alarm" },
     { code: "401", qualifier: "E", fabricante: "UNIVERSAL", isUniversal: true, category: "arm_disarm" },
     { code: "401", qualifier: "R", fabricante: "UNIVERSAL", isUniversal: true, category: "arm_disarm" },
+    { code: "407", qualifier: "E", fabricante: "INTELBRAS", category: "arm_disarm" },
+    { code: "407", qualifier: "R", fabricante: "INTELBRAS", category: "arm_disarm" },
     { code: "602", qualifier: "E", fabricante: "UNIVERSAL", isUniversal: true, category: "test" },
     { code: "1721", qualifier: "E", fabricante: "JFL", category: "analytics" },
   ];
@@ -14,12 +16,15 @@ describe("filtros operacionais de eventos", () => {
     expect(resolveOperationalEventCategory({ eventCode: "130", qualifier: "E", brand: "JFL" }, codes)).toBe("alarm");
     expect(resolveOperationalEventCategory({ eventCode: "1721", qualifier: "E", brand: "JFL" }, codes)).toBe("analytics");
     expect(resolveOperationalEventCategory({ eventCode: "401", qualifier: "R", brand: "VETTI" }, codes)).toBe("arm_disarm");
+    expect(resolveOperationalEventCategory({ eventCode: "407", qualifier: "R", brand: "INTELBRAS" }, codes)).toBe("arm_disarm");
     expect(resolveOperationalEventCategory({ eventCode: "602", qualifier: "E", brand: "JFL" }, codes)).toBe("test");
   });
 
   it("separa arme de desarme e mantém disparos analíticos no grupo de alarmes", () => {
     expect(matchesOperationalEventGroup({ eventCode: "401", qualifier: "R" }, "arm_disarm", "arm")).toBe(true);
     expect(matchesOperationalEventGroup({ eventCode: "401", qualifier: "E" }, "arm_disarm", "disarm")).toBe(true);
+    expect(matchesOperationalEventGroup({ eventCode: "407", qualifier: "R", brand: "INTELBRAS" }, "arm_disarm", "arm")).toBe(true);
+    expect(matchesOperationalEventGroup({ eventCode: "407", qualifier: "E", brand: "INTELBRAS" }, "arm_disarm", "disarm")).toBe(true);
     expect(matchesOperationalEventGroup({ eventCode: "1721", qualifier: "E" }, "analytics", "alarm")).toBe(true);
     expect(matchesOperationalEventGroup({ eventCode: "602", qualifier: "E" }, "test", "alarm")).toBe(false);
   });

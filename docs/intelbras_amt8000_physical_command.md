@@ -51,6 +51,8 @@ O comando `0x10` é enviado a cada dez segundos enquanto a central aguarda uma r
 
 A tabela de eventos enviada para a AMT-8000 define os estados separadamente: `E403` (`1 403`, evento novo) significa **Auto-desativação / Desarme automático**; `R403` (`3 403`, restauração) significa **Auto-ativação / Arme automático**. O PoliceCentral cataloga ambos somente para `INTELBRAS`, como eventos report-only, sem abrir atendimento e sem alterar o significado do código 403 de outras marcas. A captura da conta 0049/MAC 7B255F às 09:44 identificada como `E403` é, portanto, evidência de que aquela central se desarmou automaticamente nesse horário; sua captura bruta permanece preservada para auditoria.
 
+Para o controle remoto pelo aplicativo, `R407` é **Armado por aplicativo** e `E407` é **Desarmado por aplicativo**. O argumento Contact ID identifica o usuário do painel; por exemplo, o evento recebido às 15:21/15:22 com argumento `198` significa **Usuário 198**. Esse registro confirma a ação reportada pelo aplicativo da central e permanece separado dos relatórios de qualquer comando físico solicitado no PoliceCentral.
+
 ## Travas e auditoria
 
 1. A identificação e a sessão usam MAC físico e conta compatíveis; conta ou IP isolados não autorizam comando.

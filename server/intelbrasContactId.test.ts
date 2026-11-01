@@ -14,9 +14,19 @@ describe("códigos Contact ID Intelbras", () => {
     expect(records).toContain("isUniversal: false");
   });
 
+  it("define R407/E407 como arme/desarme pelo aplicativo, em registros Intelbras separados", () => {
+    expect(records).toContain('code: "407",\n    qualifier: "R",\n    description: "Armado por aplicativo",\n    tipo: "arme"');
+    expect(records).toContain('code: "407",\n    qualifier: "E",\n    description: "Desarmado por aplicativo",\n    tipo: "desarme"');
+    expect(records).toContain("fabricante: \"INTELBRAS\"");
+  });
+
   it("inclui as entradas Intelbras no gerador e no seed idempotente usado pela atualização", () => {
     expect(generator).toContain("import { intelbrasContactIdRecords }");
     expect(generator).toContain("...intelbrasContactIdRecords");
+    expect(seed).toContain("'407', 'R', 'INTELBRAS', 0, 'Armado por aplicativo'");
+    expect(seed).toContain("'407', 'E', 'INTELBRAS', 0, 'Desarmado por aplicativo'");
+    expect(seed).toContain("WHERE fabricante = 'INTELBRAS' AND code = '407' AND qualifier = 'R'");
+    expect(seed).toContain("WHERE fabricante = 'INTELBRAS' AND code = '407' AND qualifier = 'E'");
     expect(seed).toContain("'403', 'E', 'INTELBRAS', 0, 'Auto-desativação (Desarme automático)'");
     expect(seed).toContain("'403', 'R', 'INTELBRAS', 0, 'Auto-ativação (Arme automático)'");
     expect(seed).toContain("WHERE code = '403' AND qualifier = 'E' AND fabricante = 'INTELBRAS'");
