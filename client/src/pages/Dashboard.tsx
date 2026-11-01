@@ -887,6 +887,19 @@ export default function Dashboard() {
     return undefined;
   }, [selectedCompatecDisarmEnabled, selectedArmDisarmState]);
 
+  const selectedIntelbrasPhysicalEnabled = useMemo(() => {
+    const normalizedModel = String(selectedSystem?.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    return selectedRemoteBrand === "INTELBRAS"
+      && selectedSystem?.isActive !== false
+      && normalizedModel.includes("AMT8000");
+  }, [selectedRemoteBrand, selectedSystem]);
+  const selectedIntelbrasAction = useMemo<"arm" | "disarm" | undefined>(() => {
+    if (!selectedIntelbrasPhysicalEnabled) return undefined;
+    if (selectedArmDisarmState === "armed") return "disarm";
+    if (selectedArmDisarmState === "disarmed") return "arm";
+    return undefined;
+  }, [selectedIntelbrasPhysicalEnabled, selectedArmDisarmState]);
+
   const selectedClient = useMemo(() => {
     if (!selectedEvent) return null;
     return resolveQueueEventClient(selectedEvent, selectedSystem, clientData || []);
@@ -1690,6 +1703,18 @@ export default function Dashboard() {
                     <Button variant="outline" size="sm" className="h-8 gap-1.5 border-amber-500/50 bg-amber-500/10 px-2.5 text-xs font-semibold text-amber-300 shadow-none" disabled aria-label="Estado da central Compatec não confirmado">
                       <Shield className="h-3.5 w-3.5" /> ESTADO NÃO CONFIRMADO
                     </Button>
+                  ) : selectedIntelbrasAction === "arm" ? (
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" onClick={() => openRemoteCommand("arm")} aria-label="Arme físico da central Intelbras AMT-8000">
+                      <Shield className="h-3.5 w-3.5" /> ARMAR
+                    </Button>
+                  ) : selectedIntelbrasAction === "disarm" ? (
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={() => openRemoteCommand("disarm")} aria-label="Desarme físico da central Intelbras AMT-8000">
+                      <Shield className="h-3.5 w-3.5" /> DESARME
+                    </Button>
+                  ) : selectedIntelbrasPhysicalEnabled ? (
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-amber-500/50 bg-amber-500/10 px-2.5 text-xs font-semibold text-amber-300 shadow-none" disabled aria-label="Estado da central Intelbras não confirmado">
+                      <Shield className="h-3.5 w-3.5" /> ESTADO NÃO CONFIRMADO
+                    </Button>
                   ) : selectedRemoteSystemId && selectedRemoteBrand ? (
                     <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedRemoteBrand === "VETTI" ? "Vetti" : selectedRemoteBrand === "INTELBRAS" ? "Intelbras" : "Compatec"}</Button>
 	                  ) : (
@@ -1734,7 +1759,20 @@ export default function Dashboard() {
                 <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
                 {selectedRemoteBrand === "COMPATEC" && <><Button className="w-full border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false || armCompatecAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchArmAll}>{armCompatecAllMut.isPending ? "Enviando Arme..." : "Armar central Compatec (MB=AK4[4])"}</Button><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button><Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmBenchAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchDisarmAll}>{disarmBenchAllMut.isPending ? "Enviando Desarme..." : "Desarmar central Compatec (MB=AK4[12])"}</Button><p className="text-center text-[11px] text-muted-foreground">Desarme físico oficial do MW1: MB=AK4[12]. Arme oficial MB=AK4[4] disponível para centrais Compatec ativas e cadastradas; partições, setores, Toggle e PGMs continuam bloqueados. Toda ação exige motivo, operador e confirmação explícita.</p></>}
                 {selectedRemoteBrand === "VETTI" && <><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryVettiBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchStatusQuery}>{queryVettiBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar status da central de testes (VSec 0x14)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmVettiBenchMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchDisarm}>{disarmVettiBenchMut.isPending ? "Enviando Desarme..." : "Desarmar central de testes (VSec 0x43)"}</Button><p className="text-center text-[11px] text-muted-foreground">Na bancada Vetti 0336, a consulta `0x14` e o Desarme `0x43` exigem modo de bancada ativo, login remoto, auditoria e resposta da central. Arme, Zona e PGM continuam somente em simulação.</p></>}
-                {selectedRemoteBrand === "INTELBRAS" && <div className="space-y-2"><div className="grid grid-cols-2 gap-2"><Button className="border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={sendIntelbrasPhysicalMut.isPending || remoteCommandReason.trim().length < 5} onClick={() => submitIntelbrasPhysical("arm")}>{sendIntelbrasPhysicalMut.isPending ? "Aguardando..." : "ARMAR físico"}</Button><Button className="border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={sendIntelbrasPhysicalMut.isPending || remoteCommandReason.trim().length < 5} onClick={() => submitIntelbrasPhysical("disarm")}>{sendIntelbrasPhysicalMut.isPending ? "Aguardando..." : "DESARMAR físico"}</Button></div><p className="text-center text-[11px] text-muted-foreground">O botão não alterna escondido: cada ação é explícita. Se a central não estiver online e identificada por MAC/conta, ficará aguardando a conexão; sem resposta E7/0x96, será registrada como falha.</p></div>}
+                {selectedRemoteBrand === "INTELBRAS" && <div className="space-y-2">
+                  {selectedIntelbrasAction === "arm" ? (
+                    <Button className="w-full border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={sendIntelbrasPhysicalMut.isPending || remoteCommandReason.trim().length < 5} onClick={() => submitIntelbrasPhysical("arm")}>
+                      {sendIntelbrasPhysicalMut.isPending ? "Aguardando..." : "ARMAR central Intelbras"}
+                    </Button>
+                  ) : selectedIntelbrasAction === "disarm" ? (
+                    <Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={sendIntelbrasPhysicalMut.isPending || remoteCommandReason.trim().length < 5} onClick={() => submitIntelbrasPhysical("disarm")}>
+                      {sendIntelbrasPhysicalMut.isPending ? "Aguardando..." : "DESARMAR central Intelbras"}
+                    </Button>
+                  ) : (
+                    <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs text-amber-100">O comando físico fica bloqueado até haver um estado Armado ou Desarmado confirmado para esta central.</div>
+                  )}
+                  <p className="text-center text-[11px] text-muted-foreground">A tela oferece apenas a ação compatível com o último estado confirmado. A central precisa estar identificada por MAC/conta; sem resposta E7/0x96, a tentativa será registrada como falha.</p>
+                </div>}
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
