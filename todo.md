@@ -859,6 +859,7 @@
 - [x] Retirar o runtime de edição de 367 KB da build de produção e carregar páginas e player HLS sob demanda
 - [x] Comprimir respostas, habilitar cache imutável nos assets versionados e manter HTML revalidável
 - [x] Mostrar estado e opção de nova tentativa durante falhas de abertura/autenticação/consultas
+- [x] Impedir carregamento infinito: limitar validação de sessão no servidor, encerrar chamadas tRPC pendentes no navegador e apresentar nova tentativa sem confundir banco lento com sessão revogada
 - [x] Registrar de forma sanitizada requisições HTTP críticas acima de um segundo, sem tokens ou conteúdo privado
 - [ ] Publicar na VPS e comparar tempos de abertura nas máquinas e telas do operador
 

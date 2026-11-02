@@ -4,6 +4,10 @@ import { sdk } from "./sdk";
 import * as db from "../db";
 import { hashAuthSessionToken } from "./localSession";
 import { COOKIE_NAME } from "@shared/const";
+import {
+  AuthSessionValidationTimeoutError,
+  withAuthSessionValidationTimeout,
+} from "./authSessionValidation";
 
 function getCookie(req: CreateExpressContextOptions["req"], name: string) {
   const cookieHeader = req.headers.cookie;
@@ -25,6 +29,8 @@ export type TrpcContext = {
   authSessionId: number | null;
   authSessionTokenHash: string | null;
   authSessionInvalid: boolean;
+  /** Banco indisponível/lento: não é logout nem sessão substituída. */
+  authSessionValidationTimedOut?: boolean;
 };
 
 export async function createContext(
@@ -35,13 +41,16 @@ export async function createContext(
   let authSessionTokenHash: string | null = null;
   let authSessionInvalid = false;
   let sessionLookupSuccessful = false;
+  let authSessionValidationTimedOut = false;
 
   const bearer = opts.req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
   const token = getCookie(opts.req, COOKIE_NAME) || bearer;
   if (token) {
     authSessionTokenHash = hashAuthSessionToken(token);
     try {
-      const activeSession = await db.getActiveAuthSessionByTokenHash(authSessionTokenHash);
+      const activeSession = await withAuthSessionValidationTimeout(
+        db.getActiveAuthSessionByTokenHash(authSessionTokenHash),
+      );
       sessionLookupSuccessful = true;
       if (activeSession) {
         user = activeSession.user;
@@ -49,7 +58,10 @@ export async function createContext(
       }
     } catch (error) {
       // Falha fechada: não aceitar token sem validar sua revogação no banco.
-      console.error("[Auth] Falha ao validar sessão ativa");
+      authSessionValidationTimedOut = error instanceof AuthSessionValidationTimeoutError;
+      console.error(authSessionValidationTimedOut
+        ? "[Auth] Validação de sessão excedeu o prazo seguro"
+        : "[Auth] Falha ao validar sessão ativa");
       user = null;
     }
     if (sessionLookupSuccessful && !user) authSessionInvalid = true;
@@ -73,5 +85,6 @@ export async function createContext(
     authSessionId,
     authSessionTokenHash,
     authSessionInvalid,
+    authSessionValidationTimedOut,
   };
 }

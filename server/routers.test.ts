@@ -115,6 +115,19 @@ describe("appRouter", () => {
       expect(result?.name).toBe("Admin");
       expect(result?.role).toBe("admin");
     });
+
+    it("retorna timeout recuperável quando o banco não confirma a sessão no prazo", async () => {
+      const ctx = {
+        ...createUnauthContext(),
+        authSessionValidationTimedOut: true,
+      };
+      const caller = appRouter.createCaller(ctx);
+
+      await expect(caller.auth.me()).rejects.toMatchObject({
+        code: "TIMEOUT",
+        message: "O sistema demorou para confirmar sua sessão. Tente novamente.",
+      });
+    });
   });
 
   describe("contactIdCode.list", () => {

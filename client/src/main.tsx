@@ -9,6 +9,8 @@ import { startLogin } from "./const";
 import { shouldRetryQuery, toTrpcRateLimitResponse } from "./lib/trpcRateLimit";
 import "./index.css";
 
+const API_REQUEST_TIMEOUT_MS = 8_000;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -80,11 +82,29 @@ const trpcClient = trpc.createClient({
         return {};
       },
       async fetch(input, init) {
-        const response = await globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
-        return toTrpcRateLimitResponse(response);
+        const controller = new AbortController();
+        const upstreamSignal = init?.signal;
+        const abortForUpstream = () => controller.abort();
+        if (upstreamSignal?.aborted) controller.abort();
+        upstreamSignal?.addEventListener("abort", abortForUpstream, { once: true });
+        const timeout = window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+
+        try {
+          const response = await globalThis.fetch(input, {
+            ...(init ?? {}),
+            credentials: "include",
+            signal: controller.signal,
+          });
+          return toTrpcRateLimitResponse(response);
+        } catch (error) {
+          if (controller.signal.aborted && !upstreamSignal?.aborted) {
+            throw new Error("O sistema demorou para responder. Tente novamente.");
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeout);
+          upstreamSignal?.removeEventListener("abort", abortForUpstream);
+        }
       },
     }),
   ],

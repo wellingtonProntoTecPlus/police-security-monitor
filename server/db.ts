@@ -58,6 +58,7 @@ import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getR
 import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+const DB_CONNECT_TIMEOUT_MS = 3_500;
 
 /** Exclusivo para testes: permite validar os payloads persistidos sem depender da conexão externa. */
 export function setDbForTesting(db: ReturnType<typeof drizzle> | null) {
@@ -67,7 +68,22 @@ export function setDbForTesting(db: ReturnType<typeof drizzle> | null) {
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // O pool evita uma nova conexão por consulta e devolve falha previsível
+      // quando o banco/gateway está indisponível, em vez de deixar a interface
+      // operacional aguardando indefinidamente.
+      _db = drizzle({
+        connection: {
+          uri: process.env.DATABASE_URL,
+          connectTimeout: DB_CONNECT_TIMEOUT_MS,
+          waitForConnections: true,
+          connectionLimit: 10,
+          maxIdle: 4,
+          idleTimeout: 60_000,
+          queueLimit: 30,
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 0,
+        },
+      });
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;

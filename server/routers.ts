@@ -84,7 +84,15 @@ export const appRouter = router({
   system: systemRouter,
 
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(opts => {
+      if (opts.ctx.authSessionValidationTimedOut) {
+        throw new TRPCError({
+          code: "TIMEOUT",
+          message: "O sistema demorou para confirmar sua sessão. Tente novamente.",
+        });
+      }
+      return opts.ctx.user;
+    }),
     logout: publicProcedure.mutation(async ({ ctx }) => {
       if (ctx.authSessionTokenHash) {
         const revoked = await db.revokeAuthSessionByTokenHash(ctx.authSessionTokenHash);
