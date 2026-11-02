@@ -397,7 +397,7 @@
 - [x] Adicionar filtro hierárquico de empresa parceira e cliente nos Relatórios
 - [ ] Validar na VPS os novos períodos, categorias e filtros hierárquicos dos Relatórios
 - [x] Adicionar filtros por operador e por cliente na página /reports, com suporte backend
-- [x] Limitar a 100 eventos a listagem de Relatórios quando nenhum filtro estiver ativo, preservando resultados de consultas filtradas
+- [x] Abrir Relatórios em Eventos recebidos e limitar a 20 eventos mais recentes sem filtros; preservar até 1000 resultados quando há filtros
 - [x] Exibir o cliente correto no relatório de eventos identificados por MAC ou IMEI
 - [x] Resolver o cliente do relatório por alarmSystemId nos eventos finalizados automaticamente
 - [x] Enriquecer linhas já existentes do relatório pelo sistema e cliente vinculados

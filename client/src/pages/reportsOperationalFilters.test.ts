@@ -25,12 +25,20 @@ describe("Relatórios operacionais", () => {
     expect(source).toContain("Exportar CSV");
   });
 
-  it("limita relatórios sem filtros a 100 e preserva até 1000 com filtros aplicados", () => {
+  it("limita ocorrências sem filtros a 100 e preserva até 1000 com filtros aplicados", () => {
     expect(source).toContain("const DEFAULT_REPORT_LIMIT = 100");
     expect(source).toContain("const FILTERED_REPORT_LIMIT = 1000");
     expect(source).toContain("const reportLimit = hasAppliedFilters ? FILTERED_REPORT_LIMIT : DEFAULT_REPORT_LIMIT");
-    expect(source).toContain("limit: reportLimit");
-    expect(source).toContain("Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.");
+    expect(source).toContain("limit: reportLimit, offset: 0, ...appliedFilters");
+  });
+
+  it("abre em Eventos recebidos e mostra somente os 20 eventos mais recentes sem filtros", () => {
+    expect(source).toContain('const [reportMode, setReportMode] = useState<ReportMode>("events")');
+    expect(source).toContain("const DEFAULT_EVENT_REPORT_LIMIT = 20");
+    expect(source).toContain("const eventReportLimit = hasAppliedFilters ? FILTERED_REPORT_LIMIT : DEFAULT_EVENT_REPORT_LIMIT");
+    expect(source).toContain("limit: eventReportLimit, offset: 0, ...appliedFilters");
+    expect(source).toContain('reportMode === "events" ? "eventos" : "registros"');
+    expect(source).toContain("Use os filtros acima para refinar.");
   });
 
   it("não busca histórico de 1.000 ocorrências para preencher operadores nem consulta listas de abas ocultas", () => {
