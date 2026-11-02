@@ -21,7 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X } from "lucide-react";
+import { AlertTriangle, LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -231,12 +231,6 @@ function DashboardLayoutContent({
 
   return (
     <>
-      {failedQueryCount > 0 && (
-        <div role="alert" className="fixed bottom-4 right-4 z-[100] flex max-w-[min(92vw,34rem)] items-center gap-3 rounded-lg border border-amber-500/50 bg-card p-3 text-sm text-foreground shadow-xl">
-          <span className="min-w-0">Não foi possível atualizar alguns dados. Verifique sua conexão e tente novamente.</span>
-          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void retryFailedQueries()}>Tentar novamente</Button>
-        </div>
-      )}
       <div className="relative" ref={sidebarRef}>
         <Sidebar
           collapsible="icon"
@@ -288,6 +282,22 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3">
+            {failedQueryCount > 0 && (
+              <div role="alert" aria-live="polite" className="mb-2 overflow-hidden rounded-lg border border-amber-500/40 bg-amber-500/10">
+                <button
+                  type="button"
+                  title="Alguns dados não foram atualizados. Verifique sua conexão. Clique para tentar novamente."
+                  aria-label="Alguns dados não foram atualizados. Verifique sua conexão e clique para tentar novamente."
+                  onClick={() => void retryFailedQueries()}
+                  className="flex min-h-10 w-full items-center gap-2 px-2 py-2 text-left text-amber-200 hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 group-data-[collapsible=icon]:justify-center"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                  <span className="min-w-0 text-xs leading-snug group-data-[collapsible=icon]:hidden">
+                    Alguns dados não foram atualizados. Verifique a conexão e clique para tentar novamente.
+                  </span>
+                </button>
+              </div>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">

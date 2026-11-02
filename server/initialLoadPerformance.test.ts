@@ -50,8 +50,11 @@ describe("experiência e desempenho de carregamento inicial", () => {
     const layout = readProjectFile("../client/src/components/DashboardLayout.tsx");
     const skeleton = readProjectFile("../client/src/components/DashboardLayoutSkeleton.tsx");
     const boundary = readProjectFile("../client/src/components/ErrorBoundary.tsx");
-    expect(layout).toContain("Não foi possível atualizar alguns dados");
-    expect(layout).toContain("Tentar novamente");
+    expect(layout).toContain("Alguns dados não foram atualizados");
+    expect(layout).toContain("<SidebarFooter className=\"p-3\">");
+    expect(layout).not.toContain("fixed bottom-4 right-4 z-[100]");
+    expect(layout).toContain("aria-live=\"polite\"");
+    expect(layout).toContain("Clique para tentar novamente");
     expect(skeleton).toContain("A conexão está demorando");
     expect(boundary).toContain("Não foi possível abrir esta tela");
   });
