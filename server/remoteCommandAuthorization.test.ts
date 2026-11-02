@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
 
 const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
@@ -14,17 +15,16 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(receiverSource).not.toContain("buildIntelbrasIsecnetArmDisarmFrame");
   });
 
-  it("mantém o comando físico Intelbras separado e exige bancada, senha remota, estado e sessão identificada agora", () => {
+  it("mantém o Arme/Desarme AMT-8000 fisicamente bloqueado enquanto o protocolo de Senha Master não está validado", () => {
+    expect(INTELBRAS_PHYSICAL_COMMAND_ENABLED).toBe(false);
+    expect(INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE).toContain("Senha Master");
     expect(source).toContain("sendIntelbrasPhysical: operatorProcedure");
-    expect(source).toContain("isPhysicalIntelbrasSystem(system)");
-    expect(source).toContain('credential.credentialKind === "intelbras_remote_configuration"');
-    expect(source).toContain('getAlarmRemoteCredentialForTransport(system.id, "intelbras_remote_configuration")');
-    expect(source).toContain("system.remoteCommandLabEnabled");
-    expect(source).toContain("isIntelbrasSessionActive(system.id)");
-    expect(source).toContain("getLatestArmDisarmStatusForSystem");
-    expect(source).toContain('transportMode: "intelbras_amt8000_e7"');
-    expect(source).not.toContain('transportMode: "intelbras_e9"');
-    expect(source).not.toContain('getAlarmRemoteCredentialForTransport(system.id, "intelbras_master")');
+    const physicalRoute = source.slice(source.indexOf("sendIntelbrasPhysical: operatorProcedure"), source.indexOf("queryVettiBenchStatus: operatorProcedure"));
+    expect(physicalRoute).toContain("throw new TRPCError({ code: \"PRECONDITION_FAILED\"");
+    expect(physicalRoute).not.toContain("createExclusiveIntelbrasPhysicalCommand");
+    expect(physicalRoute).not.toContain("sendIntelbrasPhysicalCommand(");
+    expect(physicalRoute).not.toContain('getAlarmRemoteCredentialForTransport(system.id, "intelbras_remote_configuration")');
+    expect(physicalRoute).not.toContain("await assertPartnerSystemScope");
     expect(receiverSource).toContain("rememberActiveIntelbrasSession");
     expect(receiverSource).toContain("consumeIntelbrasPhysicalResponse");
     expect(receiverSource).not.toContain("deliverPendingIntelbrasPhysicalCommand");

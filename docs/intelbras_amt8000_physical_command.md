@@ -1,75 +1,64 @@
-# Intelbras AMT-8000 — Arme e Desarme físico via ISECnet
+# Intelbras AMT-8000 — Arme/Desarme físico
 
-## Situação
+## Situação atual
 
-O PoliceCentral passa a montar a sequência autenticada documentada pelo SDK Intelbras: login remoto `E7/0x11`, alternância de Arme/Desarme `E7/0x16`, leitura da resposta de estado `E7/0x96` e encerramento `E7/0x15` com ACK `E7/0x95` para liberar o teclado. O código, a interface e os quadros foram validados por testes automatizados contra os exemplos reais publicados pela Intelbras.
+**O Arme/Desarme físico da AMT-8000 está bloqueado no PoliceCentral.** O fluxo anteriormente implementado usava o login ISECProgram `E7/0x11` com a credencial de Acesso Remoto/Configuração. Essa credencial é destinada à programação/configuração; não é a Senha Master (nem uma senha de usuário autorizada) que deve autenticar um comando de Arme/Desarme.
 
-**Nenhum comando físico foi transmitido durante esta etapa.** A transmissão só pode ser iniciada após um administrador habilitar o modo de bancada naquela AMT-8000 e um operador confirmar a ação no Dashboard. Homologação física controlada ainda é necessária antes de liberar uso operacional.
+A rota do servidor recusa qualquer solicitação física antes de consultar a central, reservar um comando ou escrever no socket. O botão de transmissão não é exibido; o modal preserva apenas a simulação, que não envia quadros à central. O bloqueio está centralizado em `INTELBRAS_PHYSICAL_COMMAND_ENABLED = false` e só deve ser removido depois que o protocolo correto estiver implementado e validado por testes e homologação de bancada autorizada.
 
-## Requisitos antes do teste de bancada
+As tentativas antigas com `E7/0x16` que aparecem como **“Falhou — não confirmado”** não comprovam Arme nem Desarme. Não as repetir nem tratá-las como confirmação da central. A tela deve indicar que aquele método antigo está desabilitado.
 
-- Central ativa cadastrada como Intelbras AMT-8000 e associada por MAC físico e conta conferidos na sessão `0x94`.
-- Senha de Acesso Remoto de seis dígitos cadastrada no perfil próprio do sistema. Essa é a credencial ISECProgram `0x11`; **não** é a Senha Master do painel nem a Senha de Instalador.
-- Administrador habilita o modo de bancada na janela de credenciais do cadastro da própria central e informa motivo. O sistema registra quem habilitou/desabilitou, o MAC, a data e a justificativa. Ativar essa chave não transmite nenhum comando.
-- Um operador confere o estado físico atual, informa o motivo e confirma ARMAR ou DESARMAR no Dashboard. A interface exibe somente a ação inversa do estado mais recente confirmado.
-- A AMT-8000 deve ter uma sessão ativa no receptor. Se estiver desconectada, a tentativa é recusada e não fica guardada para envio posterior.
+## O que a documentação fornecida comprova
 
-## Sequência e vetores do SDK
+### Credenciais
 
-O comando `0x11` autentica a senha remota de seis dígitos em BCD, acrescenta a versão `0x99` e aguarda `0x50` (aceito) ou `0x53` (senha recusada). Após o login, `0x16` alterna o estado atual do sistema. A operação `0x00` abrange todas as partições; esta etapa não transmite operações individuais nem Stay. A senha não é gravada no histórico nem impressa em logs.
+O SDK Intelbras separa dois protocolos e seus segredos:
 
-Vetor oficial do login para senha de teste `878787`:
+- O ISECProgram encapsulado em `E7` usa o comando interno `0x11` e a **Senha de Acesso Remoto de seis dígitos** para programação. Esse caminho não é a autorização de Arme/Desarme.
+- Para comandos da central via ISECMobile, o SDK diz que são aceitas **Senha Master ou senha de usuário**; a Senha de Acesso Remoto é aceita apenas no protocolo de programação. Para este fluxo operacional, usar a **Senha Master** cadastrada (ou outro usuário explicitamente autorizado pela Intelbras e pelo operador).
+- A Senha Master já tem perfil cifrado próprio e validação para 4 ou 6 dígitos. O campo de Acesso Remoto/Configuração permanece separado. Nenhum segredo deve aparecer em logs ou no histórico.
 
-```text
-09 E7 05 11 87 87 87 99 68 F1 82
-Resposta aceita: 05 E7 01 50 87 E3 28
-```
+### Comando de Arme/Desarme `401E`
 
-Vetor real de Arme/Desarme total `0x16`:
+A planilha AMT-8000 enviada define `401E` como comando para ativar/desativar o painel. Os dados documentados são partição e operação:
 
-```text
-06 E7 02 16 00 C2 91 A6
-Resposta de exemplo com estado 03: 06 E7 02 96 03 76 94 48
-```
+- Partições `0x01`–`0x10`; `0xFF` significa todas as partições que o usuário está autorizado a usar.
+- Operações: `0x00` desarmar; `0x01` armar; `0x02` Arme Stay; `0x03` Arme forçado.
+- Resposta de sucesso: `401E` com partição e estado resultante; falha: `F0FD` com código NACK.
+- Os exemplos demonstram que permissão e partições do usuário importam. A implementação inicial deve restringir escopo e validar cada resposta do painel; não presumir que `0xFF` ignora permissões.
 
-Vetor de exemplo do SDK para operação `0x04`:
+### `F0F0` e sessão AMT Remoto/Receptor IP
 
-```text
-06 E7 02 16 04 42 8A 39
-Resposta de exemplo: 06 E7 02 96 06 76 8A 53
-```
+`F0F0` é descrito no material AMT-8000 de integração de **leitura de fotos** como autenticação usando uma senha de usuário válida, seguida por `0x0BB0` para buscar fragmentos e `F0F1` para encerrar. Esse material, isoladamente, não prova que `F0F0` seja o handshake completo do comando `401E`; a documentação usa nomes de aplicação e envelopes diferentes. Não reutilizar automaticamente o fluxo de fotos como fluxo operacional.
 
-O parser confere comprimento, CRC ISECProgram e checksum externo do frame. No retorno `0x96`, os bits baixos indicam partições A–D armadas; o bit 7 indica zonas abertas. Arme só é considerado confirmado quando alguma partição está armada e não há indicação de zona aberta. Desarme só é confirmado quando não há partições armadas.
+O manual AMT Remoto/Receptor IP descreve uma sessão de aplicação separada: o AMT Remoto conecta como cliente TCP ao Receptor IP (servidor; porta padrão documentada `9010`), identifica-se por `E0`, consulta a conta/canal por `E3`, cria o link com `E4` e encaminha quadros à central conectada via `E7`. A resposta da central retorna pelo link. O `E4` é identificado pelo canal e pelos quatro dígitos da conta; deve ser associado à conexão autenticada e ao socket físico da central já identificado, nunca somente por IP ou conta recebida.
 
-Os quadros `0x16` e respostas `0x96` usam bytes finais observados nos exemplos reais da aba `5-Programar central via APP`; a máscara não é a regra genérica `XOR com FF` usada pelo ACK de login `0x50`. Os testes reproduzem as sequências byte a byte, inclusive rejeição de checksum/CRC incorretos.
+## Questões técnicas que ainda precisam ser fechadas
 
-Após `0x96`, o sistema envia `0x15` para finalizar o acesso remoto e liberar o teclado. Só marca o ciclo como concluído após `0x95`. Se a ação foi confirmada, mas a liberação do teclado falha, o histórico preserva a confirmação da ação e registra separadamente a falha de finalização.
+Há divergências entre exemplos/documentos sobre tamanho e envelope do `F0F0`, respostas e versões do protocolo. O SDK também descreve `401E` como operação de AMT-8000 V2, enquanto o manual de link AMT Remoto/Receptor IP define como `E0/E3/E4/E7` o transporte da aplicação até a central. Antes de habilitar o comando, é preciso confirmar o caminho completo aplicável ao software Receptor IP e ao firmware usado:
 
-O comando `0x10` é enviado a cada dez segundos enquanto a central aguarda uma resposta mais longa, como orienta o SDK; o ciclo termina ou falha no limite de 30 segundos.
+1. Se a autenticação com Senha Master é enviada como `F0F0` V2 dentro de `E7`, ou se há outra autenticação ISECMobile documentada para a sessão de Arme/Desarme.
+2. Como `401E` é encapsulado e endereçado em `E7`, incluindo IDs de destino/origem, comprimento e checksum para o firmware AMT-8000 instalado.
+3. Sequência e estados da sessão AMT Remoto: `E0` habilitado, `E3` conta/canal conectados, `E4` confirmado, envio único do comando e retorno correlacionado da central.
+4. Como interpretar o bit 0 do status da partição e tratar NACK, timeout, duplicação e queda do link sem repetir automaticamente o comando.
+5. Compatibilidade efetiva entre os exemplos AMT-8000 V2 e a versão/firmware da unidade de bancada. A planilha tem células conflitantes sobre tamanhos; não usar esses valores conflitantes sem uma captura/validação da Intelbras.
 
-## Contact ID 403 na Intelbras
+## Salvaguardas para a implementação futura
 
-A tabela de eventos enviada para a AMT-8000 define os estados separadamente: `E403` (`1 403`, evento novo) significa **Auto-desativação / Desarme automático**; `R403` (`3 403`, restauração) significa **Auto-ativação / Arme automático**. O PoliceCentral cataloga ambos somente para `INTELBRAS`, como eventos report-only, sem abrir atendimento e sem alterar o significado do código 403 de outras marcas. A captura da conta 0049/MAC 7B255F às 09:44 identificada como `E403` é, portanto, evidência de que aquela central se desarmou automaticamente nesse horário; sua captura bruta permanece preservada para auditoria.
+- Não transmitir o antigo `E7/0x11 → 0x16 → 0x15` para Arme/Desarme.
+- Manter o sinalizador de transmissão física desligado até concluir as questões acima.
+- Identificar a central por MAC/identidade física confirmada e sessão TCP ativa. Conta e IP isolados nunca autorizam comando.
+- Enviar uma ação explícita (Armar ou Desarmar), confirmar o estado inicial recente, respeitar partições e autorização do usuário do painel e exigir confirmação/auditoria do operador.
+- Não enfileirar comandos de alternância para execução tardia, nem repetir automaticamente uma operação de resultado incerto.
+- Só declarar sucesso quando houver resposta correlacionada e interpretada do painel; a tela do cliente deve permanecer a fonte adicional de conferência durante a homologação.
+- Testar primeiro em uma AMT-8000 de bancada com autorização específica; não enviar para equipamentos de clientes.
+- Se a Senha Master já foi compartilhada em mensagem ou outro canal não destinado a segredo, recomendar sua troca e salvá-la novamente pelo campo protegido. Nunca copiá-la para código, logs, tickets ou este documento.
 
-Para o controle remoto pelo aplicativo, `R407` é **Armado por aplicativo** e `E407` é **Desarmado por aplicativo**. O argumento Contact ID identifica o usuário do painel; por exemplo, o evento recebido às 15:21/15:22 com argumento `198` significa **Usuário 198**. Esse registro confirma a ação reportada pelo aplicativo da central e permanece separado dos relatórios de qualquer comando físico solicitado no PoliceCentral.
+## Referências locais
 
-## Travas e auditoria
+- Documentos AMT-8000 fornecidos pelo usuário em `/home/ubuntu/amt8000_sdk_docs/` (planilha `AMT 8000 Resumido Comandos_REV1.xlsx` e guia `Processo Integração e recebimento fotos AMT 8000 REV1`).
+- SDK Intelbras em `/home/ubuntu/tmp/intelbras_sdk_commands_rows.txt`; distinção ISECMobile/ISECProgram, `0x11`, `0x16` e regras de credencial.
+- Manual `Descrição Comandos ISEC Net - AMT Remoto e AMT Mobile - Receptor IP - R04.pdf`: sessão `E0/E3/E4/E7` e porta padrão do Receptor IP.
+- Manual `Descrição Comandos ISECNet - Smartphones-IntelbrasReceptorIP - R12.pdf`: outro escopo de cliente/aplicativo; não tratar como substituto da documentação AMT-8000.
 
-1. A identificação e a sessão usam MAC físico e conta compatíveis; conta ou IP isolados não autorizam comando.
-2. Apenas AMT-8000 ativa com MAC cadastrado pode habilitar bancada; a ativação/desativação Intelbras é restrita a administrador e auditada com justificativa.
-3. Antes de reservar, o servidor exige modo de bancada, credencial remota válida de seis dígitos, sessão TCP ativa e estado conhecido que corresponda à ação solicitada. Após o login, verifica novamente a autorização e o estado antes de enviar `0x16`.
-4. Há no máximo um comando físico em andamento por central. Requisições desconectadas não são aceitas como fila.
-5. Comandos antigos em `waiting_connection` e reservas antigas ainda não transmitidas expiram. Uma reconexão futura nunca executa silenciosamente uma alternância solicitada antes.
-6. Timeout, senha recusada, checksum/CRC inválido, queda de sessão, estado não confirmado e falha de desbloqueio ficam registrados como falhas ou resultado indeterminado, sem serem apresentados como sucesso.
-7. O histórico guarda operador, motivo, resultado e quadros operacionais sem senha. A ativação da bancada deixa registro separado e informa explicitamente que nenhum comando foi transmitido.
-
-## Fluxos que não são confundidos
-
-- `E7/0x11 → 0x16 → 0x15` é o fluxo ISECProgram descrito pelo SDK para controle pelo Receptor IP.
-- `E9/ISECMobile` é outro protocolo e não é usado como substituto do fluxo AMT-8000 via `E7`.
-- O material de fotos/programação menciona autenticação `F0F0`, troca `0x0BB0` e encerramento `F0F1`; esse é um canal remoto separado. Este fluxo não é usado pelo comando operacional descrito acima.
-- A mensagem `401E` deve permanecer fora desta implementação até que a Intelbras confirme o enquadramento, a sessão de destino e a confirmação apropriados para comando remoto operacional.
-
-## Homologação física pendente
-
-O operador e o administrador devem preparar uma AMT-8000 de bancada identificada e obter autorização explícita para o teste físico. Durante esse teste único, confirmar o estado físico inicial, a senha remota correta, a resposta `0x50`, o quadro `0x16`, o resultado `0x96`, o envio/resposta `0x15/0x95`, o estado final no painel e o histórico no PoliceCentral. Não testar em central de cliente nem enviar um segundo toggle para “corrigir” a primeira tentativa sem nova confirmação explícita.
+Nenhum comando físico foi transmitido como parte desta correção. Nenhuma atualização da VPS foi realizada.

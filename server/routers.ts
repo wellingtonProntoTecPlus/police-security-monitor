@@ -8,15 +8,13 @@ import bcrypt from "bcryptjs";
 import { TRPCError } from "@trpc/server";
 import { AUTH_SESSION_LIFETIME_MS, createAuthSessionToken, hashAuthSessionToken } from "./_core/localSession";
 import { notifyAuthSessionsRevoked } from "./_core/authSessionRuntime";
-import { remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
-import { buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
+import { buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
-import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery, sendIntelbrasPhysicalCommand } from "./receiver";
-import { isIntelbrasSessionActive } from "./receiver/intelbrasPhysicalTransport";
+import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from "./receiver";
 import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
-import { buildIntelbrasPhysicalPayload } from "./receiver/intelbrasIsecProgramTransport";
 import { buildRemoteCommandRequestNote } from "./remoteCommandEventCorrelation";
 import { emitIncidentStateChanged } from "./_core/socketEvents";
 
@@ -927,75 +925,8 @@ export const appRouter = router({
       });
       return { ...created, status: "simulated" as const };
     }),
-    sendIntelbrasPhysical: operatorProcedure.input(intelbrasPhysicalCommandInputSchema).mutation(async ({ input, ctx }) => {
-      await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
-      if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
-      if (!isPhysicalIntelbrasSystem(system)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "O comando físico está disponível somente para uma central Intelbras ativa, cadastrada e identificada por MAC" });
-      }
-      if (!system.remoteCommandLabEnabled) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "O comando físico AMT-8000 está bloqueado: um administrador precisa habilitar o modo de bancada dessa central." });
-      }
-      const targetError = validateIntelbrasPhysicalTarget(input);
-      if (targetError) throw new TRPCError({ code: "BAD_REQUEST", message: targetError });
-
-      const credentials = await db.getAlarmRemoteCredentialStatus(system.id);
-      if (!credentials.credentials.some((credential) => credential.credentialKind === "intelbras_remote_configuration")) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a Senha de Acesso Remoto AMT-8000 de 6 dígitos antes de transmitir o comando físico" });
-      }
-      const remoteAccessPassword = await db.getAlarmRemoteCredentialForTransport(system.id, "intelbras_remote_configuration");
-      if (!remoteAccessPassword || !/^\d{6}$/.test(remoteAccessPassword)) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A Senha de Acesso Remoto AMT-8000 é inválida; informe exatamente 6 dígitos numéricos" });
-      }
-      if (!isIntelbrasSessionActive(system.id)) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A AMT-8000 está desconectada. Conecte a central e tente novamente; o comando não ficará em fila para execução tardia." });
-      }
-
-      const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
-      const expectedQualifier = input.commandType === "arm" ? "E" : "R";
-      if (!currentState || currentState.qualifier !== expectedQualifier) {
-        throw new TRPCError({ code: "CONFLICT", message: `Comando bloqueado: o último estado confirmado da central não permite ${input.commandType === "arm" ? "Armar" : "Desarmar"} com segurança` });
-      }
-
-      const reservation = await db.createExclusiveIntelbrasPhysicalCommand({
-        alarmSystemId: system.id,
-        incidentId: input.incidentId ?? null,
-        operatorId: ctx.user.id,
-        brand: "INTELBRAS",
-        commandType: input.commandType,
-        transportMode: "intelbras_amt8000_e7",
-        status: "queued",
-        partition: input.partition ?? 0,
-        zoneNumber: null,
-        pgmNumber: null,
-        reason: input.reason,
-        commandPayload: buildIntelbrasPhysicalPayload(input),
-        responsePayload: "Reserva imediata criada para a sessão física AMT-8000 já identificada por MAC e conta.",
-        executedAt: null,
-      });
-      if (!reservation.created) {
-        throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Intelbras em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
-      }
-
-      const dispatched = await sendIntelbrasPhysicalCommand({ alarmSystemId: system.id, commandId: reservation.id });
-      if (!dispatched.sent) {
-        await db.updateAlarmRemoteCommandDelivery(reservation.id, {
-          status: "failed",
-          responsePayload: dispatched.message,
-          executedAt: new Date(),
-        });
-        return { id: reservation.id, status: "failed" as const, message: dispatched.message };
-      }
-      if (input.incidentId) {
-        await db.appendIncidentNote(input.incidentId, buildRemoteCommandRequestNote({
-          commandId: reservation.id,
-          commandType: input.commandType,
-          operatorName: ctx.user.name || "Operador autenticado",
-          reason: input.reason,
-        }));
-      }
-      return { id: reservation.id, status: "sent" as const, message: dispatched.message };
+    sendIntelbrasPhysical: operatorProcedure.input(intelbrasPhysicalCommandInputSchema).mutation(async (): Promise<{ id: number; status: "failed"; message: string }> => {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE });
     }),
     queryVettiBenchStatus: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),

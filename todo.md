@@ -706,16 +706,17 @@
 - [x] Instalar a correção de três dígitos Intelbras na VPS e confirmar que o próximo evento E407 seja exibido com Usuário 198
 - [x] Implementar a recepção passiva dos eventos ISECnet Intelbras AMT-8000 usando a tabela Intelbras existente
 - [x] Normalizar o evento 1130 como código 130, com E para Disparo e R para Restauração, sem cadastrar um código E1130 duplicado
-- [x] Implementar localmente a sequência ISECProgram AMT-8000 via E7: login remoto 0x11, alternância 0x16, validação do estado 0x96 e liberação do teclado 0x15/0x95
-- [x] Reproduzir vetores reais oficiais de CRC/checksum para login, Arme/Desarme total, resposta de estado e finalização; manter partições individuais bloqueadas
-- [x] Exigir Senha de Acesso Remoto de seis dígitos cifrada, distinta da Senha Master/Instalador, e impedir envio tardio após reconexão
-- [x] Restringir a habilitação de bancada AMT-8000 a administrador, com justificativa e auditoria por central/MAC; o toggle não transmite comando
-- [x] Revisar a documentação oficial: manter E7/ISECProgram no fluxo operacional, sem confundir com E9 ou a sessão de fotos F0F0/0BB0/F0F1; manter 401E fora até homologação específica
-- [x] Ajustar a interface AMT-8000 para mostrar apenas ARMAR quando o estado confirmado está desarmado ou DESARME quando está armado, mantendo bloqueio sem estado confiável
+- [x] Identificar que o fluxo E7/ISECProgram 0x11 usava Senha de Acesso Remoto (credencial de programação) e não autentica o Arme/Desarme com Senha Master
+- [x] Bloquear fisicamente a rota AMT-8000 no servidor antes de qualquer consulta, reserva ou escrita no socket; manter simulação sem transmissão
+- [x] Separar no cadastro Senha Master de Senha de Acesso Remoto/Configuração; Master aceita quatro ou seis dígitos e é a credencial para o comando físico futuro
+- [x] Corrigir a documentação e remover alegações de que o método antigo E7/0x16 está homologado
+- [ ] Implementar e testar o comando 401E autenticado com Senha Master/usuário permitido e a sessão AMT Remoto E0/E3/E4/E7, vinculada ao socket atual da central por identidade física confirmada
+- [ ] Confirmar com a Intelbras os vetores/envelope F0F0 e 401E, checksum, versão de firmware, status positivo e NACK antes de liberar a transmissão
+- [ ] Só após revisão e autorização específicas, implantar o novo protocolo e homologar com uma única ação numa AMT-8000 de bancada
 - [x] Cadastrar na tabela Intelbras o Contact ID oficial E403 como auto-desativação/desarme e R403 como auto-ativação/arme; classificar o estado respeitando fabricante e qualificador
 - [x] Cadastrar R407 como arme por aplicativo e E407 como desarme por aplicativo; manter o argumento como número do usuário do painel (ex.: 198), sem misturar com comandos físicos do PoliceCentral
-- [ ] Publicar na VPS a sequência corrigida e configurar em cadastro de teste a senha remota de seis dígitos e modo de bancada, sem transmitir comando físico
-- [ ] Homologar uma única ação física em AMT-8000 de bancada com autorização explícita, conferindo respostas 0x50/0x96/0x95, estado final e histórico antes de uso operacional
+- [ ] Publicar na VPS somente depois de implementar e testar o caminho F0F0/401E com Senha Master e sessão AMT Remoto
+- [ ] Homologar o protocolo correto na AMT-8000 de bancada com autorização explícita; conferir autenticação Master, resposta 401E/NACK, estado final e histórico antes de uso operacional
 - [x] Marcar como falhas por expiração, sem excluir auditoria, as consultas Vetti 27, 28 e 29 que ficaram em sent desde 28/08
 - [x] Preservar MAC e modo de bancada na sessão Vetti para que a confirmação 0x91 dispare a consulta 0x14 em vez de descartá-la
 - [x] Corrigir a nova consulta Vetti que permaneceu em sent após a versão de login remoto: a confirmação 0x91 era descartada por perda de metadados da sessão

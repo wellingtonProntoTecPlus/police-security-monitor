@@ -9,6 +9,7 @@ import {
 } from "../db";
 import { isPhysicalIntelbrasSystem } from "../remoteCommandContract";
 import { buildIntelbrasRemoteKeepAliveFrame } from "../intelbrasCommandSimulation";
+import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
 import {
   buildIntelbrasPhysicalLoginFrame,
   buildIntelbrasPhysicalSessionFinishFrame,
@@ -235,6 +236,9 @@ export async function deliverPendingIntelbrasPhysicalCommand(system: { id: numbe
 }
 
 export async function sendIntelbrasPhysicalCommand(input: { alarmSystemId: number; commandId: number }) {
+  if (!INTELBRAS_PHYSICAL_COMMAND_ENABLED) {
+    return { sent: false as const, message: INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE };
+  }
   const session = sessionsBySystemId.get(input.alarmSystemId);
   if (!session || session.socket.destroyed || !session.socket.writable) {
     return { sent: false as const, message: "A central Intelbras está desconectada. Para evitar uma alternância tardia, o comando não será enfileirado." };

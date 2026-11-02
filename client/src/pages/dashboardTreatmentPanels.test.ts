@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE } from "@shared/remoteCommandCredentialProfiles";
 
 const dashboardSource = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
 
@@ -33,20 +34,22 @@ describe("painéis operacionais do tratamento", () => {
     expect(dashboardSource).toContain("Zonas e setores");
   });
 
-  it("oferece o comando Intelbras com ação física contextual e confirmação de estado", () => {
+  it("mantém simulação Intelbras e bloqueia o físico até validar o fluxo de Senha Master", () => {
     expect(dashboardSource).toContain("selectedRemoteSystemId && selectedRemoteBrand");
     expect(dashboardSource).toContain("resolveRemoteCommandIdentity");
     expect(dashboardSource).toContain("Comando remoto Intelbras AMT-8000");
     expect(dashboardSource).toContain('command === "arm" || command === "disarm"');
-    expect(dashboardSource).toContain("Nenhum comando físico é transmitido");
+    expect(dashboardSource).toContain("A simulação não transmite");
     expect(dashboardSource).toContain("selectedIntelbrasPhysicalEnabled");
     expect(dashboardSource).toContain("selectedIntelbrasBenchEnabled");
     expect(dashboardSource).toContain("selectedIntelbrasPasswordConfigured");
     expect(dashboardSource).toContain("selectedIntelbrasOnline");
     expect(dashboardSource).toContain("selectedIntelbrasAction");
-    expect(dashboardSource).toContain("A tela oferece apenas a ação contextual");
-    expect(dashboardSource).toContain("login 0x11, alternância 0x16");
-    expect(dashboardSource).toContain("ARMAR central Intelbras");
-    expect(dashboardSource).toContain("DESARMAR central Intelbras");
+    expect(dashboardSource).toContain("INTELBRAS_PHYSICAL_COMMAND_ENABLED");
+    expect(dashboardSource).toContain("INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE");
+    expect(dashboardSource).toContain("A Senha Master é diferente da senha de configuração/acesso remoto");
+    expect(INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE).toContain("O comando 401E com autenticação Master ainda não está implementado");
+    expect(dashboardSource).toContain("if (!INTELBRAS_PHYSICAL_COMMAND_ENABLED)");
+    expect(dashboardSource).not.toContain("A tela oferece apenas a ação contextual e nenhuma tentativa desconectada será enviada depois.");
   });
 });

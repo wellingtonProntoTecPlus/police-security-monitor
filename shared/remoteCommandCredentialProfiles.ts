@@ -11,6 +11,10 @@ export const remoteCommandCredentialKinds = [
 
 export type RemoteCommandCredentialKind = typeof remoteCommandCredentialKinds[number];
 
+/** Segurança: o fluxo físico AMT-8000 fica bloqueado até validar F0F0/401E com Senha Master. */
+export const INTELBRAS_PHYSICAL_COMMAND_ENABLED = false;
+export const INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE = "Comando físico AMT-8000 bloqueado: o fluxo antigo usa Senha de Acesso Remoto para programação, não Senha Master. O comando 401E com autenticação Master ainda não está implementado. A simulação não transmite.";
+
 export type RemoteCommandCredentialProfile = {
   kind: RemoteCommandCredentialKind;
   label: string;
@@ -24,9 +28,9 @@ export function getRemoteCommandCredentialProfiles(brand: string): RemoteCommand
     { kind: "jfl_installer", label: "Senha de Instalador", help: "Usada para acessar o painel no Programador JFL e para programações da central." },
   ];
   if (brand === "INTELBRAS") return [
-    { kind: "intelbras_master", label: "Senha Master (Usuário 0)", help: "Credencial do usuário Master do painel. Não é a senha usada pelo login remoto AMT-8000." },
+    { kind: "intelbras_master", label: "Senha Master (Usuário 0)", help: "Credencial do usuário Master do painel. Deve ser usada para Arme/Desarme físico AMT-8000 quando o fluxo correto estiver habilitado; o envio físico está temporariamente bloqueado.", supportsRemoteCommand: true },
     { kind: "intelbras_installer", label: "Senha de Instalador", help: "Usada para programações pelo teclado da central." },
-    { kind: "intelbras_remote_configuration", label: "Senha de Acesso Remoto (AMT-8000)", help: "Exatamente 6 dígitos. Usada no login remoto ISECProgram 0x11 antes do Arme/Desarme AMT-8000.", supportsRemoteCommand: true },
+    { kind: "intelbras_remote_configuration", label: "Senha de Acesso Remoto / Configuração", help: "Credencial separada para acesso remoto/configuração. Não usar como Senha Master para Arme/Desarme AMT-8000." },
   ];
   if (brand === "VETTI") return [
     { kind: "vetti_installer", label: "Senha de Instalador", help: "Credencial técnica de acesso e programação da central Vetti." },
