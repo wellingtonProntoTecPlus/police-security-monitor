@@ -281,6 +281,20 @@
       "when": 1793499874406,
       "tag": "0039_complex_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1793642831836,
+      "tag": "0040_short_mongoose",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1793643393664,
+      "tag": "0041_shocking_starhawk",
+      "breakpoints": true
     }
   ]
 }

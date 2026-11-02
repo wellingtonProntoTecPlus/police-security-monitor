@@ -4,6 +4,54 @@
 
 SET @schema_name = DATABASE();
 
+-- Índices aditivos para que relatórios e estados mais recentes usem o banco
+-- sem ler o histórico completo; nunca remove nem modifica registros.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_received_idx` ON `alarm_events` (`receivedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_received_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_system_code_received_idx` ON `alarm_events` (`alarmSystemId`,`eventCode`,`receivedAt`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_system_code_received_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_code_system_received_idx` ON `alarm_events` (`eventCode`,`alarmSystemId`,`receivedAt`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_code_system_received_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_auto_event_received_idx` ON `alarm_events` (`autoFinalized`,`eventCode`,`receivedAt`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_auto_event_received_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_account_received_idx` ON `alarm_events` (`account`,`receivedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_account_received_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `occurrences_finalized_idx` ON `occurrences` (`finalizedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='occurrences' AND INDEX_NAME='occurrences_finalized_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `occurrences_account_finalized_idx` ON `occurrences` (`account`,`finalizedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='occurrences' AND INDEX_NAME='occurrences_account_finalized_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `occurrences_client_finalized_idx` ON `occurrences` (`clientId`,`finalizedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='occurrences' AND INDEX_NAME='occurrences_client_finalized_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `occurrences_partner_finalized_idx` ON `occurrences` (`partnerCompanyId`,`finalizedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='occurrences' AND INDEX_NAME='occurrences_partner_finalized_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
 -- CPF/CNPJ de clientes e parceiras é opcional; quando informado, fica registrado
 -- em uma tabela única para impedir repetição entre os dois cadastros.
 ALTER TABLE `clients` MODIFY COLUMN `document` VARCHAR(18) NULL;

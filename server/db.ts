@@ -37,7 +37,6 @@ import { ENV } from './_core/env';
 import { findCapturedPanelCandidates, resolveUniqueCapturedPanelCandidate, type SafeCaptureFrame } from "./receiver/safeCapture";
 import { canCloseIncidentAfterReport } from "./occurrenceClosureContract";
 import { getLatestArmDisarmStatusBySystem, isArmDisarmStatusEvent, STANDARD_ARM_DISARM_EVENT_CODES } from "./armDisarmStatus";
-import { enrichOccurrenceReportClients, filterOccurrenceReportRowsByPartner } from "./occurrenceReportEnrichment";
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule } from "./alarmSchedulePolicy";
 import { getScheduleOverrideWindow, type ScheduleOverrideDuration } from "./alarmScheduleOverrideWindow";
@@ -568,20 +567,22 @@ export async function listSystemsConnectionStatus(referenceTime = new Date()) {
   const db = await getDb();
   if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const, cutoffMs: null }));
 
-  const systemIds = systems.map((system) => system.id);
-  const samples = await db.select({
-    alarmSystemId: systemKeepAliveSamples.alarmSystemId,
-    intervalMs: systemKeepAliveSamples.intervalMs,
-  }).from(systemKeepAliveSamples)
-    .where(inArray(systemKeepAliveSamples.alarmSystemId, systemIds))
-    .orderBy(desc(systemKeepAliveSamples.receivedAt))
-    .limit(Math.max(systemIds.length * 30, 30));
-
   const intervalsBySystem = new Map<number, Array<number | null>>();
-  for (const sample of samples) {
-    const current = intervalsBySystem.get(sample.alarmSystemId) || [];
-    current.push(sample.intervalMs);
-    intervalsBySystem.set(sample.alarmSystemId, current);
+  const systemsNeedingAdaptiveCutoff = systems.filter((system) =>
+    !(Number.isFinite(system.keepAliveOfflineAfterMinutes) && (system.keepAliveOfflineAfterMinutes || 0) > 0),
+  );
+  for (let start = 0; start < systemsNeedingAdaptiveCutoff.length; start += 10) {
+    const systemBatch = systemsNeedingAdaptiveCutoff.slice(start, start + 10);
+    const sampleRows = await Promise.all(systemBatch.map((system) =>
+      db.select({ intervalMs: systemKeepAliveSamples.intervalMs })
+        .from(systemKeepAliveSamples)
+        .where(eq(systemKeepAliveSamples.alarmSystemId, system.id))
+        .orderBy(desc(systemKeepAliveSamples.receivedAt))
+        .limit(30),
+    ));
+    systemBatch.forEach((system, index) => {
+      intervalsBySystem.set(system.id, sampleRows[index].map((sample: { intervalMs: number | null }) => sample.intervalMs));
+    });
   }
 
   return systems.map((system) => {
@@ -1739,41 +1740,94 @@ export async function listOperationalEventReport(opts?: {
 }) {
   const db = await getDb();
   if (!db) return [];
+  return listOperationalEventReportWithDb(db, opts);
+}
+
+export async function listOperationalEventReportWithDb(db: any, opts?: {
+  limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number;
+  dateFrom?: string; dateTo?: string; eventGroup?: EventReportGroup;
+}) {
   const conditions = [];
   if (opts?.account?.trim()) conditions.push(like(alarmEvents.account, `%${opts.account.trim()}%`));
   if (opts?.dateFrom) conditions.push(gte(alarmEvents.receivedAt, new Date(`${opts.dateFrom}T00:00:00`)));
   if (opts?.dateTo) conditions.push(lte(alarmEvents.receivedAt, new Date(`${opts.dateTo}T23:59:59.999`)));
-  let query = db.select().from(alarmEvents);
-  if (conditions.length) query = query.where(and(...conditions)) as any;
-  query = query.orderBy(desc(alarmEvents.receivedAt)) as any;
-  const eventRows = await query;
-  const systemIds = Array.from(new Set(eventRows.map((row: any) => row.alarmSystemId).filter((id: unknown): id is number => typeof id === "number")));
-  const systems = systemIds.length ? await db.select().from(alarmSystems).where(inArray(alarmSystems.id, systemIds)) : [];
-  const clientIds = Array.from(new Set(systems.map((system: any) => system.clientId).filter((id: unknown): id is number => typeof id === "number")));
-  const reportClients = clientIds.length ? await db.select().from(clients).where(inArray(clients.id, clientIds)) : [];
   const codes = await db.select().from(contactIdCodes);
-  const systemsById = new Map(systems.map((system: any) => [system.id, system]));
-  const clientsById = new Map(reportClients.map((client: any) => [client.id, client]));
-  const enriched = eventRows.map((event: any) => {
-    const system = event.alarmSystemId ? systemsById.get(event.alarmSystemId) : undefined;
-    const client = system?.clientId ? clientsById.get(system.clientId) : undefined;
-    const category = resolveOperationalEventCategory(event, codes);
-    return {
-      ...event,
-      category,
-      clientId: system?.clientId || null,
-      clientName: client?.fantasyName || client?.name || (event.account === "0000" ? "Conta do Sistema" : null),
-      partnerCompanyId: client?.partnerCompanyId || null,
-    };
-  });
-  const scoped = enriched.filter((event: any) =>
-    (!opts?.clientId || event.clientId === opts.clientId)
-    && (!opts?.partnerCompanyId || event.partnerCompanyId === opts.partnerCompanyId)
-    && matchesOperationalEventGroup(event, event.category, opts?.eventGroup),
-  );
-  const offset = opts?.offset || 0;
-  const limit = opts?.limit || 100;
-  return scoped.slice(offset, offset + limit);
+  if (opts?.eventGroup === "arm" || opts?.eventGroup === "disarm") {
+    const standardCodes = ["401", "403", "407", "408", "409", "441", "701", "3401", "3403", "3407", "3441", "456"];
+    const catalogCodes = codes.filter((code: any) =>
+      code.category === "arm_disarm"
+      || /desarm|desarme|desarmado|desarmada|deslig|armado|armada|armar|arme|stay/i.test(`${code.tipo || ""} ${code.description || ""}`),
+    ).map((code: any) => String(code.code));
+    conditions.push(inArray(alarmEvents.eventCode, Array.from(new Set([...standardCodes, ...catalogCodes]))));
+  } else if (opts?.eventGroup === "test") {
+    const codesForGroup = codes.filter((code: any) => code.category === "test").map((code: any) => String(code.code));
+    conditions.push(inArray(alarmEvents.eventCode, Array.from(new Set(["602", ...codesForGroup]))));
+  } else if (opts?.eventGroup === "system") {
+    const codesForGroup = codes.filter((code: any) => ["fault", "system", "access"].includes(code.category)).map((code: any) => String(code.code));
+    conditions.push(inArray(alarmEvents.eventCode, Array.from(new Set(codesForGroup))));
+  }
+  if (opts?.clientId) conditions.push(eq(clients.id, opts.clientId));
+  if (opts?.partnerCompanyId) conditions.push(eq(clients.partnerCompanyId, opts.partnerCompanyId));
+
+  const requestedLimit = Number.isFinite(opts?.limit) ? Math.trunc(opts!.limit!) : 100;
+  const limit = Math.min(1000, Math.max(1, requestedLimit));
+  const offset = Math.max(0, Number.isFinite(opts?.offset) ? Math.trunc(opts!.offset!) : 0);
+  const needsCategoryFilter = Boolean(opts?.eventGroup && opts.eventGroup !== "all");
+  const batchSize = needsCategoryFilter ? 500 : limit;
+  const matched: any[] = [];
+  let scanned = needsCategoryFilter ? 0 : offset;
+  const requiredMatches = needsCategoryFilter ? offset + limit : limit;
+
+  while (matched.length < requiredMatches) {
+    let query = db.select({
+      event: {
+        id: alarmEvents.id,
+        alarmSystemId: alarmEvents.alarmSystemId,
+        account: alarmEvents.account,
+        brand: alarmEvents.brand,
+        qualifier: alarmEvents.qualifier,
+        eventCode: alarmEvents.eventCode,
+        partition: alarmEvents.partition,
+        zoneUser: alarmEvents.zoneUser,
+        description: alarmEvents.description,
+        priority: alarmEvents.priority,
+        receiverPort: alarmEvents.receiverPort,
+        remoteIp: alarmEvents.remoteIp,
+        autoFinalized: alarmEvents.autoFinalized,
+        autoFinalizationReason: alarmEvents.autoFinalizationReason,
+        receivedAt: alarmEvents.receivedAt,
+      },
+      clientId: clients.id,
+      clientName: clients.name,
+      fantasyName: clients.fantasyName,
+      partnerCompanyId: clients.partnerCompanyId,
+    }).from(alarmEvents)
+      .leftJoin(alarmSystems, eq(alarmEvents.alarmSystemId, alarmSystems.id))
+      .leftJoin(clients, eq(alarmSystems.clientId, clients.id));
+    if (conditions.length) query = query.where(and(...conditions)) as any;
+    const batch = await query.orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id))
+      .limit(batchSize).offset(scanned);
+    if (batch.length === 0) break;
+
+    for (const joined of batch as any[]) {
+      const event = joined.event;
+      const category = resolveOperationalEventCategory(event, codes);
+      const enriched = {
+        ...event,
+        category,
+        clientId: joined.clientId ?? null,
+        clientName: joined.fantasyName || joined.clientName || (event.account === "0000" ? "Conta do Sistema" : null),
+        partnerCompanyId: joined.partnerCompanyId ?? null,
+      };
+      if (!needsCategoryFilter || matchesOperationalEventGroup(enriched, category, opts?.eventGroup)) {
+        matched.push(enriched);
+        if (matched.length >= requiredMatches) break;
+      }
+    }
+    scanned += batch.length;
+    if (!needsCategoryFilter || batch.length < batchSize) break;
+  }
+  return needsCategoryFilter ? matched.slice(offset, offset + limit) : matched;
 }
 
 export async function listOperationalConnectionReport(opts?: { clientId?: number; partnerCompanyId?: number; status?: "online" | "offline" }) {
@@ -2815,44 +2869,84 @@ export async function listOccurrences(opts?: { limit?: number; offset?: number; 
   return listOccurrencesWithDb(db, opts);
 }
 
+export async function listOccurrenceOperatorNames(partnerCompanyId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [isNotNull(occurrences.operatorName), ne(occurrences.operatorName, "")];
+  if (partnerCompanyId) conditions.push(or(
+    eq(occurrences.partnerCompanyId, partnerCompanyId),
+    and(isNull(occurrences.partnerCompanyId), eq(clients.partnerCompanyId, partnerCompanyId)),
+  ) as any);
+  const rows = await db.selectDistinct({ operatorName: occurrences.operatorName })
+    .from(occurrences)
+    .leftJoin(alarmSystems, eq(occurrences.systemId, alarmSystems.id))
+    .leftJoin(clients, eq(clients.id, sql`COALESCE(${occurrences.clientId}, ${alarmSystems.clientId})`))
+    .where(and(...conditions))
+    .orderBy(occurrences.operatorName);
+  return rows.map((row: { operatorName: string | null }) => row.operatorName).filter(Boolean);
+}
+
 export async function listOccurrencesWithDb(db: any, opts?: { limit?: number; offset?: number; account?: string; clientId?: number; partnerCompanyId?: number; dateFrom?: string; dateTo?: string; operatorName?: string }) {
   const conditions = [];
   if (opts?.account?.trim()) conditions.push(like(occurrences.account, `%${opts.account.trim()}%`));
   if (opts?.operatorName?.trim()) conditions.push(like(occurrences.operatorName, `%${opts.operatorName.trim()}%`));
   if (opts?.dateFrom) conditions.push(gte(occurrences.finalizedAt, new Date(`${opts.dateFrom}T00:00:00`)));
   if (opts?.dateTo) conditions.push(lte(occurrences.finalizedAt, new Date(`${opts.dateTo}T23:59:59.999`)));
-  let query = db.select().from(occurrences);
-  if (conditions.length) query = query.where(and(...conditions)) as any;
-  query = query.orderBy(desc(occurrences.finalizedAt)) as any;
-  const rows = await query;
-  const systemIds: number[] = Array.from(new Set(
-    rows.map((row: any) => row.systemId).filter((id: unknown): id is number => typeof id === "number"),
+  if (opts?.clientId) conditions.push(or(
+    eq(occurrences.clientId, opts.clientId),
+    and(isNull(occurrences.clientId), eq(clients.id, opts.clientId)),
   ));
-  const directClientIds: number[] = rows
-    .map((row: any) => row.clientId)
-    .filter((id: unknown): id is number => typeof id === "number");
-  const systems = systemIds.length
-    ? await db.select().from(alarmSystems).where(inArray(alarmSystems.id, systemIds))
-    : [];
-  const systemClientIds: number[] = systems
-    .map((system: { clientId: number | null }) => system.clientId)
-    .filter((id: number | null): id is number => typeof id === "number");
-  const clientIds: number[] = Array.from(new Set([
-    ...directClientIds,
-    ...systemClientIds,
-  ]));
-  const reportClients = clientIds.length
-    ? await db.select().from(clients).where(inArray(clients.id, clientIds))
-    : [];
-
-  const enrichedRows = enrichOccurrenceReportClients(rows, systems, reportClients);
-  const clientFilteredRows = opts?.clientId
-    ? enrichedRows.filter((row) => row.clientId === opts.clientId)
-    : enrichedRows;
-  const scopedRows = filterOccurrenceReportRowsByPartner(clientFilteredRows, opts?.partnerCompanyId);
-  const offset = opts?.offset || 0;
-  const limit = opts?.limit || 100;
-  return scopedRows.slice(offset, offset + limit);
+  if (opts?.partnerCompanyId) conditions.push(or(
+    eq(occurrences.partnerCompanyId, opts.partnerCompanyId),
+    and(isNull(occurrences.partnerCompanyId), eq(clients.partnerCompanyId, opts.partnerCompanyId)),
+  ));
+  const requestedLimit = Number.isFinite(opts?.limit) ? Math.trunc(opts!.limit!) : 100;
+  const limit = Math.min(1000, Math.max(1, requestedLimit));
+  const offset = Math.max(0, Number.isFinite(opts?.offset) ? Math.trunc(opts!.offset!) : 0);
+  let query = db.select({
+    occurrence: {
+      id: occurrences.id,
+      incidentId: occurrences.incidentId,
+      account: occurrences.account,
+      eventCode: occurrences.eventCode,
+      qualifier: occurrences.qualifier,
+      partition: occurrences.partition,
+      zoneUser: occurrences.zoneUser,
+      description: occurrences.description,
+      priority: occurrences.priority,
+      brand: occurrences.brand,
+      clientId: occurrences.clientId,
+      clientName: occurrences.clientName,
+      systemId: occurrences.systemId,
+      partnerCompanyId: occurrences.partnerCompanyId,
+      operatorId: occurrences.operatorId,
+      operatorName: occurrences.operatorName,
+      status: occurrences.status,
+      observations: occurrences.observations,
+      attendingTimeMs: occurrences.attendingTimeMs,
+      eventReceivedAt: occurrences.eventReceivedAt,
+      startedAt: occurrences.startedAt,
+      finalizedAt: occurrences.finalizedAt,
+      createdAt: occurrences.createdAt,
+    },
+    linkedClientId: clients.id,
+    linkedClientName: clients.name,
+    linkedFantasyName: clients.fantasyName,
+    linkedPartnerCompanyId: clients.partnerCompanyId,
+  }).from(occurrences)
+    .leftJoin(alarmSystems, eq(occurrences.systemId, alarmSystems.id))
+    .leftJoin(clients, eq(clients.id, sql`COALESCE(${occurrences.clientId}, ${alarmSystems.clientId})`));
+  if (conditions.length) query = query.where(and(...conditions)) as any;
+  const rows = await query.orderBy(desc(occurrences.finalizedAt), desc(occurrences.id)).limit(limit).offset(offset);
+  return rows.map((joined: any) => {
+    const row = joined.occurrence;
+    return {
+      ...row,
+      clientId: row.clientId ?? joined.linkedClientId ?? null,
+      clientName: row.clientName || joined.linkedFantasyName || joined.linkedClientName || null,
+      partnerCompanyId: row.partnerCompanyId ?? joined.linkedPartnerCompanyId ?? null,
+    };
+  });
 }
 
 export async function getOccurrenceById(id: number) {
@@ -3048,6 +3142,7 @@ export async function getLatestArmDisarmStatusForSystem(alarmSystemId: number) {
   const db = await getDb();
   if (!db) return undefined;
   const rows = await db.select({
+    id: alarmEvents.id,
     qualifier: alarmEvents.qualifier,
     eventCode: alarmEvents.eventCode,
     brand: alarmEvents.brand,
@@ -3057,7 +3152,7 @@ export async function getLatestArmDisarmStatusForSystem(alarmSystemId: number) {
   }).from(alarmEvents).where(and(
     eq(alarmEvents.alarmSystemId, alarmSystemId),
     inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"]),
-  )).orderBy(desc(alarmEvents.receivedAt));
+  )).orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id));
   return rows.find((event) => isArmDisarmStatusEvent(event));
 }
 
@@ -3067,18 +3162,41 @@ export async function getArmDisarmStatus() {
   
   // Buscar os códigos de estado do painel; a classificação final considera marca e qualifier.
   const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"];
+  const systems = await db.select({
+    id: alarmSystems.id,
+    account: alarmSystems.account,
+    isActive: alarmSystems.isActive,
+    clientId: alarmSystems.clientId,
+    brand: alarmSystems.brand,
+    model: alarmSystems.model,
+    clientName: clients.name,
+    clientFantasyName: clients.fantasyName,
+  }).from(alarmSystems)
+    .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(eq(alarmSystems.isActive, true));
+  const activeSystemIds = systems.map((system: any) => system.id);
+  if (activeSystemIds.length === 0) return { armed: [], disarmed: [] };
   
-  const lastEvents = await db.select().from(alarmEvents)
+  const lastEvents = await db.select({
+    id: alarmEvents.id,
+    account: alarmEvents.account,
+    qualifier: alarmEvents.qualifier,
+    eventCode: alarmEvents.eventCode,
+    brand: alarmEvents.brand,
+    receivedAt: alarmEvents.receivedAt,
+    alarmSystemId: alarmEvents.alarmSystemId,
+    description: alarmEvents.description,
+  }).from(alarmEvents)
     .where(and(
       inArray(alarmEvents.eventCode, armDisarmCodes),
       ne(alarmEvents.account, "0000"),
       isNotNull(alarmEvents.alarmSystemId),
+      inArray(alarmEvents.alarmSystemId, activeSystemIds),
     ))
-    .orderBy(desc(alarmEvents.receivedAt));
+    .orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id));
   
   // Armado/Desarmado é o último estado conhecido de um painel ativo. Sistemas
   // desativados não podem aumentar o contador nem aparecer nas listas.
-  const systems = (await db.select().from(alarmSystems)).filter((system) => system.isActive !== false);
   const systemsById = new Map(systems.map((system) => [system.id, system]));
   const latestStatuses = getLatestArmDisarmStatusBySystem(
     lastEvents.filter((event) => isArmDisarmStatusEvent(event)),
@@ -3096,15 +3214,10 @@ export async function getArmDisarmStatus() {
     let systemId = status.alarmSystemId;
     const systemInfo = systemsById.get(status.alarmSystemId);
     
-    if (status.alarmSystemId) {
-      if (systemInfo?.clientId) {
-        const clientInfo = await db.select().from(clients).where(eq(clients.id, systemInfo.clientId)).limit(1);
-        if (clientInfo.length > 0) {
-          clientName = clientInfo[0].name;
-          clientFantasyName = clientInfo[0].fantasyName;
-          clientId = clientInfo[0].id;
-        }
-      }
+    if (systemInfo?.clientId) {
+      clientName = systemInfo.clientName || clientName;
+      clientFantasyName = systemInfo.clientFantasyName || null;
+      clientId = systemInfo.clientId;
     }
     
     const entry = {

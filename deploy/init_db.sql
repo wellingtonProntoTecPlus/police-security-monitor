@@ -311,7 +311,12 @@ CREATE TABLE IF NOT EXISTS alarm_events (
   rawData TEXT,
   autoFinalized TINYINT(1) NOT NULL DEFAULT 0,
   autoFinalizationReason VARCHAR(255),
-  receivedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  receivedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX alarm_events_received_idx (receivedAt, id),
+  INDEX alarm_events_system_code_received_idx (alarmSystemId, eventCode, receivedAt),
+  INDEX alarm_events_code_system_received_idx (eventCode, alarmSystemId, receivedAt),
+  INDEX alarm_events_auto_event_received_idx (autoFinalized, eventCode, receivedAt),
+  INDEX alarm_events_account_received_idx (account, receivedAt, id)
 );
 
 CREATE TABLE IF NOT EXISTS contact_id_codes (
@@ -360,7 +365,11 @@ CREATE TABLE IF NOT EXISTS occurrences (
   eventReceivedAt TIMESTAMP,
   startedAt TIMESTAMP,
   finalizedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX occurrences_finalized_idx (finalizedAt, id),
+  INDEX occurrences_account_finalized_idx (account, finalizedAt, id),
+  INDEX occurrences_client_finalized_idx (clientId, finalizedAt, id),
+  INDEX occurrences_partner_finalized_idx (partnerCompanyId, finalizedAt, id)
 );
 
 CREATE TABLE IF NOT EXISTS incidents (

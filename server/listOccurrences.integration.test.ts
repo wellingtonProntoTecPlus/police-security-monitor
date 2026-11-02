@@ -1,35 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { alarmSystems, clients, occurrences } from "../drizzle/schema";
+import { occurrences } from "../drizzle/schema";
 import { listOccurrencesWithDb } from "./db";
 import { persistAutomaticOccurrence } from "./receiver/automaticOccurrencePersistence";
 
-function thenableRows<T>(rows: T[]) {
+function thenableRows<T>(rows: T[], pagination?: { limit?: number; offset?: number }) {
   const query: any = {
     where: () => query,
     orderBy: () => query,
+    leftJoin: () => query,
+    limit: (value: number) => { if (pagination) pagination.limit = value; return query; },
+    offset: (value: number) => { if (pagination) pagination.offset = value; return query; },
     then: (resolve: (value: T[]) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve(rows).then(resolve, reject),
   };
   return query;
 }
 
+function fakeOccurrenceDb(rows: Array<Record<string, unknown>>, pagination?: { limit?: number; offset?: number }) {
+  return {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table !== occurrences) throw new Error("Tabela não esperada no teste");
+        return thenableRows(rows, pagination);
+      },
+    }),
+  };
+}
+
 describe("listOccurrences integrado", () => {
   it("retorna cliente e parceira para occurrence automática identificada por sistema", async () => {
-    const occurrenceRows = [{
+    const occurrence = {
       id: 100, account: "0336", eventCode: "401", systemId: 18, clientId: null, clientName: null, partnerCompanyId: null,
       finalizedAt: new Date("2026-08-13T18:00:00.000Z"),
-    }];
-    const systemRows = [{ id: 18, clientId: 32 }];
-    const clientRows = [{ id: 32, name: "Cliente Vetti", fantasyName: null, partnerCompanyId: 5 }];
-    const fakeDb = {
-      select: () => ({
-        from: (table: unknown) => {
-          if (table === occurrences) return thenableRows(occurrenceRows);
-          if (table === alarmSystems) return { where: async () => systemRows };
-          if (table === clients) return { where: async () => clientRows };
-          throw new Error("Tabela não esperada no teste");
-        },
-      }),
     };
+    const pagination: { limit?: number; offset?: number } = {};
+    const fakeDb = fakeOccurrenceDb([{
+      occurrence, linkedClientId: 32, linkedClientName: "Cliente Vetti", linkedFantasyName: null, linkedPartnerCompanyId: 5,
+    }], pagination);
 
     const rows = await listOccurrencesWithDb(fakeDb, { partnerCompanyId: 5 });
     expect(rows).toHaveLength(1);
@@ -41,48 +47,23 @@ describe("listOccurrences integrado", () => {
       clientName: "Cliente Vetti",
       partnerCompanyId: 5,
     });
+    expect(pagination).toEqual({ limit: 100, offset: 0 });
   });
 
-  it("filtra pelo cliente resolvido através do sistema, inclusive em registros históricos", async () => {
-    const occurrenceRows = [
-      { id: 110, account: "0044", eventCode: "407", systemId: 18, clientId: null, clientName: null, partnerCompanyId: null, finalizedAt: new Date("2026-08-22T12:00:00.000Z") },
-      { id: 111, account: "0336", eventCode: "401", systemId: 19, clientId: null, clientName: null, partnerCompanyId: null, finalizedAt: new Date("2026-08-22T11:00:00.000Z") },
-    ];
-    const systemRows = [{ id: 18, clientId: 32 }, { id: 19, clientId: 33 }];
-    const clientRows = [
-      { id: 32, name: "Cliente Coruja", fantasyName: null, partnerCompanyId: 5 },
-      { id: 33, name: "Cliente Vetti", fantasyName: null, partnerCompanyId: 5 },
-    ];
-    const fakeDb = {
-      select: () => ({
-        from: (table: unknown) => {
-          if (table === occurrences) return thenableRows(occurrenceRows);
-          if (table === alarmSystems) return { where: async () => systemRows };
-          if (table === clients) return { where: async () => clientRows };
-          throw new Error("Tabela não esperada no teste");
-        },
-      }),
-    };
+  it("preserva paginação pedida pelo relatório e limita o máximo retornado", async () => {
+    const pagination: { limit?: number; offset?: number } = {};
+    await listOccurrencesWithDb(fakeOccurrenceDb([], pagination), { limit: 25, offset: 40 });
+    expect(pagination).toEqual({ limit: 25, offset: 40 });
 
-    const rows = await listOccurrencesWithDb(fakeDb, { clientId: 32 });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: 110, account: "0044", clientId: 32, clientName: "Cliente Coruja" });
+    await listOccurrencesWithDb(fakeOccurrenceDb([], pagination), { limit: 10000, offset: -5 });
+    expect(pagination).toEqual({ limit: 1000, offset: 0 });
   });
 
   it("persiste um evento automático identificado e o devolve pelo relatório com o cliente", async () => {
     const occurrenceRows: Array<Record<string, unknown>> = [];
-    const systemRows = [{ id: 18, clientId: 32 }];
-    const clientRows = [{ id: 32, name: "Cliente Vetti", fantasyName: null, partnerCompanyId: 5 }];
-    const fakeDb = {
-      select: () => ({
-        from: (table: unknown) => {
-          if (table === occurrences) return thenableRows(occurrenceRows);
-          if (table === alarmSystems) return { where: async () => systemRows };
-          if (table === clients) return { where: async () => clientRows };
-          throw new Error("Tabela não esperada no teste");
-        },
-      }),
-    };
+    const fakeDb = fakeOccurrenceDb(occurrenceRows.map((occurrence: any) => ({
+      occurrence, linkedClientName: "Cliente Vetti", linkedFantasyName: null, linkedPartnerCompanyId: 5,
+    })));
 
     await persistAutomaticOccurrence({
       occurrence: {
@@ -94,7 +75,9 @@ describe("listOccurrences integrado", () => {
       create: async (row) => { occurrenceRows.push({ id: 101, finalizedAt: new Date("2026-08-13T18:00:00.000Z"), ...row }); },
     });
 
-    const rows = await listOccurrencesWithDb(fakeDb, { partnerCompanyId: 5 });
+    const rows = await listOccurrencesWithDb(fakeOccurrenceDb(occurrenceRows.map((occurrence: any) => ({
+      occurrence, linkedClientName: "Cliente Vetti", linkedFantasyName: null, linkedPartnerCompanyId: 5,
+    }))), { partnerCompanyId: 5 });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       id: 101, account: "0336", systemId: 18, clientId: 32, clientName: "Cliente Vetti", partnerCompanyId: 5,

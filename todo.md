@@ -862,6 +862,10 @@
 - [x] Manter aviso de falha de consultas na barra lateral em vez de sobreposição fixa sobre atendimento, câmeras ou comandos operacionais
 - [x] Impedir carregamento infinito: limitar validação de sessão no servidor, encerrar chamadas tRPC pendentes no navegador e apresentar nova tentativa sem confundir banco lento com sessão revogada
 - [x] Registrar de forma sanitizada requisições HTTP críticas acima de um segundo, sem tokens ou conteúdo privado
+- [x] Paginar ocorrências e eventos no MySQL, aplicar JOINs/filtros de escopo no servidor e não carregar rawData nos relatórios
+- [x] Otimizar o status Armados/Desarmados: limitar aos sistemas ativos e colunas de estado, preservando a classificação separada de Arme e Desarme
+- [x] Evitar leitura conjunta das amostras Keep Alive: usar o índice existente e consultar no máximo 30 amostras recentes por painel apenas quando necessário
+- [x] Acrescentar índices idempotentes de evento/horário e ocorrência/finalização à migração VPS, sem recriar o índice Keep Alive já existente
 - [ ] Publicar na VPS e comparar tempos de abertura nas máquinas e telas do operador
 
 ## Operação Multioperador e Exceções de Agenda

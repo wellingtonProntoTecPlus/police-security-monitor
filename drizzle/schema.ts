@@ -247,7 +247,9 @@ export const systemKeepAliveSamples = mysqlTable("system_keep_alive_samples", {
   brand: varchar("brand", { length: 30 }).notNull(),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   intervalMs: bigint("intervalMs", { mode: "number" }),
-});
+}, (table) => [
+  index("system_keep_alive_samples_system_received").on(table.alarmSystemId, table.receivedAt),
+]);
 
 export type SystemKeepAliveSample = typeof systemKeepAliveSamples.$inferSelect;
 
@@ -348,7 +350,13 @@ export const alarmEvents = mysqlTable("alarm_events", {
   autoFinalized: boolean("autoFinalized").default(false).notNull(),
   autoFinalizationReason: varchar("autoFinalizationReason", { length: 255 }),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
-});
+}, (table) => [
+  index("alarm_events_received_idx").on(table.receivedAt, table.id),
+  index("alarm_events_system_code_received_idx").on(table.alarmSystemId, table.eventCode, table.receivedAt),
+  index("alarm_events_code_system_received_idx").on(table.eventCode, table.alarmSystemId, table.receivedAt),
+  index("alarm_events_auto_event_received_idx").on(table.autoFinalized, table.eventCode, table.receivedAt),
+  index("alarm_events_account_received_idx").on(table.account, table.receivedAt, table.id),
+]);
 
 export type AlarmEvent = typeof alarmEvents.$inferSelect;
 export type InsertAlarmEvent = typeof alarmEvents.$inferInsert;
@@ -640,7 +648,12 @@ export const occurrences = mysqlTable("occurrences", {
   startedAt: timestamp("startedAt"),
   finalizedAt: timestamp("finalizedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [
+  index("occurrences_finalized_idx").on(table.finalizedAt, table.id),
+  index("occurrences_account_finalized_idx").on(table.account, table.finalizedAt, table.id),
+  index("occurrences_client_finalized_idx").on(table.clientId, table.finalizedAt, table.id),
+  index("occurrences_partner_finalized_idx").on(table.partnerCompanyId, table.finalizedAt, table.id),
+]);
 export type Occurrence = typeof occurrences.$inferSelect;
 export type InsertOccurrence = typeof occurrences.$inferInsert;
 // ============================================================

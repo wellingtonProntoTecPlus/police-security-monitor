@@ -33,6 +33,12 @@ describe("Relatórios operacionais", () => {
     expect(source).toContain("Sem filtros: exibindo os {DEFAULT_REPORT_LIMIT} registros mais recentes.");
   });
 
+  it("não busca histórico de 1.000 ocorrências para preencher operadores nem consulta listas de abas ocultas", () => {
+    expect(source).toContain("trpc.occurrence.operatorNames.useQuery()");
+    expect(source).not.toContain("limit: 1000, offset: 0");
+    expect(source).toContain("enabled: reportMode === \"occurrences\"");
+  });
+
   it("inclui relatório histórico de alertas de agenda filtrável e exportável", () => {
     expect(source).toContain('type ReportMode = "occurrences" | "events" | "connections" | "schedule"');
     expect(source).toContain("trpc.alarmSchedule.report.useQuery");

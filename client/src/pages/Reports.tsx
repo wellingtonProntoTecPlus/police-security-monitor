@@ -93,15 +93,14 @@ export default function Reports() {
 
   const { data: clients = [] } = trpc.monitoredClient.list.useQuery(undefined);
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
-  const { data: allOccurrences = [] } = trpc.occurrence.list.useQuery({ limit: 1000, offset: 0 });
-  const operators = useMemo(() => Array.from(new Set(allOccurrences.map((item: any) => item.operatorName).filter(Boolean))).sort(), [allOccurrences]);
+  const { data: operators = [] } = trpc.occurrence.operatorNames.useQuery();
   const availableClients = useMemo(() => partnerFilter === "all"
     ? clients
     : clients.filter((client: any) => client.partnerCompanyId === Number(partnerFilter)), [clients, partnerFilter]);
   const hasAppliedFilters = hasActiveReportFilters(appliedFilters);
   const reportLimit = hasAppliedFilters ? FILTERED_REPORT_LIMIT : DEFAULT_REPORT_LIMIT;
 
-  const { data: occurrences = [], isLoading: isLoadingOccurrences, error: occurrencesError } = trpc.occurrence.list.useQuery({ limit: reportLimit, offset: 0, ...appliedFilters });
+  const { data: occurrences = [], isLoading: isLoadingOccurrences, error: occurrencesError } = trpc.occurrence.list.useQuery({ limit: reportLimit, offset: 0, ...appliedFilters }, { enabled: reportMode === "occurrences" });
   const { data: events = [], isLoading: isLoadingEvents, error: eventsError } = trpc.alarmEvent.report.useQuery({ limit: reportLimit, offset: 0, ...appliedFilters }, { enabled: reportMode === "events" });
   const { data: connectionRows = [], isLoading: isLoadingConnections, error: connectionsError } = trpc.alarmEvent.connectionReport.useQuery({
     clientId: appliedFilters.clientId,

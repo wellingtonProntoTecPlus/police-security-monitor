@@ -1,0 +1,2 @@
+CREATE INDEX `alarm_events_code_system_received_idx` ON `alarm_events` (`eventCode`,`alarmSystemId`,`receivedAt`);--> statement-breakpoint
+CREATE INDEX `alarm_events_auto_event_received_idx` ON `alarm_events` (`autoFinalized`,`eventCode`,`receivedAt`);

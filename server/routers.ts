@@ -1339,6 +1339,13 @@ export const appRouter = router({
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteManagingHoliday(input.id)),
   }),
   occurrence: router({
+    operatorNames: protectedProcedure.query(({ ctx }) => {
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        return db.listOccurrenceOperatorNames(ctx.user.partnerId);
+      }
+      return db.listOccurrenceOperatorNames();
+    }),
     list: protectedProcedure.input(z.object({
       limit: z.number().optional(),
       offset: z.number().optional(),
