@@ -875,6 +875,10 @@
 - [x] Fazer claim atômico de eventos pendentes e mostrar operador/status para os demais
 - [x] Permitir assumir atendimento em observação com botão explícito, criando registro filho independente e preservando o atendimento original
 - [x] Proteger alterações/finalização pelo operador dono do atendimento; separar relatório do atendimento assumido
+- [x] Corrigir lote que ignorava KOFF/E361 em observação/escalada sem operador: permitir registros raiz automáticos, preservar terceiros e devolver IDs exatos, com relatório/auditoria/fechamento transacional e feedback de zero/parcial
+- [x] Reivindicar observação automática sem dono sem criar filho e impedir reabertura por disputa com o temporizador Radioenge
+- [x] Proteger API contra fallback SPA/HTML e apresentar erro recuperável sem repetir automaticamente gravações ou comandos
+- [ ] Aplicar a correção do lote na VPS e validar que os mesmos IDs de 0041 desapareçam após finalizar/reabrir a tela, preservando histórico
 - [x] Expor no Dashboard, sem sair do atendimento, as exceções de agenda por uma hora, um dia ou sete dias, com solicitante, justificativa e auditoria
 - [x] Exibir e permitir tentar novamente em caso de falha ao carregar/salvar agenda semanal
 - [x] Corrigir migração VPS para não criar índice único em incidents.eventId quando há atendimentos independentes vinculados ao mesmo evento e cobrir com teste de regressão

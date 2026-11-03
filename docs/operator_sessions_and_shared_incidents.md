@@ -10,6 +10,14 @@ Os eventos continuam visíveis para todos os operadores. O primeiro operador que
 
 Um atendimento em andamento não pode ser tomado silenciosamente por outro operador. Se o primeiro operador colocar o registro em observação, outro operador pode abrir a ocorrência em modo de leitura e usar **Assumir atendimento**. A assunção cria um registro de atendimento filho, independente e vinculado ao original. O atendimento original permanece em observação; o operador que assumiu pode registrar suas próprias providências e gerar seu próprio relatório. Uma assunção repetida do mesmo operador reutiliza seu filho existente.
 
+### Finalização em massa e observação automática
+
+Alertas KOFF restaurados e E361 Radioenge escalados podem estar em observação ou atendimento sem operador: ninguém os havia atendido ainda. Esses registros raiz agora podem ser reivindicados diretamente e finalizados em massa com os registros do próprio operador. Não é necessário criar atendimento filho para uma observação automática sem responsável.
+
+O lote exige a central identificada, além da conta. Registros de outro sistema com a mesma conta, atendimentos de outro operador, manutenções e filhos sem responsável não são encerrados silenciosamente. O modal conta somente os elegíveis e informa quantos estão protegidos. A gravação do relatório, a auditoria de cada incidente e o fechamento ocorrem na mesma transação; qualquer falha reverte todo o lote.
+
+O servidor devolve os IDs realmente encerrados. A interface remove somente esses cartões, atualiza o relatório e informa resultados parciais ou zero sem anunciar falso sucesso. O temporizador Radioenge usa bloqueio transacional e condição de status para não reabrir registros encerrados durante sua execução. Uma nova perda real de comunicação pode gerar um novo alerta; isso é diferente de reaparecer o mesmo registro já fechado.
+
 ## Agenda e exceções rápidas
 
 A tabela semanal e o horário de feriado continuam na ficha do cliente/sistema. O operador também pode abrir **Alterar agenda** dentro do Dashboard — inclusive durante o atendimento — para suspender a agenda ou substituir um ou ambos os horários por uma hora, um dia ou sete dias. Cada exceção exige quem solicitou e o motivo, registra o operador e expira; ao expirar ou ser cancelada, a agenda semanal/feriado volta a valer.

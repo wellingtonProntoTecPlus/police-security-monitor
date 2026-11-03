@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+import { rejectApiFallback } from "./apiRouteGuard";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -58,6 +59,7 @@ export function waitForSuccessfulPing() { return Promise.resolve(); }
 `);
   });
 
+  app.use("*", rejectApiFallback);
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
@@ -111,6 +113,8 @@ export function serveStatic(app: Express) {
   }
 
   const immutableAssetsPath = `${path.resolve(distPath, "assets")}${path.sep}`;
+  app.use("*", rejectApiFallback);
+
   app.use(express.static(distPath, {
     setHeaders(res, filePath) {
       if (filePath.startsWith(immutableAssetsPath)) {

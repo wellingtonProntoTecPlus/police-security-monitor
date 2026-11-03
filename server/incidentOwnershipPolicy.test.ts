@@ -12,6 +12,12 @@ describe("propriedade de atendimento multioperador", () => {
     expect(resolveIncidentOwnershipAction({ status: "observing", assignedOperatorId: 12, actingOperatorId: 13 })).toBe("assume_child");
   });
 
+  it("reivindica observação automática ou escalada sem operador sem criar filho", () => {
+    expect(resolveIncidentOwnershipAction({ status: "observing", assignedOperatorId: null, actingOperatorId: 12 })).toBe("claim");
+    expect(resolveIncidentOwnershipAction({ status: "attending", assignedOperatorId: null, actingOperatorId: 12 })).toBe("claim");
+    expect(resolveIncidentOwnershipAction({ status: "dispatched", assignedOperatorId: null, actingOperatorId: 12 })).toBeNull();
+  });
+
   it("bloqueia troca silenciosa de atendimento ativo e incidente fechado", () => {
     expect(resolveIncidentOwnershipAction({ status: "attending", assignedOperatorId: 12, actingOperatorId: 13 })).toBeNull();
     expect(resolveIncidentOwnershipAction({ status: "dispatched", assignedOperatorId: 12, actingOperatorId: 13 })).toBeNull();

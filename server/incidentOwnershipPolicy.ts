@@ -15,6 +15,7 @@ export function resolveIncidentOwnershipAction(input: {
 }): IncidentOwnershipAction | null {
   if (input.status === "closed") return null;
   if (input.status === "waiting") return input.assignedOperatorId == null || input.assignedOperatorId === input.actingOperatorId ? "claim" : null;
+  if (input.assignedOperatorId == null && (input.status === "observing" || input.status === "attending")) return "claim";
   if (input.assignedOperatorId === input.actingOperatorId) {
     return input.status === "observing" ? "resume" : "continue";
   }

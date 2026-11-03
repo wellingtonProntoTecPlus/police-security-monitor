@@ -788,8 +788,8 @@ export const appRouter = router({
       partnerCompanyId: z.number().optional(),
       observations: z.string().trim().min(1, "Informe a descrição da finalização"),
     })).mutation(async ({ input, ctx }) => {
-      if (ctx.user.role === "partner" && !input.alarmSystemId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a central para finalizar apenas os atendimentos desta conta" });
-      if (input.alarmSystemId) await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      if (!input.alarmSystemId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a central identificada para finalizar apenas os atendimentos desta conta" });
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const result = await db.bulkFinalizeOpenIncidents({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name });
       if (result.count > 0) emitIncidentStateChanged({ incidentId: 0, incidentStatus: "closed", operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "status_changed" });
       return result;

@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
-import { shouldRetryQuery, toTrpcRateLimitResponse } from "./lib/trpcRateLimit";
+import { shouldRetryQuery, toTrpcApiResponse } from "./lib/trpcRateLimit";
 import "./index.css";
 
 const API_REQUEST_TIMEOUT_MS = 8_000;
@@ -19,6 +19,10 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       retry: shouldRetryQuery,
       retryDelay: 3_000,
+    },
+    mutations: {
+      // Nunca replay automático: a primeira tentativa pode ter chegado ao servidor.
+      retry: false,
     },
   },
 });
@@ -95,7 +99,7 @@ const trpcClient = trpc.createClient({
             credentials: "include",
             signal: controller.signal,
           });
-          return toTrpcRateLimitResponse(response);
+          return toTrpcApiResponse(response);
         } catch (error) {
           if (controller.signal.aborted && !upstreamSignal?.aborted) {
             throw new Error("O sistema demorou para responder. Tente novamente.");

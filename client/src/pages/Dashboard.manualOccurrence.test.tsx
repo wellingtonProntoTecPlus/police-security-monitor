@@ -7,6 +7,7 @@ import React from "react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
+import { toast } from "sonner";
 
 const manualMutation = {
   mutate: vi.fn(),
@@ -20,6 +21,13 @@ const standardMutation = {
   isPending: false,
 };
 
+const bulkMutation = { mutateAsync: vi.fn(), isPending: false };
+const defaultQueue = [{
+  id: 701, incidentId: 91, incidentStatus: "waiting", incidentClientId: 4, incidentSystemId: 6,
+  account: "0001", brand: "COMPATEC", qualifier: "E", eventCode: "130", description: "Disparo de alarme",
+  priority: "critical", receivedAt: new Date("2026-08-12T12:00:00.000Z"),
+}];
+let mockedPersistedQueue: any[] = defaultQueue;
 const invalidateOpenQueue = vi.fn().mockResolvedValue(undefined);
 const invalidateConnectionStatus = vi.fn().mockResolvedValue(undefined);
 const invalidateArmDisarmStatus = vi.fn().mockResolvedValue(undefined);
@@ -33,24 +41,11 @@ vi.mock("@/lib/trpc", () => ({
     incident: {
       assume: { useMutation: () => standardMutation },
       update: { useMutation: () => standardMutation },
-      bulkFinalize: { useMutation: () => standardMutation },
+      bulkFinalize: { useMutation: () => bulkMutation },
       observe: { useMutation: () => standardMutation },
       openQueue: {
         useQuery: () => ({
-          data: [{
-            id: 701,
-            incidentId: 91,
-            incidentStatus: "waiting",
-            incidentClientId: 4,
-            incidentSystemId: 6,
-            account: "0001",
-            brand: "COMPATEC",
-            qualifier: "E",
-            eventCode: "130",
-            description: "Disparo de alarme",
-            priority: "critical",
-            receivedAt: new Date("2026-08-12T12:00:00.000Z"),
-          }],
+          data: mockedPersistedQueue,
           isLoading: false,
         }),
       },
@@ -100,7 +95,8 @@ vi.mock("@/lib/trpc", () => ({
     },
     camera: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({
-      incident: { openQueue: { invalidate: invalidateOpenQueue } },
+      incident: { openQueue: { invalidate: invalidateOpenQueue }, history: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      occurrence: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       dashboard: {
@@ -153,6 +149,11 @@ describe("Dashboard — Ocorrência Manual", () => {
     invalidateArmDisarmStatus.mockClear();
     invalidateRecentAutoFinalizedArmDisarm.mockClear();
     mockedRealtimeEvents = [];
+    mockedPersistedQueue = defaultQueue;
+    bulkMutation.mutateAsync.mockReset();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.warning).mockClear();
+    vi.mocked(toast.info).mockClear();
     standardMutation.mutateAsync.mockResolvedValue({ success: true });
     Object.defineProperty(window, "AudioContext", {
       configurable: true,
@@ -243,6 +244,34 @@ describe("Dashboard — Ocorrência Manual", () => {
 
     expect(screen.getByText("Última confirmação automática")).toBeTruthy();
     expect(screen.getByText(/ARMADO · Conta 0336 · VETTI · Arme/)).toBeTruthy();
+  });
+
+  it.each([
+    { count: 2, closedIncidentIds: [91, 92], skippedCount: 1, feedback: "warning" },
+    { count: 0, closedIncidentIds: [], skippedCount: 3, feedback: "info" },
+  ])("finalização em massa informa $feedback e não anuncia sucesso falso", async result => {
+    mockedPersistedQueue = [
+      { ...defaultQueue[0], incidentOperatorId: 1, incidentStatus: "attending" },
+      { ...defaultQueue[0], id: 702, incidentId: 92, eventCode: "KOFF", description: "KOFF automático sem operador", incidentStatus: "observing", incidentOperatorId: null },
+      { ...defaultQueue[0], id: 703, incidentId: 93, description: "Registro protegido", incidentOperatorId: 8 },
+      { ...defaultQueue[0], id: 704, incidentId: 94, description: "Outra central da mesma conta", incidentSystemId: 7 },
+    ];
+    bulkMutation.mutateAsync.mockResolvedValue(result);
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    // Fila Em atendimento contém o registro próprio; abrir o agrupamento desta fila.
+    await user.click(screen.getByTitle("Atendimento (1)"));
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.type(screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências..."), "Comunicação conferida. Fechar lote.");
+    await user.click(screen.getByRole("button", { name: "Finalizar em massa (2)" }));
+    expect(screen.getByText(/1 registro\(s\) de outro operador ou em manutenção/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Confirmar finalização" }));
+    await waitFor(() => expect(bulkMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ account: "0001", alarmSystemId: 6 })));
+    await waitFor(() => expect(toast[result.feedback as "warning" | "info"]).toHaveBeenCalled());
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(screen.queryByText("Outra central da mesma conta")).not.toBeNull();
+    if (result.count === 0) expect(screen.getByText("Tratamento de ocorrência")).toBeTruthy();
+    else expect(screen.queryByText("Tratamento de ocorrência")).toBeNull();
   });
 
   it("distingue os controles Vetti simulados dos controles físicos controlados da bancada", () => {

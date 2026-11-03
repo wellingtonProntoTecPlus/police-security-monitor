@@ -55,6 +55,7 @@ import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
 import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
 import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
+import { canBulkFinalizeIncident } from "@shared/incidentBulkFinalization";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DB_CONNECT_TIMEOUT_MS = 3_500;
@@ -1671,7 +1672,12 @@ export async function findOpenTrackedIncident(input: {
 export async function promoteExpiredRadioengeKeepAliveObservations(now = new Date()) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db
+  return promoteExpiredRadioengeKeepAliveObservationsWithDb(db, now);
+}
+
+export async function promoteExpiredRadioengeKeepAliveObservationsWithDb(db: any, now = new Date()) {
+  return db.transaction(async (tx: any) => {
+  const rows: Array<{ incident: typeof incidents.$inferSelect; event: typeof alarmEvents.$inferSelect }> = await tx
     .select({ incident: incidents, event: alarmEvents })
     .from(incidents)
     .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
@@ -1682,13 +1688,18 @@ export async function promoteExpiredRadioengeKeepAliveObservations(now = new Dat
       eq(alarmEvents.eventCode, "361"),
       isNotNull(incidents.observationUntil),
       lte(incidents.observationUntil, now),
-    ));
+    )).for("update");
   if (rows.length === 0) return [];
-  await db.update(incidents).set({
+  await tx.update(incidents).set({
     status: "attending",
     observationUntil: null,
     notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPrazo Radioenge E361 encerrado sem R361; ocorrência encaminhada para atendimento.')`,
-  }).where(inArray(incidents.id, rows.map(({ incident }) => incident.id)));
+    version: sql`${incidents.version} + 1`,
+  }).where(and(
+    inArray(incidents.id, rows.map(({ incident }) => incident.id)),
+    eq(incidents.status, "observing"),
+    lte(incidents.observationUntil, now),
+  ));
   return rows.map(({ incident, event }) => ({
     incidentId: incident.id,
     eventId: event.id,
@@ -1699,6 +1710,7 @@ export async function promoteExpiredRadioengeKeepAliveObservations(now = new Dat
     eventCode: event.eventCode,
     description: event.description,
   }));
+  });
 }
 
 /** Localiza o E361 ainda dentro da janela automática para parear com o R361. */
@@ -1964,29 +1976,54 @@ export async function bulkFinalizeOpenIncidents(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
-  const finalizedAt = new Date();
-  const resolution = input.observations.trim() || "Finalização em massa pelo operador";
+  return bulkFinalizeOpenIncidentsWithDb(db, input);
+}
 
-  return db.transaction(async (tx) => {
+/** Helper injetável: relatório, histórico e fechamento são uma única transação. */
+export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
+  account: string;
+  alarmSystemId?: number | null;
+  clientId?: number | null;
+  clientName?: string | null;
+  partnerCompanyId?: number | null;
+  operatorId?: number | null;
+  operatorName?: string | null;
+  observations: string;
+}) {
+  if (!input.alarmSystemId) throw new Error("Selecione a central identificada para finalizar em massa");
+  if (!input.operatorId) throw new Error("Operador autenticado obrigatório");
+  if (!input.observations.trim()) throw new Error("Informe a descrição da finalização");
+  const finalizedAt = new Date();
+  const resolution = input.observations.trim();
+  const operatorName = (input.operatorName || "Operador").slice(0, 255);
+
+  return db.transaction(async (tx: any) => {
     const conditions: any[] = [
       eq(alarmEvents.account, input.account),
-      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]),
-      or(eq(incidents.status, "waiting"), eq(incidents.operatorId, input.operatorId || 0)),
+      eq(incidents.alarmSystemId, input.alarmSystemId!),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
     ];
-    if (input.alarmSystemId) conditions.push(eq(incidents.alarmSystemId, input.alarmSystemId));
 
-    const openRows = await tx
-      .select({ incident: incidents, event: alarmEvents })
+    const scopedRows: Array<{ incident: typeof incidents.$inferSelect; event: Pick<typeof alarmEvents.$inferSelect, "id" | "account" | "eventCode" | "qualifier" | "partition" | "zoneUser" | "description" | "priority" | "brand" | "receivedAt"> }> = await tx
+      .select({ incident: incidents, event: {
+        id: alarmEvents.id, account: alarmEvents.account, eventCode: alarmEvents.eventCode,
+        qualifier: alarmEvents.qualifier, partition: alarmEvents.partition, zoneUser: alarmEvents.zoneUser,
+        description: alarmEvents.description, priority: alarmEvents.priority, brand: alarmEvents.brand,
+        receivedAt: alarmEvents.receivedAt,
+      } })
       .from(incidents)
       .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
       .where(and(...conditions))
       .orderBy(desc(alarmEvents.receivedAt))
       .for("update");
 
-    if (openRows.length === 0) return { count: 0 };
+    const openRows = scopedRows.filter(({ incident }) => canBulkFinalizeIncident(incident, input.operatorId!));
+    const skippedCount = scopedRows.length - openRows.length;
+    if (openRows.length === 0) return { count: 0, closedIncidentIds: [] as number[], skippedCount };
+    const closedIncidentIds = openRows.map(({ incident }) => incident.id);
 
     const log = JSON.stringify([
-      `[${finalizedAt.toLocaleTimeString("pt-BR")}] Finalização em massa: ${openRows.length} eventos da conta ${input.account}`,
+      `[${finalizedAt.toLocaleTimeString("pt-BR")}] Finalização em massa por ${operatorName}: ${openRows.length} atendimentos da conta ${input.account}`,
     ]);
     const occurrenceRows = openRows.map(({ incident, event }) => ({
       incidentId: incident.id,
@@ -2003,7 +2040,7 @@ export async function bulkFinalizeOpenIncidents(input: {
       systemId: input.alarmSystemId ?? incident.alarmSystemId ?? null,
       partnerCompanyId: input.partnerCompanyId ?? null,
       operatorId: input.operatorId ?? incident.operatorId ?? null,
-      operatorName: input.operatorName ?? "Operador",
+      operatorName,
       observations: resolution,
       logs: log,
       attendingTimeMs: Math.max(0, finalizedAt.getTime() - incident.createdAt.getTime()),
@@ -2015,16 +2052,25 @@ export async function bulkFinalizeOpenIncidents(input: {
     }));
 
     for (let offset = 0; offset < occurrenceRows.length; offset += 500) {
-      await tx.insert(occurrences).values(occurrenceRows.slice(offset, offset + 500));
+      const reportResult = await tx.insert(occurrences).values(occurrenceRows.slice(offset, offset + 500));
+      if (!canCloseIncidentAfterReport(Number(reportResult[0]?.insertId))) throw new Error("Relatório não foi persistido; os eventos permanecem abertos");
+      await tx.insert(incidentHistory).values(openRows.slice(offset, offset + 500).map(({ incident }) => ({
+        incidentId: incident.id, parentIncidentId: incident.parentIncidentId,
+        operatorId: input.operatorId, operatorName, action: "bulk_finalized",
+        statusBefore: incident.status, statusAfter: "closed", note: resolution,
+      })));
     }
 
-    await tx.update(incidents).set({
+    const closedResult = await tx.update(incidents).set({
       status: "closed",
       resolution,
       closedAt: finalizedAt,
-    }).where(inArray(incidents.id, openRows.map(({ incident }) => incident.id)));
+      observationUntil: null,
+      version: sql`${incidents.version} + 1`,
+    }).where(inArray(incidents.id, closedIncidentIds));
+    if (Number(closedResult[0]?.affectedRows) !== closedIncidentIds.length) throw new Error("Não foi possível confirmar o fechamento de todos os atendimentos; a operação foi revertida");
 
-    return { count: openRows.length };
+    return { count: openRows.length, closedIncidentIds, skippedCount };
   });
 }
 
