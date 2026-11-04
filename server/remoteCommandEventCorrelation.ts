@@ -16,10 +16,33 @@ export type IncomingRemoteEvent = {
 
 export function getRemoteCommandActionLabel(commandType: string) {
   return commandType === "arm"
-    ? "Armado Remoto por Central de Monitoramento"
+    ? "Arme remoto via PoliceCentral"
     : commandType === "disarm"
-      ? "Desarmado Remoto por Central de Monitoramento"
-      : `Comando remoto ${commandType}`;
+      ? "Desarme remoto via PoliceCentral"
+      : `Comando remoto via PoliceCentral: ${commandType}`;
+}
+
+export function getRemoteCommandOutcomeLabel(status: string) {
+  switch (status) {
+    case "queued":
+      return "Solicitado; aguardando envio à central.";
+    case "waiting_connection":
+      return "Ainda não enviado; aguardando conexão autenticada da central.";
+    case "sent":
+      return "Enviado à central; aguardando confirmação.";
+    case "responded":
+      return "Confirmado pela central.";
+    case "failed":
+      return "Falha; a central não confirmou o comando.";
+    case "expired":
+      return "Expirado sem envio à central.";
+    case "cancelled":
+      return "Cancelado; não enviado à central.";
+    case "simulated":
+      return "Simulação; nenhum comando físico foi enviado.";
+    default:
+      return `Status do comando: ${status}.`;
+  }
 }
 
 export function buildRemoteCommandRequestNote(input: {
@@ -29,12 +52,12 @@ export function buildRemoteCommandRequestNote(input: {
   reason: string;
 }) {
   return [
-    "[COMANDO REMOTO SOLICITADO]",
+    `[COMANDO REMOTO #${input.commandId} SOLICITADO]`,
     `Ação: ${getRemoteCommandActionLabel(input.commandType)}`,
-    "Origem: Central de Monitoramento",
+    "Origem: PoliceCentral (Central de Monitoramento)",
     `Operador: ${input.operatorName}`,
     `Motivo: ${input.reason}`,
-    "Status: aguardando confirmação da central.",
+    "Resultado: aguardando envio e confirmação da central.",
     `Auditoria do comando: #${input.commandId}`,
   ].join("\n");
 }
@@ -44,19 +67,22 @@ export function buildRemoteCommandOccurrenceText(input: {
   commandType: string;
   operatorName: string;
   reason: string;
+  status: string;
   response?: string | null;
 }) {
   const action = getRemoteCommandActionLabel(input.commandType);
+  const outcome = getRemoteCommandOutcomeLabel(input.status);
   return {
     eventCode: "REMOTE",
     qualifier: null,
-    description: action,
+    description: `${action} — ${outcome}`,
     observations: [
-      action,
-      "Origem: Central de Monitoramento",
+      `[COMANDO REMOTO #${input.commandId}]`,
+      `Operação: ${action}`,
+      "Origem: PoliceCentral (Central de Monitoramento)",
       `Operador: ${input.operatorName}`,
       `Motivo: ${input.reason}`,
-      "Confirmação recebida da central.",
+      `Resultado: ${outcome}`,
       input.response ? `Resposta da central: ${input.response}` : null,
       `Auditoria do comando: #${input.commandId}`,
     ].filter(Boolean).join("\n"),
@@ -90,16 +116,21 @@ export function buildRemoteCommandIncidentNotes(input: {
   commandId: number;
   commandLabel: string;
   requestedBy: string;
+  reason?: string;
+  response?: string | null;
   technicalUserCode?: string | null;
   panelUser?: string | null;
 }) {
   const rows = [
-    "[COMANDO REMOTO CONFIRMADO]",
+    `[COMANDO REMOTO #${input.commandId} CONFIRMADO]`,
     `Ação: ${input.commandLabel}`,
-    "Origem: Central de Monitoramento",
+    "Origem: PoliceCentral (Central de Monitoramento)",
     `Operador: ${input.requestedBy}`,
     `Solicitado por: ${input.requestedBy}`,
   ];
+  if (input.reason) rows.push(`Motivo: ${input.reason}`);
+  rows.push("Resultado: confirmado pela central.");
+  if (input.response) rows.push(`Resposta da central: ${input.response}`);
   if (input.panelUser) rows.push(`Usuário informado pela central: ${input.panelUser}`);
   if (input.technicalUserCode) rows.push(`Usuário técnico do comando: ${input.technicalUserCode}`);
   rows.push(`Auditoria do comando: #${input.commandId}`);

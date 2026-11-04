@@ -1022,3 +1022,79 @@ SET @statement = (
   FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_schedule_overrides' AND COLUMN_NAME='validUntilAt'
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+-- Comandos físicos Compatec de Arme/Desarme também são ocorrências informativas do relatório.
+-- A chave no texto de auditoria torna esta carga retroativa segura para reexecução.
+INSERT INTO `occurrences` (
+  `account`, `eventCode`, `qualifier`, `description`, `priority`, `brand`,
+  `clientId`, `clientName`, `systemId`, `partnerCompanyId`, `operatorId`, `operatorName`,
+  `status`, `observations`, `logs`, `attendingTimeMs`, `sendEmail`, `sendPush`,
+  `eventReceivedAt`, `startedAt`, `finalizedAt`, `createdAt`
+)
+SELECT
+  COALESCE(s.`account`, '0000'),
+  'REMOTE',
+  NULL,
+  CONCAT(
+    CASE rc.`commandType` WHEN 'arm' THEN 'Arme remoto via PoliceCentral' ELSE 'Desarme remoto via PoliceCentral' END,
+    ' — ',
+    CASE rc.`status`
+      WHEN 'queued' THEN 'Solicitado; aguardando envio à central.'
+      WHEN 'waiting_connection' THEN 'Ainda não enviado; aguardando conexão autenticada da central.'
+      WHEN 'sent' THEN 'Enviado à central; aguardando confirmação.'
+      WHEN 'responded' THEN 'Confirmado pela central.'
+      WHEN 'failed' THEN 'Falha; a central não confirmou o comando.'
+      WHEN 'expired' THEN 'Expirado sem envio à central.'
+      WHEN 'cancelled' THEN 'Cancelado; não enviado à central.'
+      ELSE CONCAT('Status do comando: ', rc.`status`, '.')
+    END
+  ),
+  'low',
+  COALESCE(s.`brand`, rc.`brand`),
+  COALESCE(s.`clientId`, i.`clientId`),
+  COALESCE(NULLIF(c.`fantasyName`, ''), c.`name`),
+  s.`id`,
+  c.`partnerCompanyId`,
+  rc.`operatorId`,
+  COALESCE(u.`name`, 'Operador autenticado'),
+  'finalized',
+  CONCAT(
+    '[COMANDO REMOTO #', rc.`id`, ']', CHAR(10),
+    'Operação: ', CASE rc.`commandType` WHEN 'arm' THEN 'Arme remoto via PoliceCentral' ELSE 'Desarme remoto via PoliceCentral' END, CHAR(10),
+    'Origem: PoliceCentral (Central de Monitoramento)', CHAR(10),
+    'Operador: ', COALESCE(u.`name`, 'Operador autenticado'), CHAR(10),
+    'Motivo: ', rc.`reason`, CHAR(10),
+    'Resultado: ', CASE rc.`status`
+      WHEN 'queued' THEN 'Solicitado; aguardando envio à central.'
+      WHEN 'waiting_connection' THEN 'Ainda não enviado; aguardando conexão autenticada da central.'
+      WHEN 'sent' THEN 'Enviado à central; aguardando confirmação.'
+      WHEN 'responded' THEN 'Confirmado pela central.'
+      WHEN 'failed' THEN 'Falha; a central não confirmou o comando.'
+      WHEN 'expired' THEN 'Expirado sem envio à central.'
+      WHEN 'cancelled' THEN 'Cancelado; não enviado à central.'
+      ELSE CONCAT('Status do comando: ', rc.`status`, '.')
+    END,
+    IF(rc.`responsePayload` IS NULL OR rc.`responsePayload` = '', '', CONCAT(CHAR(10), 'Resposta da central: ', rc.`responsePayload`)),
+    CHAR(10), 'Auditoria do comando: #', rc.`id`
+  ),
+  JSON_ARRAY(CONCAT('[', DATE_FORMAT(COALESCE(rc.`panelConfirmedAt`, rc.`executedAt`, rc.`updatedAt`, rc.`createdAt`), '%H:%i:%s'), '] ',
+    CASE rc.`commandType` WHEN 'arm' THEN 'Arme' ELSE 'Desarme' END, ' remoto via PoliceCentral — ', rc.`status`)),
+  0,
+  0,
+  0,
+  COALESCE(rc.`panelConfirmedAt`, rc.`executedAt`, rc.`updatedAt`, rc.`createdAt`),
+  rc.`createdAt`,
+  COALESCE(rc.`panelConfirmedAt`, rc.`executedAt`, rc.`updatedAt`, rc.`createdAt`),
+  rc.`createdAt`
+FROM `alarm_remote_commands` rc
+LEFT JOIN `alarm_systems` s ON s.`id` = rc.`alarmSystemId`
+LEFT JOIN `incidents` i ON i.`id` = rc.`incidentId`
+LEFT JOIN `clients` c ON c.`id` = COALESCE(s.`clientId`, i.`clientId`)
+LEFT JOIN `users` u ON u.`id` = rc.`operatorId`
+WHERE rc.`brand` = 'COMPATEC'
+  AND rc.`transportMode` = 'microbus_compatec'
+  AND rc.`commandType` IN ('arm', 'disarm')
+  AND NOT EXISTS (
+    SELECT 1 FROM `occurrences` o
+    WHERE o.`observations` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')
+  );

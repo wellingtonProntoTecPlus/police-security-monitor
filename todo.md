@@ -830,6 +830,9 @@
 - [x] Validar com testes os quadros Compatec, o bloqueio de envio real e o histórico operacional
 - [x] Corrigir a palavra reservada `partition` na migração SQL da auditoria Compatec para MySQL da VPS
 - [x] Atualizar a VPS com o receptor Compatec e o histórico de simulação antes da homologação em bancada
+- [x] Registrar cada solicitação física Compatec de Arme/Desarme em Ocorrências, com origem PoliceCentral, operador, motivo, resposta e resultado atualizado sem abrir evento falso ou item de fila
+- [x] Preparar carga retroativa idempotente para que comandos Compatec anteriores, incluindo falhas sem confirmação, apareçam no relatório do cliente após a migração
+- [ ] Atualizar a VPS com a auditoria de relatório Compatec e conferir a conta 0001 Lavanderia no relatório do cliente
 - [ ] Validar em bancada a simulação auditável sem transmitir MicroBus à central
 - [ ] Confirmar com a Compatec ou por captura controlada a porta, rota e resposta MicroBus da central de bancada
 - [ ] Homologar em bancada, um por vez, consulta de estado, arme, desarme, isolamento/restauração e PGM

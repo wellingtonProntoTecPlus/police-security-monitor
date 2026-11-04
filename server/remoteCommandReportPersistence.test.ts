@@ -1,0 +1,62 @@
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const root = process.cwd();
+const dbSource = fs.readFileSync(path.join(root, "server/db.ts"), "utf8");
+const upgradeSql = fs.readFileSync(path.join(root, "deploy/upgrade_vps.sql"), "utf8");
+
+function sourceBetween(source: string, start: string, end: string) {
+  const startAt = source.indexOf(start);
+  const endAt = source.indexOf(end, startAt + start.length);
+  if (startAt < 0 || endAt < 0) throw new Error(`Não foi possível localizar o trecho ${start}`);
+  return source.slice(startAt, endAt);
+}
+
+describe("relatório de Arme/Desarme remoto Compatec", () => {
+  it("cria o primeiro registro dentro da reserva e sincroniza cada mudança de resultado", () => {
+    const reserve = sourceBetween(
+      dbSource,
+      "export async function createExclusiveCompatecPhysicalCommand",
+      "/** Compatibilidade para chamadas antigas",
+    );
+    const updateDelivery = sourceBetween(
+      dbSource,
+      "export async function updateAlarmRemoteCommandDelivery",
+      "/** Anexa a solicitação do comando",
+    );
+    const confirm = sourceBetween(
+      dbSource,
+      "export async function recordRemoteCommandConfirmation",
+      "/**\n * Um evento Vetti",
+    );
+
+    expect(reserve).toContain("await syncCompatecRemoteCommandOccurrence(tx, command)");
+    expect(updateDelivery).toContain("await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)");
+    expect(confirm).toContain("await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)");
+  });
+
+  it("mantém uma ocorrência informativa, não cria evento/fila e deduplica pelo ID do comando", () => {
+    const sync = sourceBetween(
+      dbSource,
+      "async function syncCompatecRemoteCommandOccurrence",
+      "/**\n * Reserva atomicamente a única sequência VSec",
+    );
+    expect(sync).toContain('command.brand !== "COMPATEC"');
+    expect(sync).toContain('command.transportMode !== "microbus_compatec"');
+    expect(sync).toContain("[COMANDO REMOTO #${command.id}]");
+    expect(sync).toContain("tx.insert(occurrences)");
+    expect(sync).toContain("tx.update(occurrences)");
+    expect(sync).not.toContain("alarmEvents");
+    expect(sync).not.toContain("tx.insert(incidents)");
+  });
+
+  it("inclui comandos antigos na migração VPS de forma idempotente e vinculados ao cliente correto", () => {
+    expect(upgradeSql).toContain("INSERT INTO `occurrences`");
+    expect(upgradeSql).toContain("rc.`transportMode` = 'microbus_compatec'");
+    expect(upgradeSql).toContain("rc.`commandType` IN ('arm', 'disarm')");
+    expect(upgradeSql).toContain("LEFT JOIN `clients` c ON c.`id` = COALESCE(s.`clientId`, i.`clientId`)");
+    expect(upgradeSql).toContain("WHERE o.`observations` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')");
+    expect(upgradeSql).toContain("Origem: PoliceCentral (Central de Monitoramento)");
+  });
+});

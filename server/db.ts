@@ -872,6 +872,66 @@ export async function createAlarmRemoteCommand(data: InsertAlarmRemoteCommand) {
   return { id: Number(result[0].insertId) };
 }
 
+/** Mantém o comando Compatec no relatório do cliente, sem criar evento/fila. */
+async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alarmRemoteCommands.$inferSelect) {
+  if (
+    command.brand !== "COMPATEC"
+    || command.transportMode !== "microbus_compatec"
+    || !["arm", "disarm"].includes(command.commandType)
+  ) return null;
+
+  const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1);
+  const [client] = system?.clientId
+    ? await tx.select().from(clients).where(eq(clients.id, system.clientId)).limit(1)
+    : [];
+  const [operator] = await tx.select({ name: users.name }).from(users).where(eq(users.id, command.operatorId)).limit(1);
+  const operatorName = operator?.name || "Operador autenticado";
+  const marker = `[COMANDO REMOTO #${command.id}]`;
+  const text = buildRemoteCommandOccurrenceText({
+    commandId: command.id,
+    commandType: command.commandType,
+    operatorName,
+    reason: command.reason,
+    status: command.status,
+    response: command.responsePayload,
+  });
+  const occurredAt = command.panelConfirmedAt || command.executedAt || command.updatedAt || command.createdAt;
+  const values = {
+    account: system?.account || "0000",
+    eventCode: text.eventCode,
+    qualifier: text.qualifier,
+    partition: null,
+    zoneUser: null,
+    description: text.description,
+    priority: "low",
+    brand: system?.brand || command.brand,
+    clientId: system?.clientId || null,
+    clientName: client?.fantasyName || client?.name || null,
+    systemId: system?.id || command.alarmSystemId,
+    partnerCompanyId: client?.partnerCompanyId || null,
+    operatorId: command.operatorId,
+    operatorName,
+    status: "finalized" as const,
+    observations: `${text.observations}\n${marker}`,
+    logs: JSON.stringify([`[${occurredAt.toLocaleTimeString("pt-BR")}] ${text.description}`]),
+    attendingTimeMs: 0,
+    sendEmail: false,
+    sendPush: false,
+    eventReceivedAt: occurredAt,
+    startedAt: command.createdAt,
+    finalizedAt: occurredAt,
+  };
+  const [existing] = await tx.select({ id: occurrences.id }).from(occurrences)
+    .where(like(occurrences.observations, `%${marker}%`))
+    .limit(1);
+  if (existing) {
+    await tx.update(occurrences).set(values).where(eq(occurrences.id, existing.id));
+    return existing.id as number;
+  }
+  const result = await tx.insert(occurrences).values(values);
+  return Number(result[0].insertId);
+}
+
 /**
  * Reserva atomicamente a única sequência VSec permitida para a bancada Vetti.
  * O bloqueio da linha do sistema impede que dois operadores enfileirem ou
@@ -923,7 +983,11 @@ export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRe
       .limit(1);
     if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
     const result = await tx.insert(alarmRemoteCommands).values(data);
-    return { created: true as const, id: Number(result[0].insertId) };
+    const id = Number(result[0].insertId);
+    const [command] = await tx.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, id)).limit(1);
+    if (!command) throw new Error("Não foi possível reler o comando Compatec reservado");
+    await syncCompatecRemoteCommandOccurrence(tx, command);
+    return { created: true as const, id };
   });
 }
 
@@ -992,7 +1056,23 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
-  await db.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
+  await db.transaction(async (tx) => {
+    const [command] = await tx.select().from(alarmRemoteCommands)
+      .where(eq(alarmRemoteCommands.id, id))
+      .limit(1)
+      .for("update");
+    if (!command) return;
+    const updatedCommand = {
+      ...command,
+      ...data,
+      responsePayload: data.responsePayload === undefined ? command.responsePayload : data.responsePayload,
+      executedAt: data.executedAt === undefined ? command.executedAt : data.executedAt,
+      panelConfirmedAt: data.panelConfirmedAt === undefined ? command.panelConfirmedAt : data.panelConfirmedAt,
+      updatedAt: new Date(),
+    };
+    await tx.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
+    await syncCompatecRemoteCommandOccurrence(tx, updatedCommand);
+  });
 }
 
 /** Anexa a solicitação do comando à ocorrência já aberta, sem criar um evento falso. */
@@ -1025,6 +1105,14 @@ export async function recordRemoteCommandConfirmation(input: {
       .for("update");
     if (!command) return { recorded: false as const };
 
+    const updatedCommand = {
+      ...command,
+      status: "responded",
+      responsePayload: input.responsePayload,
+      panelConfirmedAt: confirmedAt,
+      executedAt: confirmedAt,
+      updatedAt: confirmedAt,
+    };
     await tx.update(alarmRemoteCommands).set({
       status: "responded",
       responsePayload: input.responsePayload,
@@ -1035,33 +1123,45 @@ export async function recordRemoteCommandConfirmation(input: {
     const [operator] = await tx.select({ name: users.name }).from(users).where(eq(users.id, command.operatorId)).limit(1);
     const operatorName = operator?.name || "Operador autenticado";
     const actionLabel = getRemoteCommandActionLabel(command.commandType);
+    const isCompatecPhysicalAction = command.brand === "COMPATEC"
+      && command.transportMode === "microbus_compatec"
+      && ["arm", "disarm"].includes(command.commandType);
+    const occurrenceId = isCompatecPhysicalAction
+      ? await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)
+      : null;
     const incidentNote = buildRemoteCommandIncidentNotes({
       commandId: command.id,
       commandLabel: actionLabel,
       requestedBy: operatorName,
+      reason: command.reason,
+      response: input.responsePayload,
     });
 
     if (command.incidentId) {
-      const [incident] = await tx.select({ id: incidents.id, status: incidents.status })
+      const [incident] = await tx.select({ id: incidents.id, status: incidents.status, notes: incidents.notes })
         .from(incidents)
         .where(eq(incidents.id, command.incidentId))
         .limit(1);
       if (incident && incident.status !== "closed") {
-        await tx.update(incidents).set({
-          notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${incidentNote}`})`,
-        }).where(and(eq(incidents.id, command.incidentId), ne(incidents.status, "closed")));
+        const marker = `[COMANDO REMOTO #${command.id} CONFIRMADO]`;
+        if (!incident.notes?.includes(marker)) {
+          await tx.update(incidents).set({
+            notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${incidentNote}`})`,
+          }).where(and(eq(incidents.id, command.incidentId), ne(incidents.status, "closed")));
+        }
         return {
           recorded: true as const,
           commandId: command.id,
           alarmSystemId: command.alarmSystemId,
           incidentId: command.incidentId,
+          occurrenceId,
           commandType: command.commandType,
           actionLabel,
         };
       }
     }
 
-    if (command.transportMode !== "microbus_compatec" || !["arm", "disarm"].includes(command.commandType)) {
+    if (!isCompatecPhysicalAction) {
       return {
         recorded: true as const,
         commandId: command.id,
@@ -1070,51 +1170,6 @@ export async function recordRemoteCommandConfirmation(input: {
         commandType: command.commandType,
         actionLabel,
       };
-    }
-
-    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1);
-    const [client] = system?.clientId
-      ? await tx.select().from(clients).where(eq(clients.id, system.clientId)).limit(1)
-      : [];
-    const marker = `[COMANDO REMOTO #${command.id}]`;
-    const [existingOccurrence] = await tx.select({ id: occurrences.id }).from(occurrences)
-      .where(like(occurrences.observations, `%${marker}%`))
-      .limit(1);
-    let occurrenceId = existingOccurrence?.id || null;
-    if (!existingOccurrence) {
-      const text = buildRemoteCommandOccurrenceText({
-        commandId: command.id,
-        commandType: command.commandType,
-        operatorName,
-        reason: command.reason,
-        response: input.responsePayload,
-      });
-      const occurrenceResult = await tx.insert(occurrences).values({
-        account: system?.account || "0000",
-        eventCode: text.eventCode,
-        qualifier: text.qualifier,
-        partition: null,
-        zoneUser: null,
-        description: text.description,
-        priority: "low",
-        brand: system?.brand || command.brand,
-        clientId: system?.clientId || null,
-        clientName: client?.fantasyName || client?.name || null,
-        systemId: system?.id || command.alarmSystemId,
-        partnerCompanyId: client?.partnerCompanyId || null,
-        operatorId: command.operatorId,
-        operatorName,
-        status: "finalized",
-        observations: `${text.observations}\n${marker}`,
-        logs: JSON.stringify([`[${confirmedAt.toLocaleTimeString("pt-BR")}] ${actionLabel} confirmado pela central.`]),
-        attendingTimeMs: 0,
-        sendEmail: false,
-        sendPush: false,
-        eventReceivedAt: confirmedAt,
-        startedAt: command.confirmedAt,
-        finalizedAt: confirmedAt,
-      });
-      occurrenceId = Number(occurrenceResult[0].insertId);
     }
     return {
       recorded: true as const,
