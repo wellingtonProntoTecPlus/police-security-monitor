@@ -27,26 +27,29 @@ export function useAuth(options?: UseAuthOptions) {
     },
   });
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (handoffs: Array<{ incidentId: number; toUserId: number; message: string; observationUntil?: Date }> = []) => {
+    let shouldClearLocalSession = false;
     try {
-      await logoutMutation.mutateAsync();
+      await logoutMutation.mutateAsync({ handoffs });
+      shouldClearLocalSession = true;
     } catch (error: unknown) {
       if (
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"
       ) {
-        return;
+        shouldClearLocalSession = true;
+      } else {
+        throw error;
       }
-      throw error;
     } finally {
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
-      try {
-        sessionStorage.removeItem("manus-cookie");
-      } catch {}
-      utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
+      if (shouldClearLocalSession) {
+        // Clear the Preview auto-login token mirrored into sessionStorage, so
+        // header-based sessions (Safari ITP / WebView) are logged out too. The
+        // backend cookie is cleared by the logout mutation.
+        try { sessionStorage.removeItem("manus-cookie"); } catch {}
+        utils.auth.me.setData(undefined, null);
+        await utils.auth.me.invalidate();
+      }
     }
   }, [logoutMutation, utils]);
 

@@ -1,7 +1,7 @@
 import { eq, and, or, desc, sql, like, inArray, gte, gt, lte, ne, isNotNull, isNull, notExists } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  InsertUser, users, authSessions,
+  InsertUser, users, authSessions, operatorAttendanceRecords,
   managingCompanies, InsertManagingCompany,
   partnerCompanies, InsertPartnerCompany,
   registrationDocuments,
@@ -58,6 +58,8 @@ import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type 
 import { canBulkFinalizeIncident } from "@shared/incidentBulkFinalization";
 import { isClientMonitoringBlocked } from "@shared/clientMonitoringStatus";
 import { isConfirmedBulkSetEligible, summarizeBulkIncidents } from "@shared/bulkIncidentSummary";
+import { getUserShiftAttendanceWindow, OPERATIONAL_ROLES } from "./operatorShiftSchedule";
+import { saveOperatorShiftAssignmentWithTransaction, type ShiftAssignmentInput } from "./operatorShiftPersistence";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DB_CONNECT_TIMEOUT_MS = 3_500;
@@ -65,6 +67,16 @@ const DB_CONNECT_TIMEOUT_MS = 3_500;
 /** Exclusivo para testes: permite validar os payloads persistidos sem depender da conexão externa. */
 export function setDbForTesting(db: ReturnType<typeof drizzle> | null) {
   _db = db;
+}
+
+/** Serializa mutações operacionais com logoff/substituição da sessão do mesmo usuário. */
+async function lockActiveOperatorSession(tx: any, userId: number, authSessionId?: number | null) {
+  if (!authSessionId) throw new Error("Sessão operacional não identificada; atualize a página e entre novamente.");
+  await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update").limit(1);
+  const [session] = await tx.select({ id: authSessions.id }).from(authSessions).where(and(
+    eq(authSessions.id, authSessionId), eq(authSessions.userId, userId), isNull(authSessions.revokedAt), gt(authSessions.expiresAt, new Date()),
+  )).for("update").limit(1);
+  if (!session) throw new Error("Sua sessão foi encerrada ou substituída; atualize a fila antes de continuar.");
 }
 
 export async function getDb() {
@@ -152,21 +164,55 @@ export async function replaceActiveAuthSession(userId: number, tokenHash: string
   if (!db) throw new Error("Banco de dados indisponível para iniciar sessão");
   return db.transaction(async (tx) => {
     // O lock da linha do usuário serializa logins simultâneos do mesmo operador.
-    const userRows = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update").limit(1);
-    if (!userRows[0]) throw new Error("Usuário não encontrado para iniciar sessão");
-    const previous = await tx.select({ id: authSessions.id }).from(authSessions).where(and(
+    const userRows = await tx.select({ id: users.id, name: users.name, role: users.role, loginMethod: users.loginMethod }).from(users).where(eq(users.id, userId)).for("update").limit(1);
+    const user = userRows[0];
+    if (!user) throw new Error("Usuário não encontrado para iniciar sessão");
+    const previous = await tx.select({ id: authSessions.id, createdAt: authSessions.createdAt, expiresAt: authSessions.expiresAt }).from(authSessions).where(and(
       eq(authSessions.userId, userId),
       isNull(authSessions.revokedAt),
     ));
     const now = new Date();
+    if (previous.some((row) => new Date(row.expiresAt) > now) && OPERATIONAL_ROLES.includes(user.role as any)) {
+      const pending = await tx.select({ id: incidents.id }).from(incidents).where(and(
+        eq(incidents.operatorId, userId), inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+      )).for("update").limit(500);
+      if (pending.length) throw new Error("Você tem ocorrências pendentes na sessão anterior. Volte à tela onde está conectado, finalize-as ou faça a passagem para o próximo operador antes de entrar neste computador.");
+    }
     if (previous.length) {
       await tx.update(authSessions).set({ revokedAt: now }).where(and(
         eq(authSessions.userId, userId),
         isNull(authSessions.revokedAt),
       ));
+      if (OPERATIONAL_ROLES.includes(user.role as any)) {
+        for (const prior of previous) {
+          const [attendance] = await tx.select({ id: operatorAttendanceRecords.id, logoutAt: operatorAttendanceRecords.logoutAt })
+            .from(operatorAttendanceRecords).where(eq(operatorAttendanceRecords.authSessionId, prior.id)).limit(1);
+          const reason = new Date(prior.expiresAt) <= now ? "session_expired" as const : "session_replaced" as const;
+          if (attendance && !attendance.logoutAt) {
+            await tx.update(operatorAttendanceRecords).set({ logoutAt: reason === "session_expired" ? prior.expiresAt : now, logoutReason: reason })
+              .where(and(eq(operatorAttendanceRecords.authSessionId, prior.id), isNull(operatorAttendanceRecords.logoutAt)));
+          } else if (!attendance) {
+            await tx.insert(operatorAttendanceRecords).values({
+              authSessionId: prior.id, userId, operatorName: (user.name || `Operador ${userId}`).slice(0, 255),
+              role: user.role, loginMethod: user.loginMethod, loginAt: prior.createdAt,
+              logoutAt: reason === "session_expired" ? prior.expiresAt : now, logoutReason: reason,
+            });
+          }
+        }
+      }
     }
     const inserted = await tx.insert(authSessions).values({ userId, tokenHash, expiresAt, lastSeenAt: now });
-    return { sessionId: Number(inserted[0].insertId), revokedSessionIds: previous.map(row => Number(row.id)) };
+    const sessionId = Number(inserted[0].insertId);
+    if (OPERATIONAL_ROLES.includes(user.role as any)) {
+      const shiftWindow = await getUserShiftAttendanceWindow(tx, userId, now);
+      await tx.insert(operatorAttendanceRecords).values({
+        authSessionId: sessionId, userId, operatorName: (user.name || `Operador ${userId}`).slice(0, 255),
+        role: user.role, loginMethod: user.loginMethod, loginAt: now,
+        shiftCode: shiftWindow?.shiftCode || null, workDate: shiftWindow?.workDate || null,
+        scheduledStartAt: shiftWindow?.startAt || null, scheduledEndAt: shiftWindow?.endAt || null,
+      });
+    }
+    return { sessionId, revokedSessionIds: previous.map(row => Number(row.id)) };
   });
 }
 
@@ -1950,11 +1996,14 @@ export async function getRecentEvents(minutes = 5) {
 // ============================================================
 // INCIDENTS
 // ============================================================
-export async function createIncident(data: InsertIncident) {
+export async function createIncident(data: InsertIncident, authSessionId?: number | null) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(incidents).values(data);
-  return { id: result[0].insertId };
+  return db.transaction(async (tx) => {
+    if (data.operatorId) await lockActiveOperatorSession(tx, data.operatorId, authSessionId);
+    const result = await tx.insert(incidents).values(data);
+    return { id: result[0].insertId };
+  });
 }
 
 export async function listIncidents(status?: string) {
@@ -2073,6 +2122,7 @@ export async function bulkFinalizeOpenIncidents(input: {
   operatorName?: string | null;
   observations: string;
   confirmedIncidentIds?: number[];
+  authSessionId?: number | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -2090,6 +2140,7 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
   operatorName?: string | null;
   observations: string;
   confirmedIncidentIds?: number[];
+  authSessionId?: number | null;
 }) {
   if (!input.alarmSystemId) throw new Error("Selecione a central identificada para finalizar em massa");
   if (!input.operatorId) throw new Error("Operador autenticado obrigatório");
@@ -2099,6 +2150,8 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
   const operatorName = (input.operatorName || "Operador").slice(0, 255);
 
   return db.transaction(async (tx: any) => {
+    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId!, input.authSessionId);
+    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId!)).for("update").limit(1);
     const conditions: any[] = [
       eq(alarmEvents.account, input.account),
       eq(incidents.alarmSystemId, input.alarmSystemId!),
@@ -2184,11 +2237,14 @@ export async function transitionIncidentForOperator(input: {
   incidentId: number;
   operatorId: number;
   operatorName: string;
+  authSessionId?: number | null;
   status: "attending" | "dispatched";
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
+    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
+    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId)).for("update").limit(1);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
     const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
@@ -2219,11 +2275,13 @@ export async function transitionIncidentForOperator(input: {
   });
 }
 
-export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string; operatorId: number; operatorName: string }) {
+export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string; operatorId: number; operatorName: string; authSessionId?: number | null }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   if (input.until <= new Date()) throw new Error("Informe uma data e hora futura para a observação");
   return db.transaction(async (tx) => {
+    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
+    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId)).for("update").limit(1);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
     const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
@@ -2241,10 +2299,12 @@ export async function putIncidentInObservation(input: { incidentId: number; unti
   });
 }
 
-export async function assumeObservedIncident(input: { incidentId: number; operatorId: number; operatorName: string }) {
+export async function assumeObservedIncident(input: { incidentId: number; operatorId: number; operatorName: string; authSessionId?: number | null }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
+    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
+    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId)).for("update").limit(1);
     const [parent] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!parent) throw new Error("Ocorrência aberta não encontrada");
     if (parent.status === "closed") throw new Error("Este atendimento já está finalizado");
@@ -3003,10 +3063,12 @@ export async function createOccurrence(data: InsertOccurrence) {
 }
 
 /** Fecha a ocorrência somente quando o relatório foi gravado com sucesso. */
-export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence, actingOperatorId: number, actingOperatorName: string) {
+export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence, actingOperatorId: number, actingOperatorName: string, authSessionId?: number | null) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
+    if (authSessionId !== undefined) await lockActiveOperatorSession(tx, actingOperatorId, authSessionId);
+    else await tx.select({ id: users.id }).from(users).where(eq(users.id, actingOperatorId)).for("update").limit(1);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
     if (current.status === "closed") throw new Error("Ocorrência já está finalizada");
@@ -3265,7 +3327,7 @@ export async function listSystemUsers() {
   return db.select().from(users).orderBy(desc(users.createdAt));
 }
 
-export async function createSystemUser(data: { name: string; email: string; password: string; role: string; partnerId?: number }) {
+export async function createSystemUser(data: { name: string; email: string; password: string; role: string; partnerId?: number; shiftAssignment?: Omit<ShiftAssignmentInput, "userId"> }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const openId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -3278,7 +3340,11 @@ export async function createSystemUser(data: { name: string; email: string; pass
     ...(data.partnerId ? { partnerId: data.partnerId } : {}),
   };
   values.password = data.password; // Already hashed
-  await db.insert(users).values(values as any);
+  if (data.shiftAssignment) await db.transaction(async (tx) => {
+    const inserted = await tx.insert(users).values(values as any);
+    await saveOperatorShiftAssignmentWithTransaction(tx, { ...data.shiftAssignment!, userId: Number(inserted[0].insertId) });
+  });
+  else await db.insert(users).values(values as any);
   return { success: true };
 }
 
@@ -3295,12 +3361,18 @@ export async function updateUserLastSignedIn(userId: number) {
   await db.update(users).set({ lastSignedIn: new Date() } as any).where(eq(users.id, userId));
 }
 
-export async function updateSystemUser(id: number, data: { name?: string; email?: string; password?: string; role?: string; partnerId?: number | null }) {
+export async function updateSystemUser(id: number, data: { name?: string; email?: string; password?: string; role?: string; partnerId?: number | null; shiftAssignment?: Omit<ShiftAssignmentInput, "userId"> }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const values = prepareSystemUserCreatePayload(Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined && value !== "")));
-  if (Object.keys(values).length === 0) return { success: true };
-  await db.update(users).set(values as any).where(eq(users.id, id));
+  const { shiftAssignment, ...userData } = data;
+  const values = prepareSystemUserCreatePayload(Object.fromEntries(Object.entries(userData).filter(([, value]) => value !== undefined && value !== "")));
+  if (Object.keys(values).length === 0 && !shiftAssignment) return { success: true };
+  if (shiftAssignment) {
+    await db.transaction(async (tx) => {
+      if (Object.keys(values).length) await tx.update(users).set(values as any).where(eq(users.id, id));
+      await saveOperatorShiftAssignmentWithTransaction(tx, { ...shiftAssignment, userId: id });
+    });
+  } else await db.update(users).set(values as any).where(eq(users.id, id));
   return { success: true };
 }
 

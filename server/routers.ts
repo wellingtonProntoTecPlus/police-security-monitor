@@ -17,6 +17,8 @@ import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 import { buildRemoteCommandRequestNote } from "./remoteCommandEventCorrelation";
 import { emitIncidentStateChanged } from "./_core/socketEvents";
+import { emitOperatorShiftNotice } from "./_core/operatorShiftRuntime";
+import * as operatorShiftDb from "./operatorShiftDb";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -91,10 +93,29 @@ export const appRouter = router({
       }
       return opts.ctx.user;
     }),
-    logout: publicProcedure.mutation(async ({ ctx }) => {
-      if (ctx.authSessionTokenHash) {
+    logout: publicProcedure.input(z.object({
+      handoffs: z.array(z.object({ incidentId: z.number().int().positive(), toUserId: z.number().int().positive(), message: z.string().max(4000), observationUntil: z.date().optional() })).max(500).default([]),
+    }).optional()).mutation(async ({ input, ctx }) => {
+      if (ctx.authSessionValidationTimedOut) throw new TRPCError({ code: "TIMEOUT", message: "Não foi possível conferir sua sessão. Nenhum logoff foi realizado; tente novamente." });
+      if (ctx.authSessionTokenHash && ctx.user && ["admin", "supervisor", "operator"].includes(ctx.user.role) && !ctx.authSessionId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Sessão operacional não identificada. Nenhum logoff foi realizado; atualize a tela." });
+      if (ctx.authSessionTokenHash && ctx.user && ctx.authSessionId && ["admin", "supervisor", "operator"].includes(ctx.user.role)) {
+        const result = await operatorShiftDb.endOperatorSessionWithHandoff({
+          userId: ctx.user.id, authSessionId: ctx.authSessionId, operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
+          handoffs: input?.handoffs || [],
+        });
+        for (const message of result.messages) {
+          emitIncidentStateChanged({ incidentId: message.incidentId, incidentStatus: "observing", operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "observing" });
+          emitOperatorShiftNotice({
+            kind: "shift_message", messageId: message.id, userId: message.toUserId,
+            fromOperatorName: message.fromOperatorName, toOperatorName: message.toOperatorName, incidentId: message.incidentId, account: message.account,
+          });
+        }
+        notifyAuthSessionsRevoked(result.revokedSessionIds);
+      } else if (ctx.authSessionTokenHash && ctx.user) {
         const revoked = await db.revokeAuthSessionByTokenHash(ctx.authSessionTokenHash);
         notifyAuthSessionsRevoked(revoked);
+      } else if (ctx.authSessionTokenHash && !ctx.authSessionInvalid) {
+        throw new TRPCError({ code: "TIMEOUT", message: "Não foi possível identificar sua sessão para conferir as pendências. Tente novamente." });
       }
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -759,7 +780,7 @@ export const appRouter = router({
       clientId: z.number().optional(),
       priority: z.enum(["critical", "high", "medium", "low"]).optional(),
       notes: z.string().optional(),
-    })).mutation(({ input, ctx }) => db.createIncident({ ...input, operatorId: ctx.user?.id || undefined })),
+    })).mutation(({ input, ctx }) => db.createIncident({ ...input, operatorId: ctx.user?.id || undefined }, ctx.authSessionId)),
     update: operatorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["attending", "dispatched"]),
@@ -769,6 +790,7 @@ export const appRouter = router({
         incidentId: input.id,
         operatorId: ctx.user.id,
         operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
+        authSessionId: ctx.authSessionId,
         status: input.status,
       });
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: result.action === "claim" ? "claimed" : "status_changed" });
@@ -776,7 +798,7 @@ export const appRouter = router({
     }),
     assume: operatorProcedure.input(z.object({ incidentId: z.number() })).mutation(async ({ input, ctx }) => {
       await assertIncidentPartnerScope(ctx, input.incidentId);
-      const result = await db.assumeObservedIncident({ incidentId: input.incidentId, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}` });
+      const result = await db.assumeObservedIncident({ incidentId: input.incidentId, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId });
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "assumed" });
       return result;
     }),
@@ -798,7 +820,7 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       if (!input.alarmSystemId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a central identificada para finalizar apenas os atendimentos desta conta" });
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const result = await db.bulkFinalizeOpenIncidents({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name });
+      const result = await db.bulkFinalizeOpenIncidents({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name, authSessionId: ctx.authSessionId });
       if (result.count > 0) emitIncidentStateChanged({ incidentId: 0, incidentStatus: "closed", operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "status_changed" });
       return result;
     }),
@@ -808,7 +830,7 @@ export const appRouter = router({
       notes: z.string().max(2000).optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertIncidentPartnerScope(ctx, input.incidentId);
-      const result = await db.putIncidentInObservation({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}` });
+      const result = await db.putIncidentInObservation({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId });
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "observing" });
       return result;
     }),
@@ -1337,16 +1359,47 @@ export const appRouter = router({
       const operatorName = ctx.user.name || `Operador ${ctx.user.id}`;
       if (incidentId) await assertIncidentPartnerScope(ctx, incidentId);
       return incidentId
-        ? db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName)
+        ? db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName, ctx.authSessionId)
         : db.createOccurrence({ ...occurrence, operatorId: ctx.user.id, operatorName });
     }),
   }),
+  operatorShift: router({
+    reportUsers: supervisorProcedure.query(() => operatorShiftDb.listOperatorShiftAssignments()),
+    recipients: operatorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorMessageRecipients(ctx.user.id)),
+    sendMessage: operatorProcedure.input(z.object({ toUserId: z.number().int().positive(), message: z.string().trim().min(10).max(4000) })).mutation(async ({ input, ctx }) => {
+      if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
+      const result = await operatorShiftDb.sendOperatorShiftMessage({ ...input, userId: ctx.user.id, authSessionId: ctx.authSessionId });
+      emitOperatorShiftNotice({ kind: "shift_message", messageId: result.id, userId: result.toUserId, fromOperatorName: result.fromOperatorName, toOperatorName: result.toOperatorName, incidentId: null, account: null });
+      return { success: true, id: result.id };
+    }),
+    inbox: operatorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorShiftInbox(ctx.user.id)),
+    markRead: operatorProcedure.input(z.object({ messageId: z.number().int().positive() })).mutation(({ input, ctx }) => operatorShiftDb.markOperatorShiftMessageRead({ messageId: input.messageId, userId: ctx.user.id })),
+    pendingReminders: operatorProcedure.query(({ ctx }) => {
+      if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
+      return operatorShiftDb.listPendingOperatorShiftReminders({ userId: ctx.user.id, authSessionId: ctx.authSessionId });
+    }),
+    acknowledgeReminder: operatorProcedure.input(z.object({ reminderId: z.number().int().positive() })).mutation(({ input, ctx }) => operatorShiftDb.acknowledgeOperatorShiftReminder({ reminderId: input.reminderId, userId: ctx.user.id })),
+    logoutPreview: operatorProcedure.query(({ ctx }) => {
+      if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
+      return operatorShiftDb.getOperatorLogoutPreview({ userId: ctx.user.id, authSessionId: ctx.authSessionId });
+    }),
+    report: supervisorProcedure.input(z.object({ fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), userId: z.number().int().positive().optional() })).query(({ input }) => operatorShiftDb.getOperatorShiftReport(input)),
+    exceptions: adminProcedure.input(z.object({ fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).query(({ input }) => operatorShiftDb.listOperatorShiftExceptions(input.fromDate, input.toDate)),
+    swap: adminProcedure.input(z.object({
+      firstUserId: z.number().int().positive(), firstWorkDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      secondUserId: z.number().int().positive(), secondWorkDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      shiftOnFirstDate: z.enum(["first", "second", "third"]), shiftOnSecondDate: z.enum(["first", "second", "third"]),
+      reason: z.string().trim().min(5).max(500),
+    })).mutation(({ input, ctx }) => operatorShiftDb.createOperatorShiftExceptionSwap({ ...input, createdBy: ctx.user.id })),
+  }),
   systemUser: router({
     list: adminProcedure.query(() => db.listSystemUsers()),
-    create: adminProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.enum(["admin", "supervisor", "operator", "partner"]).default("operator"), partnerId: z.number().optional() })).mutation(async ({ input }) => {
+    shiftAssignments: adminProcedure.query(() => operatorShiftDb.listOperatorShiftAssignments()),
+    create: adminProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.enum(["admin", "supervisor", "operator", "partner"]).default("operator"), partnerId: z.number().optional(), shiftAssignment: z.object({ shiftCode: z.enum(["first", "second", "third"]), effectiveFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), changeReason: z.string().trim().min(5).max(500) }).optional() })).mutation(async ({ input, ctx }) => {
       if (input.role === "partner" && !input.partnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a empresa parceira deste usuário" });
+      if (input.shiftAssignment && input.role === "partner") throw new TRPCError({ code: "BAD_REQUEST", message: "Usuário parceiro não recebe escala de operador" });
       const hashedPassword = await bcrypt.hash(input.password, 10);
-      return db.createSystemUser({ ...input, password: hashedPassword });
+      return db.createSystemUser({ ...input, shiftAssignment: input.shiftAssignment ? { ...input.shiftAssignment, changedBy: ctx.user.id } : undefined, password: hashedPassword });
     }),
     update: adminProcedure.input(z.object({
       id: z.number(),
@@ -1355,10 +1408,13 @@ export const appRouter = router({
       password: z.string().min(6).optional(),
       role: z.enum(["admin", "supervisor", "operator", "partner"]).optional(),
       partnerId: z.number().nullable().optional(),
-    })).mutation(async ({ input }) => {
+      shiftAssignment: z.object({ shiftCode: z.enum(["first", "second", "third"]), effectiveFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), changeReason: z.string().trim().min(5).max(500) }).optional(),
+    })).mutation(async ({ input, ctx }) => {
       const { id, password, ...data } = input;
       if (data.role === "partner" && !data.partnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a empresa parceira deste usuário" });
-      return db.updateSystemUser(id, { ...data, ...(password ? { password: await bcrypt.hash(password, 10) } : {}) });
+      if (data.shiftAssignment && data.role === "partner") throw new TRPCError({ code: "BAD_REQUEST", message: "Usuário parceiro não recebe escala de operador" });
+      const shiftAssignment = data.shiftAssignment ? { ...data.shiftAssignment, changedBy: ctx.user.id } : undefined;
+      return db.updateSystemUser(id, { ...data, shiftAssignment, ...(password ? { password: await bcrypt.hash(password, 10) } : {}) });
     }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteSystemUser(input.id)),
   }),

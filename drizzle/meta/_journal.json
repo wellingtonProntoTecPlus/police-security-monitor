@@ -295,6 +295,20 @@
       "when": 1793643393664,
       "tag": "0041_shocking_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1793813386588,
+      "tag": "0042_stale_namorita",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1793815087655,
+      "tag": "0043_uneven_lady_ursula",
+      "breakpoints": true
     }
   ]
 }

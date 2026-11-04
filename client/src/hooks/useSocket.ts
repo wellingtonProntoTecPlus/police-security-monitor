@@ -39,46 +39,55 @@ export interface IncidentStateUpdate {
   timestamp: string;
 }
 
-export function useSocket() {
+export type OperatorShiftNotice =
+  | { kind: "shift_reminder"; reminderId: number; userId: number; operatorName: string; shiftCode: "first" | "second" | "third"; minutesBefore: 20 | 40; shiftEndsAt: string | Date }
+  | { kind: "shift_message"; messageId: number; userId: number; fromOperatorName: string; toOperatorName: string; incidentId: number | null; account: string | null };
+
+// A single authenticated connection per tab, even when both layout and Dashboard subscribe.
+let sharedSocket: Socket | null = null;
+let subscribers = 0;
+function acquireSocket() {
+  if (!sharedSocket) sharedSocket = io(window.location.origin, { path: "/api/socket.io", transports: ["websocket", "polling"] });
+  subscribers += 1;
+  return sharedSocket;
+}
+function releaseSocket(socket: Socket) {
+  subscribers = Math.max(0, subscribers - 1);
+  if (subscribers === 0 && sharedSocket === socket) { socket.disconnect(); sharedSocket = null; }
+}
+
+export function useSocket(options: { operationalNoticesOnly?: boolean; enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false;
+  const noticesOnly = options.operationalNoticesOnly === true;
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [realtimeEvents, setRealtimeEvents] = useState<AlarmEvent[]>([]);
   const [incidentUpdates, setIncidentUpdates] = useState<IncidentStateUpdate[]>([]);
+  const [operatorNotices, setOperatorNotices] = useState<OperatorShiftNotice[]>([]);
 
   useEffect(() => {
-    const socket = io(window.location.origin, {
-      path: "/api/socket.io",
-      transports: ["websocket", "polling"],
-    });
-
+    if (!enabled) return;
+    const socket = acquireSocket();
     socketRef.current = socket;
-
-    socket.on("connect", () => {
-      setConnected(true);
-      console.log("[Socket.IO] Conectado ao servidor");
-    });
-
-    socket.on("disconnect", () => {
-      setConnected(false);
-      console.log("[Socket.IO] Desconectado do servidor");
-    });
-
-    socket.on("alarm:event", (event: AlarmEvent) => {
-      setRealtimeEvents((prev) => [event, ...prev].slice(0, 200));
-    });
-
-    socket.on("incident:state", (event: IncidentStateUpdate) => {
-      setIncidentUpdates((prev) => [event, ...prev].slice(0, 100));
-    });
-
+    setConnected(socket.connected);
+    const onConnect = () => setConnected(true);
+    const onDisconnect = () => setConnected(false);
+    const onAlarm = (event: AlarmEvent) => setRealtimeEvents((previous) => [event, ...previous].slice(0, 200));
+    const onIncident = (event: IncidentStateUpdate) => setIncidentUpdates((previous) => [event, ...previous].slice(0, 100));
+    const onNotice = (event: OperatorShiftNotice) => setOperatorNotices((previous) => [...previous.filter((notice) => !(
+      notice.kind === event.kind && (notice.kind === "shift_reminder" && event.kind === "shift_reminder" ? notice.reminderId === event.reminderId : notice.kind === "shift_message" && event.kind === "shift_message" && notice.messageId === event.messageId)
+    )), event].slice(-100));
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("operator:shift", onNotice);
+    if (!noticesOnly) { socket.on("alarm:event", onAlarm); socket.on("incident:state", onIncident); }
     return () => {
-      socket.disconnect();
+      socket.off("connect", onConnect); socket.off("disconnect", onDisconnect); socket.off("operator:shift", onNotice);
+      socket.off("alarm:event", onAlarm); socket.off("incident:state", onIncident);
+      releaseSocket(socket); socketRef.current = null;
     };
-  }, []);
+  }, [enabled, noticesOnly]);
 
-  const clearEvents = useCallback(() => {
-    setRealtimeEvents([]);
-  }, []);
-
-  return { connected, realtimeEvents, incidentUpdates, clearEvents };
+  const clearEvents = useCallback(() => setRealtimeEvents([]), []);
+  return { connected, realtimeEvents, incidentUpdates, operatorNotices, clearEvents };
 }

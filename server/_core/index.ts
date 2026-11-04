@@ -13,10 +13,12 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startReceivers, setEventCallback } from "../receiver/index";
 import { getActiveAuthSessionByTokenHash, normalizeExistingRegistrationText, sweepAlarmScheduleCompliance, sweepKeepAliveDisconnects } from "../db";
+import { sweepOperatorShiftOperations } from "../operatorShiftDb";
 import { COOKIE_NAME } from "@shared/const";
 import { hashAuthSessionToken } from "./localSession";
 import { setAuthSessionRevocationHandler } from "./authSessionRuntime";
 import { setIncidentStateEventEmitter } from "./socketEvents";
+import { emitOperatorShiftNotice, registerOperatorSocket, setOperatorShiftNoticeEmitter, unregisterOperatorSocket } from "./operatorShiftRuntime";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -69,14 +71,22 @@ async function startServer() {
 
   io.on("connection", (socket) => {
     const sessionId = Number(socket.data.authSessionId);
+    const userId = Number(socket.data.authUserId);
     socket.join(`auth-session:${sessionId}`);
+    socket.join(`operator-user:${userId}`);
+    registerOperatorSocket(sessionId);
     console.log(`[Socket.IO] Cliente conectado: ${socket.id}`);
     socket.on("disconnect", () => {
+      unregisterOperatorSocket(sessionId);
       console.log(`[Socket.IO] Cliente desconectado: ${socket.id}`);
     });
   });
 
   setIncidentStateEventEmitter((event) => io.emit("incident:state", event));
+  setOperatorShiftNoticeEmitter((notice) => {
+    if (notice.kind === "shift_reminder") io.to(`auth-session:${notice.authSessionId}`).emit("operator:shift", notice);
+    else io.to(`operator-user:${notice.userId}`).emit("operator:shift", notice);
+  });
 
   setAuthSessionRevocationHandler((sessionIds) => {
     for (const sessionId of sessionIds) io.in(`auth-session:${sessionId}`).disconnectSockets(true);
@@ -120,12 +130,18 @@ async function startServer() {
           timestamp: new Date().toISOString(),
         });
       }
+      const shiftResult = await sweepOperatorShiftOperations(new Date());
+      for (const reminder of shiftResult.remindersSent) {
+        emitOperatorShiftNotice({ kind: "shift_reminder", ...reminder });
+      }
       return res.json({
         ok: true,
         opened: result.opened.length,
         skipped: result.skipped,
         scheduleAlertsOpened: scheduleResult.opened.length,
         scheduleAlertsResolved: scheduleResult.resolved,
+        shiftRemindersSent: shiftResult.remindersSent.length,
+        expiredOperatorSessionsClosed: shiftResult.sessionsClosed,
       });
     } catch (error) {
       console.error("[KEEPALIVE] Falha no sweep de desconexão", error);

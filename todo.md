@@ -891,3 +891,9 @@
 - [x] Exibir e permitir tentar novamente em caso de falha ao carregar/salvar agenda semanal
 - [x] Corrigir migração VPS para não criar índice único em incidents.eventId quando há atendimentos independentes vinculados ao mesmo evento e cobrir com teste de regressão
 - [ ] Migrar banco da VPS, implantar e homologar com dois operadores simultâneos antes do uso operacional
+- [x] Cadastrar escala permanente dia sim/dia não por turno/data-âncora/vigência, preservar versões e lançar exceções pontuais de troca para ambas as pessoas/datas
+- [x] Registrar presença por sessão autenticada com login/logoff/motivo, mostrar operadores realmente conectados e gerar relatório individual com intervalo, CSV e previsão mensal separada da presença real
+- [x] Avisar o operador aos 40 e 20 minutos, deduplicar avisos e recuperar caixa de passagem ao reconectar
+- [x] Disponibilizar mensagem privada avulsa e passagem por atendimento com destinatário, justificativa e prazo; validar todas as pendências atomicamente antes de revogar a sessão
+- [x] Bloquear login substituto quando a sessão anterior ainda tem ocorrências pendentes; revalidar ID de sessão sob lock em mutações da fila para rejeitar alterações tardias após o logoff
+- [ ] Publicar na VPS e homologar relatório, cron de avisos, troca dia 16/17, mensagens e logoff com duas contas; a implantação não recria logoffs passados sem dados históricos

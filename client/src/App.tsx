@@ -18,6 +18,7 @@ const ContactId = lazy(() => import("@/pages/ContactId"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const Finalizations = lazy(() => import("@/pages/Finalizations"));
 const UsersPage = lazy(() => import("@/pages/Users"));
+const OperatorShifts = lazy(() => import("@/pages/OperatorShifts"));
 const Login = lazy(() => import("@/pages/Login"));
 
 function RouteLoading() {
@@ -48,6 +49,7 @@ function Router() {
         <Route path="/reports" component={Reports} />
         <Route path="/finalizations" component={Finalizations} />
         <Route path="/users" component={UsersPage} />
+        <Route path="/operator-shifts" component={OperatorShifts} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

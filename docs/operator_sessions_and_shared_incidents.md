@@ -2,7 +2,17 @@
 
 ## Sessão única por operador
 
-Após login local ou OAuth, o PoliceCentral cria uma sessão própria do sistema e armazena no banco somente o hash do token. Um novo login da mesma conta revoga a sessão operacional anterior; requisições protegidas da sessão revogada deixam de ser aceitas e seus sockets são desconectados. A sessão é validada no servidor, então não basta manter uma página antiga aberta.
+Após login local ou OAuth, o PoliceCentral cria uma sessão própria do sistema e armazena no banco somente o hash do token. Cada usuário tem uma sessão operacional ativa; se não houver atendimento pendente, um novo login pode revogá-la, encerrar seu período de presença pelo motivo correto e desconectar os sockets anteriores. A sessão é validada no servidor, então não basta manter uma página antiga aberta.
+
+Operadores, administradores e supervisores com atendimentos abertos não podem substituir a sessão silenciosamente por login em outro computador: recebem orientação para voltar à sessão anterior, finalizar as ocorrências ou realizar a passagem. Atualizações de fila, finalização, reivindicação, observação e assunção verificam novamente o ID da sessão dentro da mesma transação e usam o lock do usuário compartilhado com o logoff; uma requisição que chegou atrasada não pode reabrir o atendimento depois da saída. Em concorrência, vence a transação serializada e a outra é rejeitada.
+
+## Escala, presença e relatório individual
+
+O cadastro do usuário operacional pode ter escala dia sim/dia não em um dos turnos: 07:00–13:00, 13:00–19:00 ou 19:00–07:00, no fuso de São Paulo. A data-âncora determina a paridade; uma alteração permanente é registrada como nova vigência, encerra a vigência anterior sem apagar o histórico e pede uma justificativa. Exceções de troca cobrem as duas pessoas/datas combinadas e não mudam a paridade permanente. Os avisos de 40 e 20 minutos são exclusivos da sessão, deduplicados no banco e recuperados ao reconectar.
+
+A tela **Escalas e Presença** separa previsão do turno e entrada/saída reais. O relatório filtrável por operador e intervalo mostra login, logoff e motivo de encerramento; a exportação CSV também preserva a diferença entre saída normal e substituição/expiração da sessão. Sessões existentes durante a migração entram com o login real guardado pela sessão autenticada, sem criar logoff fictício nem horário de trabalho retroativo.
+
+O operador pode escrever um recado particular para outro colega de qualquer tela, ou associar notas e um prazo futuro a cada ocorrência pendente ao sair. O logoff em si é uma transação única: todas as ocorrências abertas atribuídas ao usuário precisam ser finalizadas ou ter destinatário, anotação e prazo validados antes; se uma delas falhar, sessão, notas, fila e mensagens permanecem sem alteração. Recados avulsos são registrados na caixa privada e não criam evento, ocorrência nem alteram a agenda. O cron operacional existente executa o envio 40/20 a cada minuto e a reconexão refaz a consulta para recuperar avisos que não foram vistos online.
 
 ## Fila compartilhada entre telas
 
@@ -34,4 +44,4 @@ O cadastro da agenda usa os campos diários legados quando encontrados e preserv
 
 O código e as migrações são aditivos e idempotentes, mas precisam ser executados na VPS antes do uso: a instalação antiga da tabela semanal é convertida para o modelo atual, e as tabelas de sessão e histórico são criadas. O primeiro teste recomendado é com dois usuários diferentes: um inicia e observa um incidente, o outro assume; verificar que o ID do incidente permanece o mesmo, o responsável muda, a observação termina e o segundo operador consegue finalizar o atendimento com histórico preservado. Um teste adicional deve confirmar que o login do mesmo operador no segundo computador invalida o primeiro.
 
-Esses fluxos não enviam comandos físicos às centrais. A autorização, a identidade e a confirmação dos comandos de Arme/Desarme continuam seguindo seus controles próprios.
+Os turnos/notificações e guardas de sessão precisam ser aplicados na VPS antes do uso, e a tela deve ser validada com dois operadores, reabertura de browser e sessão antiga com pendência. A carga retroativa cria presença apenas para as sessões que já estavam abertas no momento da migração, usando `auth_sessions.createdAt`; não reconstrói logoffs anteriores ou escala passada sem dados de origem. Esses fluxos não enviam comandos físicos às centrais. A autorização, a identidade e a confirmação dos comandos de Arme/Desarme continuam seguindo seus controles próprios.

@@ -20,9 +20,9 @@ function makeMockDb(options: { parent?: Record<string, any>; activeChild?: Recor
   let selectCall = 0;
   const select = vi.fn(() => {
     const call = selectCall++;
-    const rows = call === 0 ? [parent] : call === 1 ? (options.activeChild ? [options.activeChild] : []) : [{ name: "Operadora Ana" }];
+    const rows = call === 0 ? [{ id: 13 }] : call === 1 ? [parent] : call === 2 ? (options.activeChild ? [options.activeChild] : []) : [{ name: "Operadora Ana" }];
     const builder: any = {
-      from: vi.fn(() => builder),
+      from: vi.fn((table: unknown) => { builder.table = table; return builder; }),
       where: vi.fn(() => builder),
       for: vi.fn(() => builder),
       limit: vi.fn(async () => rows),
@@ -55,13 +55,13 @@ function makeLifecycleDb() {
   const select = vi.fn(() => {
     const call = selectCall++;
     const builder: any = {
-      from: vi.fn((table: unknown) => {
-        builder.table = table;
+      from: vi.fn((selectedTable: unknown) => {
+        builder.table = selectedTable;
         return builder;
       }),
       where: vi.fn(() => builder),
       for: vi.fn(() => builder),
-      limit: vi.fn(async () => call === 1 ? [] : call === 2 ? [{ name: "Operadora Ana" }] : [current]),
+      limit: vi.fn(async () => call === 0 ? [{ id: 13 }] : call === 1 ? [current] : call === 2 ? [] : call === 3 ? [{ name: "Operadora Ana" }] : [current]),
       table: null as unknown,
     };
     return builder;

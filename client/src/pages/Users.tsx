@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Users as UsersIcon, Plus, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
+import { OPERATOR_SHIFT_LABELS, type OperatorShiftCode, localDateKey } from "@shared/operatorShift";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -32,16 +33,25 @@ export default function UsersPage() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "supervisor" | "operator" | "partner">("operator");
   const [partnerId, setPartnerId] = useState<number | undefined>(undefined);
+  const [hasShiftSchedule, setHasShiftSchedule] = useState(false);
+  const [shiftCode, setShiftCode] = useState<OperatorShiftCode>("first");
+  const [effectiveFromDate, setEffectiveFromDate] = useState(() => localDateKey(new Date()));
+  const [cycleAnchorDate, setCycleAnchorDate] = useState(() => localDateKey(new Date()));
+  const [shiftChangeReason, setShiftChangeReason] = useState("");
+  const [shiftScheduleDirty, setShiftScheduleDirty] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
 
   const { data: users = [], refetch } = trpc.systemUser.list.useQuery();
+  const { data: shiftAssignments = [], refetch: refetchShifts } = trpc.systemUser.shiftAssignments.useQuery();
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery();
   const createMut = trpc.systemUser.create.useMutation({
     onSuccess: () => {
       toast.success("Usuário criado com sucesso!");
       setShowForm(false);
       setName(""); setEmail(""); setPassword(""); setRole("operator");
+      setHasShiftSchedule(false); setShiftScheduleDirty(false); setShiftChangeReason("");
       refetch();
+      void refetchShifts();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -55,7 +65,9 @@ export default function UsersPage() {
       setShowForm(false);
       setEditingUser(null);
       setName(""); setEmail(""); setPassword(""); setRole("operator"); setPartnerId(undefined);
+      setHasShiftSchedule(false); setShiftScheduleDirty(false); setShiftChangeReason("");
       refetch();
+      void refetchShifts();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -67,14 +79,24 @@ export default function UsersPage() {
     setPassword("");
     setRole(user?.role || "operator");
     setPartnerId(user?.partnerId || undefined);
+    const assignment = user ? shiftAssignments.find((entry: any) => entry.id === user.id)?.shiftAssignment : null;
+    setHasShiftSchedule(user ? Boolean(assignment) : true);
+    setShiftCode(assignment?.shiftCode || "first");
+    setEffectiveFromDate(assignment?.effectiveFromDate || localDateKey(new Date()));
+    setCycleAnchorDate(assignment?.cycleAnchorDate || localDateKey(new Date()));
+    setShiftChangeReason("");
+    setShiftScheduleDirty(!user && (user?.role || "operator") === "operator");
     setShowForm(true);
   };
 
   const handleSave = () => {
     if (!name || !email || (!editingUser && !password)) { toast.error("Preencha os campos obrigatórios"); return; }
     if (role === "partner" && !partnerId) { toast.error("Selecione a empresa parceira do usuário"); return; }
-    if (editingUser) updateMut.mutate({ id: editingUser.id, name, email, role, partnerId: role === "partner" ? partnerId! : null, ...(password ? { password } : {}) });
-    else createMut.mutate({ name, email, password, role, ...(role === "partner" ? { partnerId } : {}) });
+    if (!editingUser && role === "operator" && !hasShiftSchedule) { toast.error("Configure a escala do operador ao cadastrá-lo"); return; }
+    if (hasShiftSchedule && shiftScheduleDirty && role !== "partner" && (!effectiveFromDate || !cycleAnchorDate || shiftChangeReason.trim().length < 5)) { toast.error("Informe início da escala, data-âncora e motivo (mínimo 5 caracteres)"); return; }
+    const shiftAssignment = hasShiftSchedule && role !== "partner" && shiftScheduleDirty ? { shiftCode, effectiveFromDate, cycleAnchorDate, changeReason: shiftChangeReason.trim() } : undefined;
+    if (editingUser) updateMut.mutate({ id: editingUser.id, name, email, role, partnerId: role === "partner" ? partnerId! : null, ...(password ? { password } : {}), ...(shiftAssignment ? { shiftAssignment } : {}) });
+    else createMut.mutate({ name, email, password, role, ...(role === "partner" ? { partnerId } : {}), ...(shiftAssignment ? { shiftAssignment } : {}) });
   };
 
   return (<DashboardLayout workspaceMenuPlacement="page-header">
@@ -132,6 +154,42 @@ export default function UsersPage() {
                 </div>
               )}
             </div>
+            {role !== "partner" && (
+              <div className="mt-5 rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">Escala do usuário</h3>
+                    <p className="text-xs text-muted-foreground">Turno recorrente: trabalha dia sim/dia não. A data-âncora define o primeiro dia trabalhado.</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" disabled={Boolean(editingUser && shiftAssignments.find((entry: any) => entry.id === editingUser.id)?.shiftAssignment)} checked={hasShiftSchedule} onChange={(event) => { setHasShiftSchedule(event.target.checked); setShiftScheduleDirty(true); }} />
+                    Configurar escala
+                  </label>
+                </div>
+                {hasShiftSchedule && <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <label className="space-y-1 text-xs text-muted-foreground">Turno
+                    <Select value={shiftCode} onValueChange={(value) => { setShiftCode(value as OperatorShiftCode); setShiftScheduleDirty(true); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="first">{OPERATOR_SHIFT_LABELS.first}</SelectItem>
+                        <SelectItem value="second">{OPERATOR_SHIFT_LABELS.second}</SelectItem>
+                        <SelectItem value="third">{OPERATOR_SHIFT_LABELS.third}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">Nova vigência a partir de
+                    <Input type="date" value={effectiveFromDate} onChange={(event) => { setEffectiveFromDate(event.target.value); setCycleAnchorDate(event.target.value); setShiftScheduleDirty(true); }} />
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">Data do primeiro dia trabalhado do ciclo
+                    <Input type="date" value={cycleAnchorDate} onChange={(event) => { setCycleAnchorDate(event.target.value); setShiftScheduleDirty(true); }} />
+                  </label>
+                  <label className="space-y-1 text-xs text-muted-foreground">Motivo (para salvar nova vigência)
+                    <Input value={shiftChangeReason} onChange={(event) => { setShiftChangeReason(event.target.value); setShiftScheduleDirty(true); }} placeholder="Ex.: escala ajustada em acordo" maxLength={500} />
+                  </label>
+                  <p className="md:col-span-2 xl:col-span-4 text-xs text-muted-foreground">Uma troca isolada de dia não altera esta escala. Use a tela “Escalas e Presença” para registrar a troca pontual com justificativa.</p>
+                </div>}
+              </div>
+            )}
             <div className="flex gap-2 mt-4">
               <Button onClick={handleSave} disabled={createMut.isPending || updateMut.isPending}>
                 {createMut.isPending || updateMut.isPending ? "Salvando..." : editingUser ? "Salvar Alterações" : "Cadastrar"}
@@ -151,13 +209,14 @@ export default function UsersPage() {
                   <th className="p-3 text-left">Nome</th>
                   <th className="p-3 text-left">E-mail</th>
                   <th className="p-3 text-left">Hierarquia</th>
+                  <th className="p-3 text-left">Escala</th>
                   <th className="p-3 text-left">Último Acesso</th>
                   <th className="p-3 text-left">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 ? (
-                  <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">Nenhum usuário cadastrado. Clique em "+ Novo Usuário".</td></tr>
+                  <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">Nenhum usuário cadastrado. Clique em "+ Novo Usuário".</td></tr>
                 ) : (
                   users.map((u: any) => (
                     <tr key={u.id} className="border-b hover:bg-muted/50">
@@ -168,6 +227,7 @@ export default function UsersPage() {
                           {ROLE_LABELS[u.role] || u.role}
                         </Badge>
                       </td>
+                      <td className="p-3 text-xs">{shiftAssignments.find((entry: any) => entry.id === u.id)?.shiftAssignment ? <span>{OPERATOR_SHIFT_LABELS[shiftAssignments.find((entry: any) => entry.id === u.id).shiftAssignment.shiftCode as OperatorShiftCode]}<br /><span className="text-muted-foreground">Desde {new Date(`${shiftAssignments.find((entry: any) => entry.id === u.id).shiftAssignment.effectiveFromDate}T00:00:00`).toLocaleDateString("pt-BR")} · âncora {new Date(`${shiftAssignments.find((entry: any) => entry.id === u.id).shiftAssignment.cycleAnchorDate}T00:00:00`).toLocaleDateString("pt-BR")}</span></span> : <span className="text-muted-foreground">Não definida</span>}</td>
                       <td className="p-3">{new Date(u.lastSignedIn).toLocaleString("pt-BR")}</td>
                       <td className="p-3">
                         <div className="flex gap-1">

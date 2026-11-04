@@ -1,0 +1,1 @@
+ALTER TABLE `operator_shift_assignments` ADD `isActive` boolean DEFAULT true NOT NULL;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
-import { incidents, occurrences, incidentHistory } from "../drizzle/schema";
+import { incidents, occurrences, incidentHistory, users } from "../drizzle/schema";
 import { bulkFinalizeOpenIncidentsWithDb, promoteExpiredRadioengeKeepAliveObservationsWithDb } from "./db";
 
 const dialect = new MySqlDialect();
@@ -21,11 +21,14 @@ function fakeDb(rows: ReturnType<typeof row>[], options: { failReport?: boolean;
       const tx = {
         select: (projection: unknown) => {
           selection = projection;
+          let selectedTable: unknown;
           const query: any = {
-            from: () => query, innerJoin: () => query, orderBy: () => query,
+            from: (table: unknown) => { selectedTable = table; return query; }, innerJoin: () => query, orderBy: () => query,
             where: (condition: any) => { whereQuery = dialect.sqlToQuery(condition); return query; },
             for: (value: string) => { locked(value); return query; },
+            limit: () => query,
             then: (resolve: any, reject: any) => {
+              if (selectedTable === users) return Promise.resolve([{ id: 7 }]).then(resolve, reject);
               const selected = options.expired ? rows.filter(r => r.incident.status === "observing" && r.incident.observationUntil != null)
                 : rows.filter(r => r.event.account === whereQuery!.params[0] && r.incident.alarmSystemId === whereQuery!.params[1] && r.incident.status !== "closed");
               return Promise.resolve(selected).then(resolve, reject);

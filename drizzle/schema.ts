@@ -33,6 +33,94 @@ export const authSessions = mysqlTable("auth_sessions", {
 }, (table) => [index("auth_sessions_user_active_idx").on(table.userId, table.revokedAt, table.expiresAt)]);
 export type AuthSession = typeof authSessions.$inferSelect;
 
+/** Faixas permanentes da escala. A vigência histórica é preservada ao trocar turno. */
+export const operatorShiftAssignments = mysqlTable("operator_shift_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  operatorName: varchar("operatorName", { length: 255 }).notNull(),
+  shiftCode: mysqlEnum("shiftCode", ["first", "second", "third"]).notNull(),
+  cycleAnchorDate: varchar("cycleAnchorDate", { length: 10 }).notNull(),
+  effectiveFromDate: varchar("effectiveFromDate", { length: 10 }).notNull(),
+  effectiveUntilDate: varchar("effectiveUntilDate", { length: 10 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  changeReason: varchar("changeReason", { length: 500 }),
+  changedBy: int("changedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("operator_shift_assignments_user_effective_idx").on(table.userId, table.effectiveFromDate, table.effectiveUntilDate)]);
+
+/** Exceção de um único dia: substitui a paridade regular sem alterá-la. */
+export const operatorShiftExceptions = mysqlTable("operator_shift_exceptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  operatorName: varchar("operatorName", { length: 255 }).notNull(),
+  workDate: varchar("workDate", { length: 10 }).notNull(),
+  kind: mysqlEnum("kind", ["work", "off"]).notNull(),
+  shiftCode: mysqlEnum("shiftCode", ["first", "second", "third"]),
+  pairedUserId: int("pairedUserId"),
+  pairedOperatorName: varchar("pairedOperatorName", { length: 255 }),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  createdBy: int("createdBy").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  cancelledAt: timestamp("cancelledAt"),
+  cancelledBy: int("cancelledBy"),
+}, (table) => [index("operator_shift_exceptions_user_date_active_idx").on(table.userId, table.workDate, table.isActive)]);
+
+/** Presença real: uma linha por sessão autenticada, com a causa de encerramento explícita. */
+export const operatorAttendanceRecords = mysqlTable("operator_attendance_records", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  authSessionId: bigint("authSessionId", { mode: "number" }).notNull().unique(),
+  userId: int("userId").notNull(),
+  operatorName: varchar("operatorName", { length: 255 }).notNull(),
+  role: varchar("role", { length: 30 }).notNull(),
+  loginMethod: varchar("loginMethod", { length: 64 }),
+  loginAt: timestamp("loginAt").defaultNow().notNull(),
+  logoutAt: timestamp("logoutAt"),
+  logoutReason: mysqlEnum("logoutReason", ["logout", "session_replaced", "session_expired", "revoked"]),
+  shiftCode: mysqlEnum("shiftCode", ["first", "second", "third"]),
+  workDate: varchar("workDate", { length: 10 }),
+  scheduledStartAt: timestamp("scheduledStartAt"),
+  scheduledEndAt: timestamp("scheduledEndAt"),
+}, (table) => [
+  index("operator_attendance_user_login_idx").on(table.userId, table.loginAt),
+  index("operator_attendance_open_idx").on(table.logoutAt, table.userId),
+]);
+
+/** Aviso de término do turno, único por sessão/turno/antecedência. */
+export const operatorShiftReminders = mysqlTable("operator_shift_reminders", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  attendanceId: bigint("attendanceId", { mode: "number" }).notNull(),
+  userId: int("userId").notNull(),
+  operatorName: varchar("operatorName", { length: 255 }).notNull(),
+  shiftCode: mysqlEnum("shiftCode", ["first", "second", "third"]).notNull(),
+  workDate: varchar("workDate", { length: 10 }).notNull(),
+  minutesBefore: int("minutesBefore").notNull(),
+  shiftEndsAt: timestamp("shiftEndsAt").notNull(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+  acknowledgedAt: timestamp("acknowledgedAt"),
+}, (table) => [
+  uniqueIndex("operator_shift_reminder_unique").on(table.attendanceId, table.workDate, table.shiftCode, table.minutesBefore),
+  index("operator_shift_reminder_pending_idx").on(table.userId, table.acknowledgedAt, table.sentAt),
+]);
+
+/** Caixa de passagem privada, com snapshot dos nomes e vínculo opcional à ocorrência. */
+export const operatorShiftMessages = mysqlTable("operator_shift_messages", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  fromUserId: int("fromUserId").notNull(),
+  fromOperatorName: varchar("fromOperatorName", { length: 255 }).notNull(),
+  fromAttendanceId: bigint("fromAttendanceId", { mode: "number" }).notNull(),
+  toUserId: int("toUserId").notNull(),
+  toOperatorName: varchar("toOperatorName", { length: 255 }).notNull(),
+  incidentId: int("incidentId"),
+  account: varchar("account", { length: 20 }),
+  message: text("message").notNull(),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("operator_shift_message_inbox_idx").on(table.toUserId, table.readAt, table.createdAt),
+  index("operator_shift_message_incident_idx").on(table.incidentId, table.createdAt),
+]);
+
 // ============================================================
 // EMPRESA GESTORA
 // ============================================================

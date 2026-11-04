@@ -21,13 +21,16 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { AlertTriangle, LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X } from "lucide-react";
+import { AlertTriangle, LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X, CalendarClock } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 import WorkspaceScreenMenu from "./WorkspaceScreenMenu";
+import OperatorHandoffMessageDialog from "./OperatorHandoffMessageDialog";
+import { useSocket } from "@/hooks/useSocket";
+import { OPERATOR_SHIFT_LABELS, type OperatorShiftCode } from "@shared/operatorShift";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -36,6 +39,7 @@ const menuItems = [
   { icon: Users, label: "Clientes", path: "/clients" },
   { icon: Shield, label: "Sistemas de Alarme", path: "/alarm-systems" },
   { icon: Radio, label: "Relatórios", path: "/reports" },
+  { icon: CalendarClock, label: "Escalas e Presença", path: "/operator-shifts" },
   { icon: Shield, label: "Contact ID", path: "/contact-id" },
   { icon: LayoutDashboard, label: "Finalizações", path: "/finalizations" },
   { icon: Users, label: "Usuários", path: "/users" },
@@ -44,7 +48,7 @@ const menuItems = [
 
 const ROLE_MENU_ITEMS: Record<string, string[]> = {
   admin: menuItems.map((item) => item.path),
-  supervisor: ["/dashboard", "/partners", "/clients", "/reports", "/contact-id", "/finalizations"],
+  supervisor: ["/dashboard", "/partners", "/clients", "/reports", "/operator-shifts", "/contact-id", "/finalizations"],
   operator: ["/dashboard", "/clients", "/finalizations"],
   partner: ["/clients", "/reports"],
 };
@@ -53,6 +57,7 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 200;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
+function localDateTimeInput(date: Date) { return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); }
 
 export default function DashboardLayout({
   children,
@@ -145,6 +150,17 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [logoutMode, setLogoutMode] = useState<"logout" | "switch">("logout");
+  const [handoffMessages, setHandoffMessages] = useState<Record<number, string>>({});
+  const [handoffRecipients, setHandoffRecipients] = useState<Record<number, number>>({});
+  const [handoffUntil, setHandoffUntil] = useState<Record<number, string>>({});
+  const [logoutSubmitting, setLogoutSubmitting] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+  const [activeInboxMessageId, setActiveInboxMessageId] = useState<number | null>(null);
+  const [activeReminderId, setActiveReminderId] = useState<number | null>(null);
+  const [noticeError, setNoticeError] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -153,10 +169,80 @@ function DashboardLayoutContent({
   const isMobile = useIsMobile();
   const visibleMenuItems = user ? menuItems.filter((item) => (ROLE_MENU_ITEMS[user.role] || ROLE_MENU_ITEMS.operator).includes(item.path)) : menuItems;
   const changeOwnPasswordMut = trpc.auth.changeOwnPassword.useMutation();
+  const isOperational = Boolean(user && ["admin", "supervisor", "operator"].includes(user.role));
+  const logoutPreview = trpc.operatorShift.logoutPreview.useQuery(undefined, { enabled: logoutDialogOpen && isOperational, retry: false });
+  const inboxQuery = trpc.operatorShift.inbox.useQuery(undefined, { enabled: isOperational, refetchOnWindowFocus: true, retry: false });
+  const remindersQuery = trpc.operatorShift.pendingReminders.useQuery(undefined, { enabled: isOperational, refetchOnWindowFocus: true, retry: false });
+  const { operatorNotices, connected: noticesConnected } = useSocket({ operationalNoticesOnly: true, enabled: isOperational });
+  const noticeRefetchers = useRef({ inbox: inboxQuery.refetch, reminders: remindersQuery.refetch });
+  noticeRefetchers.current = { inbox: inboxQuery.refetch, reminders: remindersQuery.refetch };
+  const markMessageRead = trpc.operatorShift.markRead.useMutation({ onSuccess: async () => { await inboxQuery.refetch(); } });
+  const acknowledgeReminder = trpc.operatorShift.acknowledgeReminder.useMutation({ onSuccess: async () => { await remindersQuery.refetch(); } });
+  const confirmMessageRead = async (id: number) => {
+    setNoticeError("");
+    try { await markMessageRead.mutateAsync({ messageId: id }); setActiveInboxMessageId(null); }
+    catch (error) { setNoticeError(error instanceof Error ? error.message : "Não foi possível registrar a leitura. Tente novamente."); }
+  };
+  const confirmReminderRead = async (id: number) => {
+    setNoticeError("");
+    try { await acknowledgeReminder.mutateAsync({ reminderId: id }); setActiveReminderId(null); }
+    catch (error) { setNoticeError(error instanceof Error ? error.message : "Não foi possível confirmar o aviso. Tente novamente."); }
+  };
 
-  const changeShift = async () => {
-    await logout();
-    window.location.href = "/login?turno=1";
+  useEffect(() => {
+    if (operatorNotices?.some((notice) => notice.kind === "shift_message")) void noticeRefetchers.current.inbox();
+    if (operatorNotices?.some((notice) => notice.kind === "shift_reminder")) void noticeRefetchers.current.reminders();
+  }, [operatorNotices]);
+
+  useEffect(() => {
+    if (noticesConnected) { void noticeRefetchers.current.inbox(); void noticeRefetchers.current.reminders(); }
+  }, [noticesConnected]);
+
+  useEffect(() => {
+    const first = inboxQuery.data?.[0];
+    if (first && activeInboxMessageId === null) setActiveInboxMessageId(Number(first.id));
+  }, [inboxQuery.data, activeInboxMessageId]);
+
+  useEffect(() => {
+    const first = remindersQuery.data?.[0]?.reminder;
+    if (first && activeReminderId === null) setActiveReminderId(Number(first.id));
+  }, [remindersQuery.data, activeReminderId]);
+
+  useEffect(() => {
+    if (!logoutDialogOpen || !logoutPreview.data) return;
+    setHandoffMessages((old) => Object.fromEntries(logoutPreview.data.pendingIncidents.map((incident) => [incident.incidentId, old[incident.incidentId] || ""])));
+    setHandoffRecipients((old) => Object.fromEntries(logoutPreview.data.pendingIncidents.map((incident) => [incident.incidentId, old[incident.incidentId] || logoutPreview.data.nextOperators[0]?.userId || logoutPreview.data.availableRecipients[0]?.userId || 0])));
+    setHandoffUntil((old) => Object.fromEntries(logoutPreview.data.pendingIncidents.map((incident) => [incident.incidentId, old[incident.incidentId] || localDateTimeInput(incident.observationUntil && new Date(incident.observationUntil) > new Date() ? new Date(incident.observationUntil) : new Date(Date.now() + 30 * 60_000))])));
+  }, [logoutDialogOpen, logoutPreview.dataUpdatedAt]);
+
+  const changeShift = () => { setLogoutMode("switch"); setLogoutError(""); setLogoutDialogOpen(true); };
+  const requestLogout = () => { setLogoutMode("logout"); setLogoutError(""); setLogoutDialogOpen(true); };
+
+  const confirmLogout = async () => {
+    if (logoutSubmitting) return;
+    const incidents = logoutPreview.data?.pendingIncidents || [];
+    const handoffs = incidents.map((incident) => ({
+      incidentId: incident.incidentId,
+      toUserId: handoffRecipients[incident.incidentId] || 0,
+      message: handoffMessages[incident.incidentId] || "",
+      observationUntil: new Date(handoffUntil[incident.incidentId] || ""),
+    }));
+    if (handoffs.some((handoff) => !handoff.toUserId || handoff.message.trim().length < 10)) {
+      setLogoutError("Cada ocorrência pendente precisa de um próximo operador e uma anotação de pelo menos 10 caracteres.");
+      return;
+    }
+    if (handoffs.some((handoff) => Number.isNaN(handoff.observationUntil.getTime()) || handoff.observationUntil <= new Date())) { setLogoutError("Informe prazo futuro de observação para cada ocorrência."); return; }
+    setLogoutSubmitting(true);
+    try {
+      await logout(handoffs);
+      setLogoutDialogOpen(false);
+      if (logoutMode === "switch") window.location.href = "/login?turno=1";
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : "Não foi possível concluir o logoff. Nenhuma ocorrência foi transferida.");
+      await logoutPreview.refetch();
+    } finally {
+      setLogoutSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -326,12 +412,13 @@ function DashboardLayoutContent({
                   <UserRound className="mr-2 h-4 w-4" />
                   <span>Meu perfil e senha</span>
                 </DropdownMenuItem>
+                {isOperational && <DropdownMenuItem onClick={() => setMessageDialogOpen(true)} className="cursor-pointer"><Users className="mr-2 h-4 w-4" /><span>Mensagem de passagem</span></DropdownMenuItem>}
                 <DropdownMenuItem onClick={() => void changeShift()} className="cursor-pointer text-amber-600 focus:text-amber-700">
                   <Users className="mr-2 h-4 w-4" />
                   <span>Trocar usuário</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => void logout()}
+                  onClick={requestLogout}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
@@ -372,6 +459,77 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
+        {messageDialogOpen && <OperatorHandoffMessageDialog onClose={() => setMessageDialogOpen(false)} />}
+        {logoutDialogOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="operator-logout-title">
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-border bg-card text-card-foreground shadow-2xl">
+              <div className="border-b border-border px-5 py-4">
+                <h2 id="operator-logout-title" className="text-lg font-semibold">{logoutMode === "switch" ? "Trocar usuário" : "Sair do sistema"}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Antes do logoff, confira e passe para o próximo operador todas as ocorrências que ainda estão atribuídas a você.</p>
+              </div>
+              <div className="space-y-4 p-5">
+                {logoutPreview.isLoading ? <p className="text-sm text-muted-foreground">Conferindo suas ocorrências abertas...</p> : null}
+                {logoutPreview.error ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutPreview.error.message}</p> : null}
+                {logoutPreview.data?.fallbackRecipients && logoutPreview.data.pendingIncidents.length > 0 ? <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">Não há operador escalado para o próximo turno. Selecione um operador disponível abaixo e informe o motivo.</p> : null}
+                {logoutPreview.data?.pendingIncidents.length === 0 && !logoutPreview.isLoading && !logoutPreview.error ? <p className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">Nenhuma ocorrência pendente está atribuída a você. Pode confirmar o logoff.</p> : null}
+                {logoutPreview.data?.pendingIncidents.map((incident) => {
+                  const recipients = logoutPreview.data.nextOperators.length ? logoutPreview.data.nextOperators : logoutPreview.data.availableRecipients;
+                  return <div key={incident.incidentId} className="space-y-3 rounded-lg border border-border p-4">
+                    <div>
+                      <p className="font-semibold">Conta {incident.account} · atendimento #{incident.incidentId}</p>
+                      <p className="text-sm text-muted-foreground">{incident.description || `Evento ${incident.eventCode}`} · {incident.status === "observing" ? "já está em observação" : "precisa ser colocado em observação"}</p>
+                      {incident.notes ? <p className="mt-2 whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">Registro atual: {incident.notes}</p> : null}
+                    </div>
+                    <label className="block text-xs text-muted-foreground">Observação até
+                      <input type="datetime-local" aria-label={`Observação até da conta ${incident.account}`} value={handoffUntil[incident.incidentId] || ""} onChange={(event) => setHandoffUntil((old) => ({ ...old, [incident.incidentId]: event.target.value }))} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" />
+                    </label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="space-y-1 text-xs text-muted-foreground">Próximo operador
+                        <select aria-label={`Próximo operador da conta ${incident.account}`} value={handoffRecipients[incident.incidentId] || ""} onChange={(event) => setHandoffRecipients((previous) => ({ ...previous, [incident.incidentId]: Number(event.target.value) }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground">
+                          <option value="">Selecione</option>
+                          {recipients.map((person: any) => <option key={person.userId} value={person.userId}>{person.name}{person.shiftCode ? ` · ${OPERATOR_SHIFT_LABELS[person.shiftCode as OperatorShiftCode]}` : ""}</option>)}
+                        </select>
+                      </label>
+                      <label className="space-y-1 text-xs text-muted-foreground">Anotação para o próximo operador (mínimo 10 caracteres)
+                        <textarea aria-label={`Anotação de passagem da conta ${incident.account}`} value={handoffMessages[incident.incidentId] || ""} onChange={(event) => setHandoffMessages((previous) => ({ ...previous, [incident.incidentId]: event.target.value }))} rows={3} maxLength={4000} placeholder="Ex.: Cliente informou que está sem energia; previsão de retorno às 13h." className="w-full resize-y rounded-md border border-input bg-background p-3 text-sm text-foreground" />
+                      </label>
+                    </div>
+                  </div>;
+                })}
+                {logoutError ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutError}</p> : null}
+                <p className="text-xs text-muted-foreground">O sistema grava quem saiu, o horário, o destinatário e a mensagem. As ocorrências continuam na fila, agora em observação. Se houver pendências, nenhuma delas é alterada se uma anotação ou destinatário estiver faltando.</p>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+                <Button variant="outline" disabled={logoutSubmitting} onClick={() => setLogoutDialogOpen(false)}>Cancelar</Button>
+                <Button onClick={() => void confirmLogout()} disabled={logoutSubmitting || logoutPreview.isFetching || Boolean(logoutPreview.error)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{logoutSubmitting ? "Registrando..." : "Confirmar logoff"}</Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {activeInboxMessageId !== null && inboxQuery.data?.some((message) => Number(message.id) === activeInboxMessageId) && (() => {
+          const message = inboxQuery.data.find((entry) => Number(entry.id) === activeInboxMessageId)!;
+          return <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Mensagem de passagem de turno">
+            <div className="w-full max-w-lg rounded-xl border border-primary/40 bg-card p-5 text-card-foreground shadow-2xl">
+              <p className="text-lg font-semibold">{message.fromOperatorName} deixou uma mensagem para {message.toOperatorName}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{message.account ? `Conta ${message.account}` : "Recado de passagem"}{message.incidentId ? ` · atendimento #${message.incidentId}` : ""}</p>
+              <p className="my-4 whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm">{message.message}</p>
+              <p className="text-xs text-muted-foreground">Recebida em {new Date(message.createdAt).toLocaleString("pt-BR")}</p>
+              {noticeError ? <p role="alert" className="mt-2 text-sm text-destructive">{noticeError}</p> : null}
+              <div className="mt-4 flex justify-end"><Button disabled={markMessageRead.isPending} onClick={() => { void confirmMessageRead(Number(message.id)); }}>Entendi</Button></div>
+            </div>
+          </div>;
+        })()}
+        {activeReminderId !== null && remindersQuery.data?.some((row) => Number(row.reminder.id) === activeReminderId) && (() => {
+          const reminder = remindersQuery.data.find((row) => Number(row.reminder.id) === activeReminderId)!.reminder;
+          return <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Aviso de término de turno">
+            <div className="w-full max-w-md rounded-xl border border-amber-500/50 bg-card p-5 text-card-foreground shadow-2xl">
+              <p className="text-lg font-semibold">Passagem de turno · aviso de {reminder.minutesBefore} minutos</p>
+              <p className="mt-2 text-sm text-muted-foreground">Turno termina às {new Date(reminder.shiftEndsAt).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}. Finalize os atendimentos possíveis ou deixe cada ocorrência em observação com uma anotação para o próximo operador.</p>
+              {noticeError ? <p role="alert" className="mt-2 text-sm text-destructive">{noticeError}</p> : null}
+              <div className="mt-4 flex justify-end gap-2"><Button variant="outline" onClick={() => setMessageDialogOpen(true)}>Escrever passagem</Button><Button disabled={acknowledgeReminder.isPending} onClick={() => { void confirmReminderRead(Number(reminder.id)); }}>Entendi</Button></div>
+            </div>
+          </div>;
+        })()}
         <div
           className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => {

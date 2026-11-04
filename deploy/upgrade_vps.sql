@@ -1098,3 +1098,109 @@ WHERE rc.`brand` = 'COMPATEC'
     SELECT 1 FROM `occurrences` o
     WHERE o.`observations` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')
   );
+
+-- Escala e presença operacional; todas as tabelas são aditivas e preservam histórico.
+CREATE TABLE IF NOT EXISTS `operator_attendance_records` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `authSessionId` BIGINT NOT NULL,
+  `userId` INT NOT NULL,
+  `operatorName` VARCHAR(255) NOT NULL,
+  `role` VARCHAR(30) NOT NULL,
+  `loginMethod` VARCHAR(64) NULL,
+  `loginAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `logoutAt` TIMESTAMP NULL,
+  `logoutReason` ENUM('logout','session_replaced','session_expired','revoked') NULL,
+  `shiftCode` ENUM('first','second','third') NULL,
+  `workDate` VARCHAR(10) NULL,
+  `scheduledStartAt` TIMESTAMP NULL,
+  `scheduledEndAt` TIMESTAMP NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `operator_attendance_records_authSessionId_unique` (`authSessionId`),
+  KEY `operator_attendance_user_login_idx` (`userId`,`loginAt`),
+  KEY `operator_attendance_open_idx` (`logoutAt`,`userId`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_shift_assignments` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `userId` INT NOT NULL,
+  `operatorName` VARCHAR(255) NOT NULL,
+  `shiftCode` ENUM('first','second','third') NOT NULL,
+  `cycleAnchorDate` VARCHAR(10) NOT NULL,
+  `effectiveFromDate` VARCHAR(10) NOT NULL,
+  `effectiveUntilDate` VARCHAR(10) NULL,
+  `isActive` TINYINT(1) NOT NULL DEFAULT 1,
+  `changeReason` VARCHAR(500) NULL,
+  `changedBy` INT NOT NULL,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `operator_shift_assignments_user_effective_idx` (`userId`,`effectiveFromDate`,`effectiveUntilDate`)
+);
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `operator_shift_assignments` ADD COLUMN `isActive` TINYINT(1) NOT NULL DEFAULT 1', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_shift_assignments' AND COLUMN_NAME='isActive'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+CREATE TABLE IF NOT EXISTS `operator_shift_exceptions` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `userId` INT NOT NULL,
+  `operatorName` VARCHAR(255) NOT NULL,
+  `workDate` VARCHAR(10) NOT NULL,
+  `kind` ENUM('work','off') NOT NULL,
+  `shiftCode` ENUM('first','second','third') NULL,
+  `pairedUserId` INT NULL,
+  `pairedOperatorName` VARCHAR(255) NULL,
+  `reason` VARCHAR(500) NOT NULL,
+  `createdBy` INT NOT NULL,
+  `isActive` TINYINT(1) NOT NULL DEFAULT 1,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `cancelledAt` TIMESTAMP NULL,
+  `cancelledBy` INT NULL,
+  PRIMARY KEY (`id`),
+  KEY `operator_shift_exceptions_user_date_active_idx` (`userId`,`workDate`,`isActive`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_shift_messages` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `fromUserId` INT NOT NULL,
+  `fromOperatorName` VARCHAR(255) NOT NULL,
+  `fromAttendanceId` BIGINT NOT NULL,
+  `toUserId` INT NOT NULL,
+  `toOperatorName` VARCHAR(255) NOT NULL,
+  `incidentId` INT NULL,
+  `account` VARCHAR(20) NULL,
+  `message` TEXT NOT NULL,
+  `readAt` TIMESTAMP NULL,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `operator_shift_message_inbox_idx` (`toUserId`,`readAt`,`createdAt`),
+  KEY `operator_shift_message_incident_idx` (`incidentId`,`createdAt`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_shift_reminders` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `attendanceId` BIGINT NOT NULL,
+  `userId` INT NOT NULL,
+  `operatorName` VARCHAR(255) NOT NULL,
+  `shiftCode` ENUM('first','second','third') NOT NULL,
+  `workDate` VARCHAR(10) NOT NULL,
+  `minutesBefore` INT NOT NULL,
+  `shiftEndsAt` TIMESTAMP NOT NULL,
+  `sentAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `acknowledgedAt` TIMESTAMP NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `operator_shift_reminder_unique` (`attendanceId`,`workDate`,`shiftCode`,`minutesBefore`),
+  KEY `operator_shift_reminder_pending_idx` (`userId`,`acknowledgedAt`,`sentAt`)
+);
+
+-- Sessões que já estavam abertas no momento da atualização: conserva o login real.
+-- Não transforma revogações antigas em logoff voluntário e não cria escala fictícia.
+INSERT IGNORE INTO `operator_attendance_records`
+  (`authSessionId`,`userId`,`operatorName`,`role`,`loginMethod`,`loginAt`)
+SELECT s.`id`, s.`userId`, COALESCE(u.`name`, CONCAT('Operador ', s.`userId`)),
+       u.`role`, u.`loginMethod`, s.`createdAt`
+FROM `auth_sessions` s
+JOIN `users` u ON u.`id` = s.`userId`
+WHERE s.`revokedAt` IS NULL AND s.`expiresAt` > CURRENT_TIMESTAMP
+  AND u.`role` IN ('admin','supervisor','operator');
