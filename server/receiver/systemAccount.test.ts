@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getOperationalDeliveryPlan, resolveSystemAccount, shouldOpenOperationalAttendance } from "./systemAccount";
+import { getEffectiveClientMonitoringStatus, isClientMonitoringBlocked } from "@shared/clientMonitoringStatus";
 
 describe("Conta do Sistema", () => {
   it("usa a conta cadastrada de uma central identificada fisicamente", () => {
@@ -60,6 +61,30 @@ describe("Conta do Sistema", () => {
     });
   });
 
+  it("mantém eventos do cliente bloqueado/suspenso no relatório sem abrir atendimento ou emitir cartão", () => {
+    expect(getOperationalDeliveryPlan({
+      isSystemAccount: false,
+      automaticAction: "queue",
+      systemInMaintenance: false,
+      clientMonitoringBlocked: true,
+    })).toEqual({
+      shouldOpenAttendance: false,
+      shouldPersistReport: true,
+      shouldEmitDashboard: false,
+    });
+  });
+
+  it("aplica a suspensão apenas até a data cadastrada e mantém bloqueio administrativo sem prazo", () => {
+    const now = new Date("2026-11-04T15:00:00.000Z");
+    const suspended = { monitoringStatus: "suspended", monitoringStatusUntil: "2026-11-04T16:00:00.000Z" };
+    const expired = { monitoringStatus: "suspended", monitoringStatusUntil: "2026-11-04T14:00:00.000Z" };
+
+    expect(getEffectiveClientMonitoringStatus(suspended, now)).toBe("suspended");
+    expect(isClientMonitoringBlocked(suspended, now)).toBe(true);
+    expect(getEffectiveClientMonitoringStatus(expired, now)).toBe("active");
+    expect(isClientMonitoringBlocked({ monitoringStatus: "blocked" }, now)).toBe(true);
+  });
+
   it("planeja auditoria sem fila para um evento interno ViaWeb associado", () => {
     expect(getOperationalDeliveryPlan({
       isSystemAccount: false,
@@ -88,6 +113,9 @@ describe("Conta do Sistema", () => {
     const receiver = readFileSync(resolve(process.cwd(), "server/receiver/index.ts"), "utf8");
 
     expect(receiver).toContain("getOperationalDeliveryPlan({");
+    expect(receiver).toContain("getEffectiveClientMonitoringStatus(client, eventReceivedAt)");
+    expect(receiver).toContain("clientMonitoringBlocked,");
+    expect(receiver).toContain("evento registrado somente no relatório, sem abrir atendimento");
     expect(receiver).toContain('const deliveryAutomaticAction = isViawebInternalEvent ? "report_only" as const : eventAutomaticAction;');
     expect(receiver).toContain("Registrada na Conta do Sistema (0000) para conferência no relatório");
     expect(receiver).toContain("if ((deliveryPlan.shouldPersistReport || Boolean(repeatedTrackedIncident)) && !remoteCommandMatched && !radioengeObservation) {");

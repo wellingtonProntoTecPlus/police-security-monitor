@@ -380,6 +380,22 @@ export async function getClient(id: number) {
   return result[0];
 }
 
+/** Perfil mínimo do cliente usado pelo receptor para política e relatório operacional. */
+export async function getClientOperationalProfile(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select({
+    id: clients.id,
+    name: clients.name,
+    fantasyName: clients.fantasyName,
+    partnerCompanyId: clients.partnerCompanyId,
+    monitoringStatus: clients.monitoringStatus,
+    monitoringStatusReason: clients.monitoringStatusReason,
+    monitoringStatusUntil: clients.monitoringStatusUntil,
+  }).from(clients).where(eq(clients.id, id)).limit(1);
+  return result[0];
+}
+
 export async function createClient(data: InsertClient) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

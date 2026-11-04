@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClient, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClientOperationalProfile, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -26,6 +26,7 @@ import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
 import { startViawebEventIntegration } from './viawebIntegration';
 import { getRadioengeKeepAliveObservationUntil, isRadioengeKeepAliveFailure, isRadioengeKeepAliveRestoration } from './radioengeKeepAlivePolicy';
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule, getAlarmScheduleEventAction } from '../alarmSchedulePolicy';
+import { getEffectiveClientMonitoringStatus } from '@shared/clientMonitoringStatus';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -1012,7 +1013,18 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     if (systemInMaintenance) {
       description = `${maintenanceMessage} — ${description}`;
     }
-    const radioengeObservation = isRadioengeE361 && !systemInMaintenance && !repeatedTrackedIncident;
+    let client: Awaited<ReturnType<typeof getClientOperationalProfile>>;
+    if (system?.clientId && !accountResolution.isSystemAccount) {
+      try {
+        client = await getClientOperationalProfile(system.clientId);
+      } catch (error) {
+        // Falha na consulta não pode silenciar alarme: atende normalmente.
+        console.error(`[RECIP] Falha ao verificar o status do cliente da conta ${effectiveAccount}; mantendo atendimento.`, error);
+      }
+    }
+    const clientMonitoringStatus = getEffectiveClientMonitoringStatus(client, eventReceivedAt);
+    const clientMonitoringBlocked = clientMonitoringStatus !== "active";
+    const radioengeObservation = isRadioengeE361 && !systemInMaintenance && !clientMonitoringBlocked && !repeatedTrackedIncident;
     const radioengeRestorationCandidate = isRadioengeR361 && !systemInMaintenance
       ? await findRadioengeKeepAliveObservationForRestoration({
         alarmSystemId: system?.id,
@@ -1028,9 +1040,12 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       isSystemAccount: accountResolution.isSystemAccount,
       automaticAction: deliveryAutomaticAction,
       systemInMaintenance,
+      clientMonitoringBlocked,
     });
     const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident && !radioengeObservation;
-    const automaticFinalizationMessage = scheduleRelevantState && !scheduleViolation
+    const automaticFinalizationMessage = clientMonitoringBlocked
+      ? `Cliente ${clientMonitoringStatus === "blocked" ? "bloqueado" : "suspenso"}${client?.monitoringStatusReason ? ` — ${client.monitoringStatusReason}` : ""}; evento registrado somente no relatório, sem abrir atendimento`
+      : scheduleRelevantState && !scheduleViolation
       ? !scheduleContext?.schedule?.isActive
         ? "Arme/Desarme sem agenda ativa; registrado somente no relatório"
         : operationalClassification.mode === "stay"
@@ -1075,7 +1090,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
         autoFinalized: radioengeObservation ? false : !shouldOpenAttendance,
         autoFinalizationReason: radioengeObservation || shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
-      const remoteMatch = system && !accountResolution.isSystemAccount && !systemInMaintenance
+      const remoteMatch = system && !accountResolution.isSystemAccount && !systemInMaintenance && !clientMonitoringBlocked
         ? await createConfirmedVettiDisarmEventWithOpenIncident({
           event: eventData,
           eventReceivedAt,
@@ -1129,7 +1144,7 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
       return false;
     }
 
-    if (system?.id && scheduleRelevantState) {
+    if (system?.id && scheduleRelevantState && !clientMonitoringBlocked) {
       try {
         if (scheduleContext?.schedule?.isActive && scheduleViolation && scheduleDecision) {
           const alertType = scheduleDecision.status === "unexpected_disarm" ? "unexpected_disarm" : "missed_arm";
@@ -1234,7 +1249,6 @@ async function processEvent(evento: any, remoteIp: string, captureSummary = "", 
     }
 
     if ((deliveryPlan.shouldPersistReport || Boolean(repeatedTrackedIncident)) && !remoteCommandMatched && !radioengeObservation) {
-      const client = system?.clientId ? await getClient(system.clientId) : undefined;
       await persistAutomaticOccurrence({
         create: createOccurrence,
         system,
