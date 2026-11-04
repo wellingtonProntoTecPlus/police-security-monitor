@@ -882,6 +882,8 @@
 - [x] Proteger alterações/finalização pelo operador responsável atual; registrar a transferência do mesmo atendimento em auditoria
 - [ ] Publicar e validar com dois operadores na VPS que Assumir preserva o mesmo ID, encerra observação e permite ao novo responsável finalizar
 - [x] Corrigir lote que ignorava KOFF/E361 em observação/escalada sem operador: permitir registros raiz automáticos, preservar terceiros e devolver IDs exatos, com relatório/auditoria/fechamento transacional e feedback de zero/parcial
+- [x] Consultar prévia persistida de finalização em massa, distinguir eventos/atendimentos legados e exigir os IDs confirmados; se 25 foram confirmados e só 1 continuar elegível, reverter antes de qualquer gravação
+- [ ] Aplicar na VPS e conferir o marcador/modal da conta 0041 com a prévia real e fechamento do conjunto confirmado
 - [x] Reivindicar observação automática sem dono sem criar filho e impedir reabertura por disputa com o temporizador Radioenge
 - [x] Proteger API contra fallback SPA/HTML e apresentar erro recuperável sem repetir automaticamente gravações ou comandos
 - [ ] Aplicar a correção do lote na VPS e validar que os mesmos IDs de 0041 desapareçam após finalizar/reabrir a tela, preservando histórico

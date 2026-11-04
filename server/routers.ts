@@ -780,6 +780,13 @@ export const appRouter = router({
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "assumed" });
       return result;
     }),
+    bulkPreview: operatorProcedure.input(z.object({
+      account: z.string().trim().min(1).max(20),
+      alarmSystemId: z.number().int().positive(),
+    })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.previewBulkFinalizeOpenIncidents({ ...input, operatorId: ctx.user.id });
+    }),
     bulkFinalize: operatorProcedure.input(z.object({
       account: z.string().trim().min(1).max(20),
       alarmSystemId: z.number().optional(),
@@ -787,6 +794,7 @@ export const appRouter = router({
       clientName: z.string().optional(),
       partnerCompanyId: z.number().optional(),
       observations: z.string().trim().min(1, "Informe a descrição da finalização"),
+      confirmedIncidentIds: z.array(z.number().int().positive()).min(1, "Atualize o lote antes de confirmar").max(10000),
     })).mutation(async ({ input, ctx }) => {
       if (!input.alarmSystemId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a central identificada para finalizar apenas os atendimentos desta conta" });
       await assertPartnerSystemScope(ctx, input.alarmSystemId);

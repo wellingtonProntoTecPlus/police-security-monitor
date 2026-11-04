@@ -20,6 +20,10 @@ O lote exige a central identificada, além da conta. Registros de outro sistema 
 
 O servidor devolve os IDs realmente encerrados. A interface remove somente esses cartões, atualiza o relatório e informa resultados parciais ou zero sem anunciar falso sucesso. O temporizador Radioenge usa bloqueio transacional e condição de status para não reabrir registros encerrados durante sua execução. Uma nova perda real de comunicação pode gerar um novo alerta; isso é diferente de reaparecer o mesmo registro já fechado.
 
+O modal de finalização em massa consulta uma prévia persistida no banco: total de atendimentos da central, quantidade de eventos únicos, IDs elegíveis e registros protegidos. Isso distingue casos legados como 24 eventos com 25 atendimentos por haver um filho antigo vinculado ao mesmo evento. O botão não promete mais a contagem de uma fila local possivelmente desatualizada. O marcador conta IDs distintos de atendimento da mesma central e não considera o objeto selecionado como uma linha nova.
+
+A confirmação envia exatamente os IDs apresentados na prévia. A transação só grava relatórios e fecha o lote se todos esses IDs continuarem elegíveis; se a prévia prometia 25 e só 1 ainda pode ser finalizado, nenhum é fechado e o sistema solicita nova conferência. Eventos que chegaram depois da prévia não entram silenciosamente no lote. A interface verifica a quantidade retornada e não apresenta sucesso se ela divergir da confirmação. Atendimentos de outro operador ou em manutenção continuam protegidos e são informados antes da confirmação.
+
 ## Agenda e exceções rápidas
 
 A tabela semanal e o horário de feriado continuam na ficha do cliente/sistema. O operador também pode abrir **Alterar agenda** dentro do Dashboard — inclusive durante o atendimento — para suspender a agenda ou substituir um ou ambos os horários por uma hora, um dia ou sete dias. Cada exceção exige quem solicitou e o motivo, registra o operador e expira; ao expirar ou ser cancelada, a agenda semanal/feriado volta a valer.

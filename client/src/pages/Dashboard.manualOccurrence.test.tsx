@@ -28,6 +28,8 @@ const defaultQueue = [{
   priority: "critical", receivedAt: new Date("2026-08-12T12:00:00.000Z"),
 }];
 let mockedPersistedQueue: any[] = defaultQueue;
+let mockedBulkPreview: any = { totalCount: 3, eventCount: 3, eligibleCount: 2, eligibleIncidentIds: [91, 92], protectedCount: 1, protectedRows: [] };
+const refetchBulkPreview = vi.fn().mockResolvedValue(undefined);
 const invalidateOpenQueue = vi.fn().mockResolvedValue(undefined);
 const invalidateConnectionStatus = vi.fn().mockResolvedValue(undefined);
 const invalidateArmDisarmStatus = vi.fn().mockResolvedValue(undefined);
@@ -42,6 +44,7 @@ vi.mock("@/lib/trpc", () => ({
       assume: { useMutation: () => standardMutation },
       update: { useMutation: () => standardMutation },
       bulkFinalize: { useMutation: () => bulkMutation },
+      bulkPreview: { useQuery: () => ({ data: mockedBulkPreview, isFetching: false, error: null, refetch: refetchBulkPreview }) },
       observe: { useMutation: () => standardMutation },
       openQueue: {
         useQuery: () => ({
@@ -151,6 +154,8 @@ describe("Dashboard — Ocorrência Manual", () => {
     mockedRealtimeEvents = [];
     mockedPersistedQueue = defaultQueue;
     bulkMutation.mutateAsync.mockReset();
+    mockedBulkPreview = { totalCount: 3, eventCount: 3, eligibleCount: 2, eligibleIncidentIds: [91, 92], protectedCount: 1, protectedRows: [] };
+    refetchBulkPreview.mockClear();
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.warning).mockClear();
     vi.mocked(toast.info).mockClear();
@@ -263,15 +268,40 @@ describe("Dashboard — Ocorrência Manual", () => {
     await user.click(screen.getByTitle("Atendimento (1)"));
     await user.click(await screen.findByText("Disparo de alarme"));
     await user.type(screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências..."), "Comunicação conferida. Fechar lote.");
-    await user.click(screen.getByRole("button", { name: "Finalizar em massa (2)" }));
+    await user.click(screen.getByRole("button", { name: "Finalizar em massa" }));
     expect(screen.getByText(/1 registro\(s\) de outro operador ou em manutenção/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Confirmar finalização" }));
     await waitFor(() => expect(bulkMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ account: "0001", alarmSystemId: 6 })));
-    await waitFor(() => expect(toast[result.feedback as "warning" | "info"]).toHaveBeenCalled());
+    if (result.count === 0) {
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("não corresponde ao lote confirmado")));
+      expect(refetchBulkPreview).toHaveBeenCalled();
+    } else await waitFor(() => expect(toast[result.feedback as "warning" | "info"]).toHaveBeenCalled());
     expect(toast.success).not.toHaveBeenCalled();
     expect(screen.queryByText("Outra central da mesma conta")).not.toBeNull();
     if (result.count === 0) expect(screen.getByText("Tratamento de ocorrência")).toBeTruthy();
     else expect(screen.queryByText("Tratamento de ocorrência")).toBeNull();
+  });
+
+  it("mostra 25 atendimentos mas confirma apenas 1 elegível, explicando os 24 protegidos antes de finalizar", async () => {
+    mockedPersistedQueue = [
+      { ...defaultQueue[0], incidentOperatorId: 1, incidentStatus: "attending", parentIncidentId: 90 },
+      ...Array.from({ length: 24 }, (_, index) => ({ ...defaultQueue[0], id: 702 + index, incidentId: 92 + index, description: `Observação protegida ${index}`, incidentStatus: "observing", incidentOperatorId: 8 })),
+    ];
+    mockedBulkPreview = { totalCount: 25, eventCount: 24, eligibleCount: 1, eligibleIncidentIds: [91], protectedCount: 24, protectedRows: [{ incidentId: 92, reason: "Pertence a outro operador" }] };
+    bulkMutation.mutateAsync.mockResolvedValue({ count: 1, closedIncidentIds: [91], skippedCount: 24 });
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(screen.getByTitle("Atendimento (1)"));
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.type(screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências..."), "Encerrar somente o lote conferido.");
+    await user.click(screen.getByRole("button", { name: "Finalizar em massa" }));
+    expect(screen.getByText(/São 24 eventos recebidos e 25 atendimentos/)).toBeTruthy();
+    expect(screen.getByText(/24 registro\(s\) de outro operador ou em manutenção/)).toBeTruthy();
+    expect(screen.getByText("1 atendimento")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Confirmar finalização" }));
+    await waitFor(() => expect(bulkMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ confirmedIncidentIds: [91] })));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("24 registro(s) protegido(s)")));
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("distingue os controles Vetti simulados dos controles físicos controlados da bancada", () => {

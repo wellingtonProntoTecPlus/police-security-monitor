@@ -57,6 +57,7 @@ import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getR
 import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
 import { canBulkFinalizeIncident } from "@shared/incidentBulkFinalization";
 import { isClientMonitoringBlocked } from "@shared/clientMonitoringStatus";
+import { isConfirmedBulkSetEligible, summarizeBulkIncidents } from "@shared/bulkIncidentSummary";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DB_CONNECT_TIMEOUT_MS = 3_500;
@@ -2044,6 +2045,24 @@ export async function listOpenQueueEvents() {
   }));
 }
 
+/** Prévia persistida: a confirmação não deve usar uma contagem local possivelmente antiga. */
+export async function previewBulkFinalizeOpenIncidents(input: { account: string; alarmSystemId: number; operatorId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const rows = await db.select({
+    id: incidents.id, eventId: incidents.eventId, status: incidents.status,
+    operatorId: incidents.operatorId, parentIncidentId: incidents.parentIncidentId,
+  }).from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(and(
+      eq(alarmEvents.account, input.account),
+      eq(incidents.alarmSystemId, input.alarmSystemId),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+    ))
+    .orderBy(desc(alarmEvents.receivedAt));
+  return summarizeBulkIncidents(rows, input.operatorId);
+}
+
 export async function bulkFinalizeOpenIncidents(input: {
   account: string;
   alarmSystemId?: number | null;
@@ -2053,6 +2072,7 @@ export async function bulkFinalizeOpenIncidents(input: {
   operatorId?: number | null;
   operatorName?: string | null;
   observations: string;
+  confirmedIncidentIds?: number[];
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -2069,6 +2089,7 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
   operatorId?: number | null;
   operatorName?: string | null;
   observations: string;
+  confirmedIncidentIds?: number[];
 }) {
   if (!input.alarmSystemId) throw new Error("Selecione a central identificada para finalizar em massa");
   if (!input.operatorId) throw new Error("Operador autenticado obrigatório");
@@ -2097,8 +2118,13 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
       .orderBy(desc(alarmEvents.receivedAt))
       .for("update");
 
-    const openRows = scopedRows.filter(({ incident }) => canBulkFinalizeIncident(incident, input.operatorId!));
-    const skippedCount = scopedRows.length - openRows.length;
+    const eligibleRows = scopedRows.filter(({ incident }) => canBulkFinalizeIncident(incident, input.operatorId!));
+    if (input.confirmedIncidentIds && !isConfirmedBulkSetEligible(input.confirmedIncidentIds, eligibleRows.map(({ incident }) => incident.id))) {
+      throw new Error("O lote mudou desde a confirmação. Nenhum atendimento foi finalizado; atualize o lote e confirme novamente.");
+    }
+    const confirmed = input.confirmedIncidentIds ? new Set(input.confirmedIncidentIds) : undefined;
+    const openRows = confirmed ? eligibleRows.filter(({ incident }) => confirmed.has(incident.id)) : eligibleRows;
+    const skippedCount = scopedRows.length - eligibleRows.length;
     if (openRows.length === 0) return { count: 0, closedIncidentIds: [] as number[], skippedCount };
     const closedIncidentIds = openRows.map(({ incident }) => incident.id);
 

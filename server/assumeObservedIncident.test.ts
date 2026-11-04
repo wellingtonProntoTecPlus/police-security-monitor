@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { assumeObservedIncident, createOccurrenceAndCloseIncident, setDbForTesting } from "./db";
-import { incidentHistory, incidents, occurrences, users } from "../drizzle/schema";
+import { incidentHistory, incidents, occurrences } from "../drizzle/schema";
 
 function makeMockDb(options: { parent?: Record<string, any>; activeChild?: Record<string, any> | null } = {}) {
   const parent = options.parent || {
@@ -138,6 +138,18 @@ describe("assumir atendimento em observação", () => {
       .rejects.toThrow("Só é possível assumir um atendimento em observação");
     expect(mock.tx.update).not.toHaveBeenCalled();
     expect(mock.tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("não permite ao operador anterior finalizar após a transferência", async () => {
+    const mock = makeLifecycleDb();
+    setDbForTesting(mock.db as any);
+    await assumeObservedIncident({ incidentId: 880, operatorId: 13, operatorName: "Operador Bruno" });
+
+    await expect(createOccurrenceAndCloseIncident(880, {
+      account: "0044", observations: "Finalização de tela antiga",
+    } as any, 12, "Operadora Ana")).rejects.toThrow("atribuído a outro operador");
+    expect(mock.current).toMatchObject({ id: 880, status: "attending", operatorId: 13 });
+    expect(mock.inserted.some((entry) => entry.table === occurrences)).toBe(false);
   });
 
   it("permite ao operador que assumiu finalizar e salvar o relatório no mesmo ID", async () => {

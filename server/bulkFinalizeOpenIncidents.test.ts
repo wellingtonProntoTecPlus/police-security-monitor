@@ -82,6 +82,32 @@ describe("finalização em massa persiste exatamente os registros elegíveis", (
     expect(state.history[1].parentIncidentId).toBe(2);
   });
 
+  it("confirma e fecha exatamente 25 atendimentos persistidos, sem confundir o último insertId com quantidade", async () => {
+    const state = fakeDb(Array.from({ length: 25 }, (_, index) => row(index + 1)));
+    const confirmedIncidentIds = Array.from({ length: 25 }, (_, index) => index + 1);
+    const result = await bulkFinalizeOpenIncidentsWithDb(state.db, { ...input, confirmedIncidentIds });
+    expect(result.count).toBe(25);
+    expect(result.closedIncidentIds).toEqual(confirmedIncidentIds);
+    expect(state.reports).toHaveLength(25);
+    expect(state.history).toHaveLength(25);
+  });
+
+  it("se o modal confirmou 25 mas só 1 continua elegível, não fecha apenas 1 nem grava sucesso falso", async () => {
+    const state = fakeDb([row(1), ...Array.from({ length: 24 }, (_, index) => row(index + 2, "observing", 8))]);
+    const confirmedIncidentIds = Array.from({ length: 25 }, (_, index) => index + 1);
+    await expect(bulkFinalizeOpenIncidentsWithDb(state.db, { ...input, confirmedIncidentIds })).rejects.toThrow("Nenhum atendimento foi finalizado");
+    expect(state.reports).toHaveLength(0);
+    expect(state.history).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it("não inclui evento novo que chegou depois de o operador confirmar o lote", async () => {
+    const state = fakeDb([row(1), row(2), row(3)]);
+    const result = await bulkFinalizeOpenIncidentsWithDb(state.db, { ...input, confirmedIncidentIds: [1, 2] });
+    expect(result.closedIncidentIds).toEqual([1, 2]);
+    expect(state.reports.map((report) => report.incidentId)).toEqual([1, 2]);
+  });
+
   it("retorna zero e IDs vazios quando só há registros protegidos; não grava falso relatório", async () => {
     const state = fakeDb([row(1, "observing", 8), row(2, "maintenance")]);
     expect(await bulkFinalizeOpenIncidentsWithDb(state.db, input)).toEqual({ count: 0, closedIncidentIds: [], skippedCount: 2 });

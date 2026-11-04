@@ -68,6 +68,9 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("Atendimento assumido. A mesma ocorrência saiu da observação");
     expect(source).toContain("incidentStatusToQueueStatus(result.status)");
     expect(source).toContain("utils.incident.openQueue.invalidate()");
+    expect(source).toContain("isOtherOperatorAttendance");
+    expect(source).toContain("Somente o responsável atual pode continuar ou finalizar");
+    expect(source).toContain("Registro anterior e transferência do atendimento");
   });
 
   it("permite abrir outra tela sem fechar o atendimento atual", () => {

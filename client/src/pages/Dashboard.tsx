@@ -28,7 +28,8 @@ import { shouldConfirmAttendanceNavigation } from "@/lib/attendanceExitGuard";
 import { matchesOperationalStatusSearch } from "@/lib/operationalStatusSearch";
 import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
 import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
-import { canBulkFinalizeIncident, getBulkFinalizationFeedback } from "@shared/incidentBulkFinalization";
+import { getBulkFinalizationFeedback } from "@shared/incidentBulkFinalization";
+import { isConfirmedBulkSetEligible } from "@shared/bulkIncidentSummary";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -193,12 +194,6 @@ function isSameBulkScope(item: QueueEvent, selected: QueueEvent) {
   const itemSystemId = item.alarmSystemId ?? item.incidentSystemId;
   return item.account === selected.account
     && (!selectedSystemId || itemSystemId === selectedSystemId);
-}
-
-function isBulkFinalizable(item: QueueEvent, selected: QueueEvent, operatorId: number) {
-  return Boolean(item.incidentId && (selected.alarmSystemId ?? selected.incidentSystemId))
-    && isSameBulkScope(item, selected)
-    && canBulkFinalizeIncident({ status: queueStatusToIncidentStatus(item.queueStatus), operatorId: item.incidentOperatorId, parentIncidentId: item.parentIncidentId }, operatorId);
 }
 
 // Cronômetro
@@ -848,7 +843,7 @@ export default function Dashboard() {
   }
 
   function countSameClient(ev: QueueEvent) {
-    return queues.filter(q => q.account === ev.account && q !== ev).length;
+    return new Set(queues.filter((item) => isSameBulkScope(item, ev) && item.incidentId && item.incidentId !== ev.incidentId).map((item) => item.incidentId)).size;
   }
 
   function addLog(msg: string) {
@@ -877,8 +872,17 @@ export default function Dashboard() {
   }
 
   const isOtherOperatorObservation = Boolean(selectedEvent?.queueStatus === "observing" && selectedEvent.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id);
-  const bulkEligibleCount = selectedEvent ? queues.filter((item) => isBulkFinalizable(item, selectedEvent, user?.id || 0)).length : 0;
-  const bulkProtectedCount = selectedEvent ? queues.filter((item) => isSameBulkScope(item, selectedEvent)).length - bulkEligibleCount : 0;
+  const isOtherOperatorAttendance = Boolean(selectedEvent?.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id && selectedEvent.queueStatus !== "observing");
+  const { data: bulkPreview, isFetching: isBulkPreviewFetching, error: bulkPreviewError, refetch: refreshBulkPreview } = trpc.incident.bulkPreview.useQuery({
+    account: selectedEvent?.account || "0000",
+    alarmSystemId: selectedEvent?.alarmSystemId ?? selectedEvent?.incidentSystemId ?? 0,
+  }, {
+    enabled: Boolean(bulkFinalizeOpen && (selectedEvent?.alarmSystemId ?? selectedEvent?.incidentSystemId)),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: 0,
+  });
 
   async function assumeSelectedObservation() {
     if (!selectedEvent?.incidentId) return;
@@ -1143,9 +1147,8 @@ export default function Dashboard() {
       toast.error("Preencha a descrição antes de finalizar os eventos em massa!");
       return;
     }
-    const relatedEvents = queues.filter((item) => isBulkFinalizable(item, ev, user?.id || 0));
-    if (relatedEvents.length < 2) {
-      toast.info("Não há outros eventos elegíveis para finalizar em massa nesta central.");
+    if (!bulkPreview || isBulkPreviewFetching || bulkPreviewError || bulkPreview.eligibleIncidentIds.length === 0) {
+      toast.info("Atualize o lote para conferir os atendimentos elegíveis antes de confirmar.");
       return;
     }
 
@@ -1157,7 +1160,13 @@ export default function Dashboard() {
         clientName: selectedClient?.name || ev.clientName || undefined,
         partnerCompanyId: (selectedClient as any)?.partnerCompanyId || undefined,
         observations: attendingNotes,
+        confirmedIncidentIds: bulkPreview.eligibleIncidentIds,
       });
+      if (result.count !== bulkPreview.eligibleIncidentIds.length || result.closedIncidentIds.length !== result.count || !isConfirmedBulkSetEligible(bulkPreview.eligibleIncidentIds, result.closedIncidentIds)) {
+        toast.error("O resultado do servidor não corresponde ao lote confirmado. Confira a fila antes de repetir a operação.");
+        await Promise.all([utils.incident.openQueue.invalidate(), refreshBulkPreview()]);
+        return;
+      }
       const closedIds = new Set(result.closedIncidentIds);
       setQueues((previous) => previous.filter((item) => !item.incidentId || !closedIds.has(item.incidentId)));
       if (ev.incidentId && closedIds.has(ev.incidentId)) {
@@ -1175,6 +1184,7 @@ export default function Dashboard() {
       await Promise.all([utils.incident.openQueue.invalidate(), utils.incident.history.invalidate(), utils.occurrence.list.invalidate()]);
     } catch (error: any) {
       toast.error("Não foi possível finalizar todos os eventos: " + error.message);
+      await Promise.all([utils.incident.openQueue.invalidate(), refreshBulkPreview()]);
     }
   };
 
@@ -1572,7 +1582,7 @@ export default function Dashboard() {
         }`}
       >
         {sameClientCount > 0 && !groupedCard && (
-          <div className="absolute top-2 right-2 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center">
+          <div title={`${sameClientCount + 1} atendimentos abertos desta central; a finalização confere os elegíveis no banco`} className="absolute top-2 right-2 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center">
             <span className="text-[10px] font-bold text-white">{sameClientCount + 1}</span>
           </div>
         )}
@@ -1593,7 +1603,7 @@ export default function Dashboard() {
         </div>
         {ev.observationUntil && ev.queueStatus === "observing" && <div className="mt-1 text-[10px] text-purple-300">Observação até {new Date(ev.observationUntil).toLocaleString("pt-BR")}</div>}
         {sameClientCount > 0 && !groupedCard && (
-          <div className="text-[10px] text-cyan-400 mt-1">+ {sameClientCount} eventos do mesmo cliente</div>
+          <div className="text-[10px] text-cyan-400 mt-1">+ {sameClientCount} atendimentos desta central</div>
         )}
       </div>
     );
@@ -1714,6 +1724,15 @@ export default function Dashboard() {
                   </Button>
                 </div>
               </div>
+            ) : isOtherOperatorAttendance ? (
+              <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
+                <div className="w-full max-w-xl rounded-xl border border-sky-400/40 bg-sky-400/5 p-6 text-center">
+                  <Users className="mx-auto mb-3 h-10 w-10 text-sky-300" />
+                  <h3 className="text-lg font-bold text-sky-100">Atendimento com outro operador</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">Esta ocorrência está sob responsabilidade de <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Somente o responsável atual pode continuar ou finalizar. O histórico permanece preservado.</p>
+                  {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
+                </div>
+              </div>
             ) : selectedEvent.queueStatus === "maintenance" ? (
               <div className="flex flex-1 items-center justify-center p-8">
                 <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
@@ -1725,6 +1744,10 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
+                {selectedEvent.incidentNotes && <details className="shrink-0 border-b border-border bg-muted/20 px-5 py-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-sky-200">Registro anterior e transferência do atendimento</summary>
+                  <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">{selectedEvent.incidentNotes}</p>
+                </details>}
                 <div className="grid gap-4 border-b border-border px-5 py-4 lg:grid-cols-[1fr_auto]">
                   <Textarea className="min-h-[108px] resize-none text-sm" placeholder="Registro do atendimento, contatos realizados e providências..." value={attendingNotes} onChange={(event) => setAttendingNotes(event.target.value)} />
                   <div className="flex min-w-[180px] flex-col gap-2">
@@ -1732,7 +1755,7 @@ export default function Dashboard() {
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
                     <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>Finalizar</Button>
                     <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
-                    {bulkEligibleCount > 1 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa ({bulkEligibleCount})</Button>}
+                    {selectedEvent.incidentId && countSameClient(selectedEvent) > 0 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa</Button>}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
@@ -2412,11 +2435,20 @@ export default function Dashboard() {
               <h3 className="font-bold text-lg text-orange-300">Finalizar eventos em massa</h3>
               <button onClick={() => setBulkFinalizeOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
-            <p className="text-sm text-muted-foreground">Serão finalizados <strong className="text-foreground">{bulkEligibleCount} atendimentos</strong> da conta <strong className="text-foreground">{selectedEvent.account}</strong> neste sistema, incluindo observações automáticas sem operador. O histórico será preservado no relatório em uma única operação, sem enviar notificações individuais.</p>
-            {bulkProtectedCount > 0 && <p className="mt-2 text-sm text-amber-300">{bulkProtectedCount} registro(s) de outro operador ou em manutenção permanecerão na fila.</p>}
+            {isBulkPreviewFetching ? <p className="text-sm text-muted-foreground" role="status">Conferindo no banco os atendimentos desta central...</p>
+              : bulkPreviewError ? <p className="text-sm text-red-300" role="alert">Não foi possível conferir o lote. Nenhum atendimento será finalizado sem essa consulta.</p>
+              : bulkPreview && <div className="space-y-2 text-sm">
+                <p className="text-muted-foreground">Conta <strong className="text-foreground">{selectedEvent.account}</strong>: <strong className="text-foreground">{bulkPreview.totalCount} atendimentos</strong> persistidos nesta central.</p>
+                {bulkPreview.eventCount !== bulkPreview.totalCount && <p className="text-amber-300">São {bulkPreview.eventCount} eventos recebidos e {bulkPreview.totalCount} atendimentos, pois existem registros legados vinculados ao mesmo evento.</p>}
+                <p className="text-muted-foreground">Serão finalizados exatamente <strong className="text-foreground">{bulkPreview.eligibleCount} {bulkPreview.eligibleCount === 1 ? "atendimento" : "atendimentos"}</strong> elegíveis, incluindo observações automáticas sem operador. Cada registro terá seu relatório preservado, sem enviar notificações individuais.</p>
+                {bulkPreview.protectedCount > 0 && <p className="text-amber-300">{bulkPreview.protectedCount} registro(s) de outro operador ou em manutenção permanecerão na fila.</p>}
+                {bulkPreview.protectedRows.length > 0 && <details><summary className="cursor-pointer text-xs text-amber-200">Ver registros protegidos</summary><div className="mt-2 max-h-32 overflow-y-auto space-y-1 text-xs text-muted-foreground">{bulkPreview.protectedRows.map((row) => <p key={row.incidentId}>#{row.incidentId} — {row.reason}</p>)}</div></details>}
+                <p className="text-xs text-muted-foreground">Se algum dos IDs confirmados ficar indisponível ou passar a ser protegido, o lote não será fechado parcialmente: será necessário conferir novamente.</p>
+              </div>}
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setBulkFinalizeOpen(false)}>Cancelar</Button>
-              <Button className="bg-orange-600 hover:bg-orange-700" disabled={bulkFinalizeMut.isPending || bulkEligibleCount < 2} onClick={() => void finalizeSameClientEvents(selectedEvent)}>{bulkFinalizeMut.isPending ? "Finalizando..." : "Confirmar finalização"}</Button>
+              <Button variant="outline" disabled={bulkFinalizeMut.isPending || isBulkPreviewFetching} onClick={() => void refreshBulkPreview()}>Atualizar lote</Button>
+              <Button className="bg-orange-600 hover:bg-orange-700" disabled={bulkFinalizeMut.isPending || isBulkPreviewFetching || Boolean(bulkPreviewError) || !bulkPreview?.eligibleCount} onClick={() => void finalizeSameClientEvents(selectedEvent)}>{bulkFinalizeMut.isPending ? "Finalizando..." : "Confirmar finalização"}</Button>
             </div>
           </div>
         </div>
