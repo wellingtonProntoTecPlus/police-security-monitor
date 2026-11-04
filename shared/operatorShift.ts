@@ -1,4 +1,4 @@
-export const OPERATOR_SHIFT_CODES = ["first", "second", "third"] as const;
+export const OPERATOR_SHIFT_CODES = ["first", "second", "third", "commercial"] as const;
 export type OperatorShiftCode = typeof OPERATOR_SHIFT_CODES[number];
 export type OperatorShiftException = { kind: "work" | "off"; shiftCode: OperatorShiftCode | null };
 export type OperatorShiftSchedule = {
@@ -12,12 +12,14 @@ export const OPERATOR_SHIFT_LABELS: Record<OperatorShiftCode, string> = {
   first: "1º turno · 07:00 às 13:00",
   second: "2º turno · 13:00 às 19:00",
   third: "3º turno · 19:00 às 07:00",
+  commercial: "Comercial · 08:00 às 18:00 (segunda a sexta)",
 };
 
 const SHIFT_HOURS: Record<OperatorShiftCode, { start: number; end: number }> = {
   first: { start: 7, end: 13 },
   second: { start: 13, end: 19 },
   third: { start: 19, end: 7 },
+  commercial: { start: 8, end: 18 },
 };
 
 function validDateKey(value: string): boolean {
@@ -42,6 +44,10 @@ export function isScheduledShiftDate(schedule: OperatorShiftSchedule | null | un
   if (!schedule || !validDateKey(workDate) || !validDateKey(schedule.cycleAnchorDate) || !validDateKey(schedule.effectiveFromDate)) return false;
   if (workDate < schedule.effectiveFromDate) return false;
   if (schedule.effectiveUntilDate && workDate > schedule.effectiveUntilDate) return false;
+  if (schedule.shiftCode === "commercial") {
+    const weekday = new Date(`${workDate}T00:00:00.000Z`).getUTCDay();
+    return weekday >= 1 && weekday <= 5;
+  }
   return Math.abs(calendarDayDistance(schedule.cycleAnchorDate, workDate)) % 2 === 0;
 }
 
@@ -109,6 +115,20 @@ export function getCurrentShiftWindow(now: Date, timeZone = "America/Sao_Paulo")
   return getShiftWindowFor(today, "third", timeZone);
 }
 
+/** Inclui os turnos regulares ativos e a escala comercial, que pode se sobrepor a eles. */
+export function getCurrentShiftWindows(now: Date, timeZone = "America/Sao_Paulo") {
+  const current = getCurrentShiftWindow(now, timeZone);
+  const p = datePartsInZone(now, timeZone);
+  const today = `${String(p.year).padStart(4, "0")}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+  const weekday = new Date(`${today}T00:00:00.000Z`).getUTCDay();
+  const localMinutes = p.hour * 60 + p.minute;
+  const windows = [current];
+  if (weekday >= 1 && weekday <= 5 && localMinutes >= 8 * 60 && localMinutes < 18 * 60) {
+    windows.push(getShiftWindowFor(today, "commercial", timeZone));
+  }
+  return windows;
+}
+
 export function getNextShiftWindow(now: Date, timeZone = "America/Sao_Paulo") {
   const current = getCurrentShiftWindow(now, timeZone);
   const nextCode: OperatorShiftCode = current.shiftCode === "first" ? "second" : current.shiftCode === "second" ? "third" : "first";
@@ -117,6 +137,7 @@ export function getNextShiftWindow(now: Date, timeZone = "America/Sao_Paulo") {
 }
 
 export function getShiftAfter(workDate: string, shiftCode: OperatorShiftCode, timeZone = "America/Sao_Paulo") {
+  if (shiftCode === "commercial") return getCurrentShiftWindow(getShiftWindowFor(workDate, "commercial", timeZone).endAt, timeZone);
   const nextCode: OperatorShiftCode = shiftCode === "first" ? "second" : shiftCode === "second" ? "third" : "first";
   const nextWorkDate = shiftCode === "third" ? addCalendarDays(workDate, 1) : workDate;
   return getShiftWindowFor(nextWorkDate, nextCode, timeZone);

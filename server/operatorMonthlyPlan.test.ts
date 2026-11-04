@@ -50,7 +50,7 @@ function plan(exceptions: Array<{
   userId: number;
   workDate: string;
   kind: "work" | "off";
-  shiftCode: "first" | "second" | "third" | null;
+  shiftCode: "first" | "second" | "third" | "commercial" | null;
   isActive: boolean;
   reason: string;
 }> = [], fromDate = "2026-01-15", toDate = "2026-01-19") {
@@ -99,6 +99,17 @@ describe("plano mensal permanente de escala", () => {
     expect(rows[0].workDate).toBe("2026-01-16");
     expect(rows[0].startAt.toISOString()).toBe("2026-01-16T22:00:00.000Z");
     expect(rows[0].endAt.toISOString()).toBe("2026-01-17T10:00:00.000Z");
+  });
+
+  it("projeta escala Comercial de segunda a sexta e exclui sábado e domingo", () => {
+    const rows = buildOperatorMonthlyPlan({
+      people: [{ id: 4, name: "Comercial" }],
+      assignments: [{ id: 40, userId: 4, shiftCode: "commercial", cycleAnchorDate: "2026-11-02", effectiveFromDate: "2026-11-02", effectiveUntilDate: null, isActive: true }],
+      exceptions: [], fromDate: "2026-11-02", toDate: "2026-11-08",
+    });
+    expect(rows.map((row) => row.workDate)).toEqual(["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"]);
+    expect(rows[0].startAt.toISOString()).toBe("2026-11-02T11:00:00.000Z");
+    expect(rows[0].endAt.toISOString()).toBe("2026-11-02T21:00:00.000Z");
   });
 
   it("aceita exatamente 93 dias e rejeita 94 dias ou datas inválidas", () => {

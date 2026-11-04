@@ -94,7 +94,7 @@ export default function UsersPage() {
     if (role === "partner" && !partnerId) { toast.error("Selecione a empresa parceira do usuário"); return; }
     if (!editingUser && role === "operator" && !hasShiftSchedule) { toast.error("Configure a escala do operador ao cadastrá-lo"); return; }
     if (hasShiftSchedule && shiftScheduleDirty && role !== "partner" && (!effectiveFromDate || !cycleAnchorDate || shiftChangeReason.trim().length < 5)) { toast.error("Informe início da escala, data-âncora e motivo (mínimo 5 caracteres)"); return; }
-    const shiftAssignment = hasShiftSchedule && role !== "partner" && shiftScheduleDirty ? { shiftCode, effectiveFromDate, cycleAnchorDate, changeReason: shiftChangeReason.trim() } : undefined;
+    const shiftAssignment = hasShiftSchedule && role !== "partner" && shiftScheduleDirty ? { shiftCode, effectiveFromDate, cycleAnchorDate: shiftCode === "commercial" ? effectiveFromDate : cycleAnchorDate, changeReason: shiftChangeReason.trim() } : undefined;
     if (editingUser) updateMut.mutate({ id: editingUser.id, name, email, role, partnerId: role === "partner" ? partnerId! : null, ...(password ? { password } : {}), ...(shiftAssignment ? { shiftAssignment } : {}) });
     else createMut.mutate({ name, email, password, role, ...(role === "partner" ? { partnerId } : {}), ...(shiftAssignment ? { shiftAssignment } : {}) });
   };
@@ -159,7 +159,7 @@ export default function UsersPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">Escala do usuário</h3>
-                    <p className="text-xs text-muted-foreground">Turno recorrente: trabalha dia sim/dia não. A data-âncora define o primeiro dia trabalhado.</p>
+                    <p className="text-xs text-muted-foreground">{shiftCode === "commercial" ? "Comercial: trabalha de segunda a sexta, das 08:00 às 18:00. Sábado e domingo são folga; não usa alternância dia sim/dia não." : "Turno recorrente: trabalha dia sim/dia não. A data-âncora define o primeiro dia trabalhado."}</p>
                   </div>
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" disabled={Boolean(editingUser && shiftAssignments.find((entry: any) => entry.id === editingUser.id)?.shiftAssignment)} checked={hasShiftSchedule} onChange={(event) => { setHasShiftSchedule(event.target.checked); setShiftScheduleDirty(true); }} />
@@ -174,15 +174,16 @@ export default function UsersPage() {
                         <SelectItem value="first">{OPERATOR_SHIFT_LABELS.first}</SelectItem>
                         <SelectItem value="second">{OPERATOR_SHIFT_LABELS.second}</SelectItem>
                         <SelectItem value="third">{OPERATOR_SHIFT_LABELS.third}</SelectItem>
+                        <SelectItem value="commercial">{OPERATOR_SHIFT_LABELS.commercial}</SelectItem>
                       </SelectContent>
                     </Select>
                   </label>
                   <label className="space-y-1 text-xs text-muted-foreground">Nova vigência a partir de
                     <Input type="date" value={effectiveFromDate} onChange={(event) => { setEffectiveFromDate(event.target.value); setCycleAnchorDate(event.target.value); setShiftScheduleDirty(true); }} />
                   </label>
-                  <label className="space-y-1 text-xs text-muted-foreground">Data do primeiro dia trabalhado do ciclo
+                  {shiftCode !== "commercial" && <label className="space-y-1 text-xs text-muted-foreground">Data do primeiro dia trabalhado do ciclo
                     <Input type="date" value={cycleAnchorDate} onChange={(event) => { setCycleAnchorDate(event.target.value); setShiftScheduleDirty(true); }} />
-                  </label>
+                  </label>}
                   <label className="space-y-1 text-xs text-muted-foreground">Motivo (para salvar nova vigência)
                     <Input value={shiftChangeReason} onChange={(event) => { setShiftChangeReason(event.target.value); setShiftScheduleDirty(true); }} placeholder="Ex.: escala ajustada em acordo" maxLength={500} />
                   </label>

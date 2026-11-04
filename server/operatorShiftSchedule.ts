@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { operatorShiftAssignments, operatorShiftExceptions, users } from "../drizzle/schema";
-import { getCurrentShiftWindow, getNextShiftWindow, resolveOperatorShift, type OperatorShiftCode } from "@shared/operatorShift";
+import { getCurrentShiftWindow, getNextShiftWindow, getShiftWindowFor, localDateKey, resolveOperatorShift, type OperatorShiftCode } from "@shared/operatorShift";
 
 export const OPERATIONAL_ROLES = ["admin", "supervisor", "operator"] as const;
 
@@ -37,7 +37,7 @@ export async function listRosterForWindow(db: any, workDate: string, shiftCode?:
 }
 
 export async function getUserShiftAttendanceWindow(db: any, userId: number, now: Date) {
-  const candidates = [getCurrentShiftWindow(now), getNextShiftWindow(now)];
+  const candidates = [getCurrentShiftWindow(now), getNextShiftWindow(now), getShiftWindowFor(localDateKey(now), "commercial")];
   const unique = Array.from(new Map(candidates.map((window) => [`${window.workDate}:${window.shiftCode}`, window])).values());
   for (const candidate of unique) {
     const startsWithinWindow = now.getTime() >= candidate.startAt.getTime() - 6 * 60 * 60_000 && now < candidate.endAt;

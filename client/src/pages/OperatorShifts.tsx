@@ -8,12 +8,12 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { CalendarClock, RefreshCw, Users, ArrowLeftRight } from "lucide-react";
-import { OPERATOR_SHIFT_LABELS, localDateKey, type OperatorShiftCode } from "@shared/operatorShift";
+import { OPERATOR_SHIFT_CODES, OPERATOR_SHIFT_LABELS, localDateKey, type OperatorShiftCode } from "@shared/operatorShift";
 import { buildOperatorAttendanceCsv } from "./operatorAttendanceExport";
 
 const ROLE_LABELS: Record<string, string> = { admin: "Administrador", supervisor: "Supervisor", operator: "Operador" };
 const LOGOUT_LABELS: Record<string, string> = { logout: "Logoff normal", session_replaced: "Sessão substituída por novo login", session_expired: "Sessão expirada", revoked: "Sessão revogada" };
-const SHIFT_CODES: OperatorShiftCode[] = ["first", "second", "third"];
+const SHIFT_CODES: OperatorShiftCode[] = [...OPERATOR_SHIFT_CODES];
 const dateDisplay = (value: unknown) => value ? new Date(value as string | number | Date).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—";
 const shortDate = (value: unknown) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("pt-BR") : "—";
 const startOfMonth = (today: string) => `${today.slice(0, 7)}-01`;
@@ -49,10 +49,10 @@ export default function OperatorShiftsPage() {
   });
 
   const current = reportQuery.data?.currentShift;
+  const currentShifts = reportQuery.data?.currentShifts || (current ? [current] : []);
   const active = reportQuery.data?.activeOperators || [];
   const attendingNow = active.filter((entry) => entry.socketConnected);
   const activeUserIdSet = new Set(attendingNow.map((entry) => entry.userId));
-  const expected = current?.expectedOperators || [];
   const downloadReport = () => {
     if (!reportQuery.data) return;
     const url = URL.createObjectURL(new Blob([buildOperatorAttendanceCsv(reportQuery.data.attendance)], { type: "text/csv;charset=utf-8" }));
@@ -83,17 +83,17 @@ export default function OperatorShiftsPage() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Users className="h-4 w-4" /> Quem está trabalhando agora</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            {current ? <div className="rounded-lg bg-muted/40 p-3 text-sm">
-              <p><strong>Turno atual:</strong> {OPERATOR_SHIFT_LABELS[current.shiftCode]} · {shortDate(current.workDate)}</p>
-              <p className="mt-1"><strong>Horário:</strong> {dateDisplay(current.startAt)} até {dateDisplay(current.endAt)}</p>
-            </div> : <p className="text-sm text-muted-foreground">Carregando o turno atual...</p>}
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Escalados para este turno</p>
-              {expected.length ? <div className="space-y-2">{expected.map((person: any) => <div key={person.userId} className="flex items-center justify-between rounded border border-border p-2 text-sm">
-                <div><span className="font-medium">{person.name}</span><span className="ml-2 text-xs text-muted-foreground">{ROLE_LABELS[person.role] || person.role}{person.isException ? " · troca pontual" : ""}</span></div>
-                <span className={activeUserIdSet.has(person.userId) ? "text-emerald-400" : "text-amber-300"}>{activeUserIdSet.has(person.userId) ? "Conectado" : "Não conectado"}</span>
-              </div>)}</div> : <p className="text-sm text-muted-foreground">Nenhuma escala cadastrada para o turno atual.</p>}
-            </div>
+            {currentShifts.length ? currentShifts.map((shiftWindow: any) => <div key={`${shiftWindow.workDate}:${shiftWindow.shiftCode}`} className="rounded-lg bg-muted/40 p-3 text-sm">
+              <p><strong>Turno atual:</strong> {OPERATOR_SHIFT_LABELS[shiftWindow.shiftCode as OperatorShiftCode]} · {shortDate(shiftWindow.workDate)}</p>
+              <p className="mt-1"><strong>Horário:</strong> {dateDisplay(shiftWindow.startAt)} até {dateDisplay(shiftWindow.endAt)}</p>
+              <div className="mt-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Escalados para este turno</p>
+                {shiftWindow.expectedOperators.length ? <div className="space-y-2">{shiftWindow.expectedOperators.map((person: any) => <div key={person.userId} className="flex items-center justify-between rounded border border-border p-2 text-sm">
+                  <div><span className="font-medium">{person.name}</span><span className="ml-2 text-xs text-muted-foreground">{ROLE_LABELS[person.role] || person.role}{person.isException ? " · troca pontual" : ""}</span></div>
+                  <span className={activeUserIdSet.has(person.userId) ? "text-emerald-400" : "text-amber-300"}>{activeUserIdSet.has(person.userId) ? "Conectado" : "Não conectado"}</span>
+                </div>)}</div> : <p className="text-sm text-muted-foreground">Nenhuma escala cadastrada para este turno.</p>}
+              </div>
+            </div>) : <p className="text-sm text-muted-foreground">Carregando os turnos atuais...</p>}
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sessões abertas</p>
               {active.length ? <div className="space-y-2">{active.map((entry) => <div key={entry.attendanceId} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2 text-sm">

@@ -894,6 +894,7 @@
 - [x] Cadastrar escala permanente dia sim/dia não por turno/data-âncora/vigência, preservar versões e lançar exceções pontuais de troca para ambas as pessoas/datas
 - [x] Registrar presença por sessão autenticada com login/logoff/motivo, mostrar operadores realmente conectados e gerar relatório individual com intervalo, CSV e previsão mensal separada da presença real
 - [x] Avisar o operador aos 40 e 20 minutos, deduplicar avisos e recuperar caixa de passagem ao reconectar
+- [x] Adicionar Comercial no cadastro: segunda a sexta, 08:00–18:00, sem paridade alternada; incluir previsão mensal, presença, turnos simultâneos e avisos 17:20/17:40, com migração aditiva do enum
 - [x] Disponibilizar mensagem privada avulsa e passagem por atendimento com destinatário, justificativa e prazo; validar todas as pendências atomicamente antes de revogar a sessão
 - [x] Bloquear login substituto quando a sessão anterior ainda tem ocorrências pendentes; revalidar ID de sessão sob lock em mutações da fila para rejeitar alterações tardias após o logoff
 - [ ] Publicar na VPS e homologar relatório, cron de avisos, troca dia 16/17, mensagens e logoff com duas contas; a implantação não recria logoffs passados sem dados históricos

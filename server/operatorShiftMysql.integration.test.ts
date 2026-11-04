@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator } from "./db";
-import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap } from "./operatorShiftDb";
+import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport } from "./operatorShiftDb";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
 import { authSessions, incidents, incidentHistory, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions } from "../drizzle/schema";
@@ -20,7 +20,7 @@ const database = `police_shift_test_${process.pid}`;
 const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders"];
 
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0043_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0044_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
@@ -136,6 +136,33 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(await orm.select().from(operatorShiftReminders)).toHaveLength(2);
   });
 
+  it("cadastra Comercial e associa login nos dias úteis, incluindo entrada antecipada e fora do turno regular", async () => {
+    await orm.transaction((tx) => saveOperatorShiftAssignmentWithTransaction(tx, { userId: 1, shiftCode: "commercial", effectiveFromDate: "2026-11-01", cycleAnchorDate: "2026-11-01", changeReason: "Escala comercial inicial", changedBy: 1 }));
+    expect((await orm.select().from(operatorShiftAssignments))[0].shiftCode).toBe("commercial");
+    for (const loginAt of ["2026-11-04T09:50:00Z", "2026-11-04T15:20:00Z", "2026-11-05T18:00:00Z"]) {
+      const window = await getUserShiftAttendanceWindow(orm, 1, new Date(loginAt));
+      expect(window?.shiftCode).toBe("commercial");
+      expect(window?.startAt.toISOString().slice(11, 16)).toBe("11:00");
+      expect(window?.endAt.toISOString().slice(11, 16)).toBe("21:00");
+    }
+    expect(await getUserShiftAttendanceWindow(orm, 1, new Date("2026-11-07T15:00:00Z"))).toBeNull();
+    expect(await getUserShiftAttendanceWindow(orm, 1, new Date("2026-11-04T21:00:00Z"))).toBeNull();
+    const report = await getOperatorShiftReport({ fromDate: "2026-11-02", toDate: "2026-11-08", now });
+    expect(report.currentShifts.map((window) => window.shiftCode)).toEqual(["first", "commercial"]);
+    expect(report.currentShifts.find((window) => window.shiftCode === "commercial")?.expectedOperators[0]).toMatchObject({ userId: 1, name: "Amanda" });
+    expect(report.monthlyPlan.filter((row) => row.userId === 1)).toHaveLength(5);
+  });
+
+  it("avisa Comercial às 17:20 e 17:40, uma única vez por sessão/aviso", async () => {
+    await orm.update(operatorAttendanceRecords).set({ shiftCode: "commercial", scheduledStartAt: new Date("2026-11-04T11:00:00Z"), scheduledEndAt: new Date("2026-11-04T21:00:00Z") }).where(eq(operatorAttendanceRecords.id, 201));
+    const first = await sweepOperatorShiftOperations(new Date("2026-11-04T20:20:00Z"));
+    expect(first.remindersSent).toHaveLength(1);
+    expect(first.remindersSent[0]).toMatchObject({ minutesBefore: 40, shiftCode: "commercial" });
+    expect((await sweepOperatorShiftOperations(new Date("2026-11-04T20:20:00Z"))).remindersSent).toHaveLength(0);
+    expect((await sweepOperatorShiftOperations(new Date("2026-11-04T20:40:00Z"))).remindersSent[0]).toMatchObject({ minutesBefore: 20, shiftCode: "commercial" });
+    expect(await orm.select().from(operatorShiftReminders)).toHaveLength(2);
+  });
+
   it("vigência permanente inicial passada é permitida; mudar passado já cadastrado é bloqueado", async () => {
     const input = { userId: 1, shiftCode: "first" as const, effectiveFromDate: "2026-11-01", cycleAnchorDate: "2026-11-01", changeReason: "Escala inicial informada", changedBy: 1 };
     await orm.transaction((tx) => saveOperatorShiftAssignmentWithTransaction(tx, input));
@@ -157,11 +184,16 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
 
   it("SQL de upgrade da nova função pode ser reaplicado sem perder mensagens ou presenças", async () => {
     await logoff();
+    for (const [table, required] of [["operator_attendance_records", false], ["operator_shift_assignments", true], ["operator_shift_exceptions", false], ["operator_shift_reminders", true]] as const) {
+      await pool.query(`ALTER TABLE \`${table}\` MODIFY COLUMN \`shiftCode\` ENUM('first','second','third') ${required ? "NOT NULL" : "NULL"}`);
+    }
     const sql = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
     const section = sql.slice(sql.indexOf("-- Escala e presença operacional;"));
     await pool.query(`SET @schema_name = DATABASE(); ${section}`);
+    await orm.update(operatorAttendanceRecords).set({ shiftCode: "commercial" }).where(eq(operatorAttendanceRecords.id, 201));
     await pool.query(`SET @schema_name = DATABASE(); ${section}`);
     expect(await orm.select().from(operatorShiftMessages)).toHaveLength(1);
     expect((await orm.select().from(operatorAttendanceRecords))[0].logoutReason).toBe("logout");
+    expect((await orm.select().from(operatorAttendanceRecords))[0].shiftCode).toBe("commercial");
   });
 });

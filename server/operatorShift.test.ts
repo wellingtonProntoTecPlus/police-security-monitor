@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addCalendarDays, getCurrentShiftWindow, getNextShiftWindow, getShiftReminderDueMinutes,
-  getShiftWindowFor, isScheduledShiftDate, localDateKey, resolveOperatorShift,
+  getShiftWindowFor, getCurrentShiftWindows, getShiftAfter, isScheduledShiftDate, localDateKey, resolveOperatorShift,
 } from "@shared/operatorShift";
 
 const schedule = { shiftCode: "first" as const, cycleAnchorDate: "2026-11-01", effectiveFromDate: "2026-11-01" };
@@ -44,5 +44,23 @@ describe("escala operacional dia sim/dia não", () => {
   it("valida a aritmética de datas sem depender do fuso do processo", () => {
     expect(addCalendarDays("2026-12-31", 1)).toBe("2027-01-01");
     expect(() => addCalendarDays("2026-02-30", 1)).toThrow("Data operacional inválida");
+  });
+
+  it("escala Comercial ocorre de segunda a sexta às 08h–18h, sem usar a âncora alternada", () => {
+    const commercial = { shiftCode: "commercial" as const, cycleAnchorDate: "2026-11-04", effectiveFromDate: "2026-11-01" };
+    expect(isScheduledShiftDate(commercial, "2026-11-02")).toBe(true); // segunda
+    expect(isScheduledShiftDate(commercial, "2026-11-06")).toBe(true); // sexta
+    expect(isScheduledShiftDate(commercial, "2026-11-07")).toBe(false); // sábado
+    expect(isScheduledShiftDate(commercial, "2026-11-08")).toBe(false); // domingo
+    const window = getShiftWindowFor("2026-11-02", "commercial");
+    expect(window.startAt.toISOString()).toBe("2026-11-02T11:00:00.000Z");
+    expect(window.endAt.toISOString()).toBe("2026-11-02T21:00:00.000Z");
+    expect(getShiftAfter("2026-11-02", "commercial").shiftCode).toBe("second");
+  });
+
+  it("mostra Comercial junto do turno regular apenas durante o expediente de dias úteis", () => {
+    expect(getCurrentShiftWindows(new Date("2026-11-04T11:30:00.000Z")).map((window) => window.shiftCode)).toEqual(["first", "commercial"]);
+    expect(getCurrentShiftWindows(new Date("2026-11-07T11:30:00.000Z")).map((window) => window.shiftCode)).toEqual(["first"]);
+    expect(getCurrentShiftWindows(new Date("2026-11-04T21:00:00.000Z")).map((window) => window.shiftCode)).toEqual(["second"]);
   });
 });

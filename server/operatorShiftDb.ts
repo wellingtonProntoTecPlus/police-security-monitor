@@ -5,7 +5,7 @@ import {
   operatorShiftMessages, operatorShiftReminders,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { addCalendarDays, calendarDayDistance, getCurrentShiftWindow, getNextShiftWindow, getShiftAfter, getShiftReminderDueMinutes,
+import { addCalendarDays, calendarDayDistance, getCurrentShiftWindow, getCurrentShiftWindows, getNextShiftWindow, getShiftAfter, getShiftReminderDueMinutes,
   localDateKey, resolveOperatorShift, type OperatorShiftCode,
 } from "@shared/operatorShift";
 import { OPERATIONAL_ROLES, listRosterForWindow, getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
@@ -110,7 +110,12 @@ export async function getOperatorShiftReport(input: { fromDate: string; toDate: 
   if (calendarDayDistance(input.fromDate, input.toDate) > 92) throw new Error("Consulte até 93 dias de escala por vez");
   const now = input.now || new Date();
   const current = getCurrentShiftWindow(now);
-  const roster = await listRosterForWindow(db, current.workDate, current.shiftCode);
+  const currentWindows = getCurrentShiftWindows(now);
+  const currentShifts = await Promise.all(currentWindows.map(async (window) => ({
+    ...window,
+    expectedOperators: await listRosterForWindow(db, window.workDate, window.shiftCode),
+  })));
+  const roster = currentShifts.find((window) => window.shiftCode === current.shiftCode)?.expectedOperators || [];
   const fromAt = new Date(`${input.fromDate}T00:00:00-03:00`);
   const toAt = new Date(`${input.toDate}T23:59:59.999-03:00`);
   const where = [gte(operatorAttendanceRecords.loginAt, fromAt), lte(operatorAttendanceRecords.loginAt, toAt)];
@@ -138,6 +143,7 @@ export async function getOperatorShiftReport(input: { fromDate: string; toDate: 
   const monthlyPlan = buildOperatorMonthlyPlan({ fromDate: input.fromDate, toDate: input.toDate, people, assignments, exceptions });
   return {
     currentShift: { ...current, expectedOperators: roster },
+    currentShifts,
     monthlyPlan,
     resultLimitReached: attendanceRows.length === 2000,
     activeOperators: activeRows.map((row: any) => ({

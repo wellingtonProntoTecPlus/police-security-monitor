@@ -1194,6 +1194,12 @@ CREATE TABLE IF NOT EXISTS `operator_shift_reminders` (
   KEY `operator_shift_reminder_pending_idx` (`userId`,`acknowledgedAt`,`sentAt`)
 );
 
+-- Expande os enums preservando todas as escalas, exceções, presenças e avisos existentes.
+ALTER TABLE `operator_shift_assignments` MODIFY COLUMN `shiftCode` ENUM('first','second','third','commercial') NOT NULL;
+ALTER TABLE `operator_shift_exceptions` MODIFY COLUMN `shiftCode` ENUM('first','second','third','commercial') NULL;
+ALTER TABLE `operator_attendance_records` MODIFY COLUMN `shiftCode` ENUM('first','second','third','commercial') NULL;
+ALTER TABLE `operator_shift_reminders` MODIFY COLUMN `shiftCode` ENUM('first','second','third','commercial') NOT NULL;
+
 -- Sessões que já estavam abertas no momento da atualização: conserva o login real.
 -- Não transforma revogações antigas em logoff voluntário e não cria escala fictícia.
 INSERT IGNORE INTO `operator_attendance_records`

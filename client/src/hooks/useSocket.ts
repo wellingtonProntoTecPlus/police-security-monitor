@@ -40,7 +40,7 @@ export interface IncidentStateUpdate {
 }
 
 export type OperatorShiftNotice =
-  | { kind: "shift_reminder"; reminderId: number; userId: number; operatorName: string; shiftCode: "first" | "second" | "third"; minutesBefore: 20 | 40; shiftEndsAt: string | Date }
+  | { kind: "shift_reminder"; reminderId: number; userId: number; operatorName: string; shiftCode: "first" | "second" | "third" | "commercial"; minutesBefore: 20 | 40; shiftEndsAt: string | Date }
   | { kind: "shift_message"; messageId: number; userId: number; fromOperatorName: string; toOperatorName: string; incidentId: number | null; account: string | null };
 
 // A single authenticated connection per tab, even when both layout and Dashboard subscribe.

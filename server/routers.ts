@@ -1388,14 +1388,14 @@ export const appRouter = router({
     swap: adminProcedure.input(z.object({
       firstUserId: z.number().int().positive(), firstWorkDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       secondUserId: z.number().int().positive(), secondWorkDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      shiftOnFirstDate: z.enum(["first", "second", "third"]), shiftOnSecondDate: z.enum(["first", "second", "third"]),
+      shiftOnFirstDate: z.enum(["first", "second", "third", "commercial"]), shiftOnSecondDate: z.enum(["first", "second", "third", "commercial"]),
       reason: z.string().trim().min(5).max(500),
     })).mutation(({ input, ctx }) => operatorShiftDb.createOperatorShiftExceptionSwap({ ...input, createdBy: ctx.user.id })),
   }),
   systemUser: router({
     list: adminProcedure.query(() => db.listSystemUsers()),
     shiftAssignments: adminProcedure.query(() => operatorShiftDb.listOperatorShiftAssignments()),
-    create: adminProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.enum(["admin", "supervisor", "operator", "partner"]).default("operator"), partnerId: z.number().optional(), shiftAssignment: z.object({ shiftCode: z.enum(["first", "second", "third"]), effectiveFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), changeReason: z.string().trim().min(5).max(500) }).optional() })).mutation(async ({ input, ctx }) => {
+    create: adminProcedure.input(z.object({ name: z.string(), email: z.string(), password: z.string(), role: z.enum(["admin", "supervisor", "operator", "partner"]).default("operator"), partnerId: z.number().optional(), shiftAssignment: z.object({ shiftCode: z.enum(["first", "second", "third", "commercial"]), effectiveFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), changeReason: z.string().trim().min(5).max(500) }).optional() })).mutation(async ({ input, ctx }) => {
       if (input.role === "partner" && !input.partnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a empresa parceira deste usuário" });
       if (input.shiftAssignment && input.role === "partner") throw new TRPCError({ code: "BAD_REQUEST", message: "Usuário parceiro não recebe escala de operador" });
       const hashedPassword = await bcrypt.hash(input.password, 10);
@@ -1408,7 +1408,7 @@ export const appRouter = router({
       password: z.string().min(6).optional(),
       role: z.enum(["admin", "supervisor", "operator", "partner"]).optional(),
       partnerId: z.number().nullable().optional(),
-      shiftAssignment: z.object({ shiftCode: z.enum(["first", "second", "third"]), effectiveFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), changeReason: z.string().trim().min(5).max(500) }).optional(),
+      shiftAssignment: z.object({ shiftCode: z.enum(["first", "second", "third", "commercial"]), effectiveFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), changeReason: z.string().trim().min(5).max(500) }).optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, password, ...data } = input;
       if (data.role === "partner" && !data.partnerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a empresa parceira deste usuário" });
