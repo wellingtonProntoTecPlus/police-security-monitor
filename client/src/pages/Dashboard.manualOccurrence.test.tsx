@@ -244,6 +244,17 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.queryByText("Cliente incorreto")).toBeNull();
   });
 
+  it("exibe a data ao lado do horário recebido no cartão da fila", () => {
+    render(<Dashboard />);
+
+    const receivedAt = new Date(defaultQueue[0].receivedAt);
+    const time = receivedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const date = receivedAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const timeLabel = screen.getByText(time);
+
+    expect(timeLabel.parentElement?.textContent).toContain(date);
+  });
+
   it("exibe a confirmação de Arme ou Desarme recebida e finalizada automaticamente", () => {
     render(<Dashboard />);
 

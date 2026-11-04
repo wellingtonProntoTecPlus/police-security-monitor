@@ -1562,7 +1562,9 @@ export default function Dashboard() {
   function EventCard({ ev, groupedCard = false }: { ev: QueueEvent; groupedCard?: boolean }) {
     const sameClientCount = countSameClient(ev);
     const pri = PRIORITY_LABELS[ev.priority] || PRIORITY_LABELS.medium;
-    const time = ev.receivedAt ? new Date(ev.receivedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+    const eventTimestamp = ev.receivedAt || ev.timestamp;
+    const eventDate = eventTimestamp ? new Date(eventTimestamp).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+    const time = eventTimestamp ? new Date(eventTimestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "--:--";
     const isNew = ev.queueStatus === "waiting" && Date.now() - ev.queuedAt < 90_000;
     const eventSystem = resolveQueueEventSystem(ev, systemData || []);
     const eventClient = resolveQueueEventClient(ev, eventSystem, clientData || []);
@@ -1587,7 +1589,10 @@ export default function Dashboard() {
           </div>
         )}
         <div className="flex items-center gap-2 pr-8">
-          <div className="text-xs text-muted-foreground font-mono">{time}</div>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground font-mono" title={eventTimestamp ? new Date(eventTimestamp).toLocaleString("pt-BR") : undefined}>
+            <span>{time}</span>
+            {eventDate && <><span aria-hidden="true" className="text-muted-foreground/60">·</span><span>{eventDate}</span></>}
+          </div>
           {isNew && <Badge className="bg-red-600 px-1.5 py-0 text-[9px] font-bold text-white">NOVO</Badge>}
         </div>
         <div className={`mt-0.5 font-bold text-sm ${PRIORITY_TEXT_COLOR[ev.priority] || 'text-foreground'}`}>{ev.description || `Evento ${ev.eventCode}`}</div>
