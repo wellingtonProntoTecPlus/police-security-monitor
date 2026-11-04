@@ -56,6 +56,7 @@ import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles"
 import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
 import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
 import { canBulkFinalizeIncident } from "@shared/incidentBulkFinalization";
+import { isClientMonitoringBlocked } from "@shared/clientMonitoringStatus";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DB_CONNECT_TIMEOUT_MS = 3_500;
@@ -670,8 +671,16 @@ export async function sweepKeepAliveDisconnects(referenceTime = new Date()) {
   if (!db) return { opened: [] as KeepAliveDisconnectOpening[], skipped: 0 };
 
   const systems = await listSystemsConnectionStatus(referenceTime);
+  const clientIds = Array.from(new Set(systems.map((system) => system.clientId).filter((id): id is number => id != null)));
+  const clientProfiles = clientIds.length ? await db.select({
+    id: clients.id,
+    monitoringStatus: clients.monitoringStatus,
+    monitoringStatusUntil: clients.monitoringStatusUntil,
+  }).from(clients).where(inArray(clients.id, clientIds)) : [];
+  const clientById = new Map(clientProfiles.map((client) => [client.id, client]));
   return processKeepAliveDisconnectCandidates<KeepAliveDisconnectOpening>({
     systems: systems as KeepAliveDisconnectCandidate[],
+    isMonitoringBlocked: (system) => isClientMonitoringBlocked(clientById.get(system.clientId || 0), referenceTime),
     isInMaintenance: (system) => isSystemInMaintenance({
       maintenanceStartAt: system.maintenanceStartAt,
       maintenanceEndAt: system.maintenanceEndAt,
@@ -2868,7 +2877,12 @@ export async function sweepAlarmScheduleCompliance(now = new Date()) {
   const statusBySystem = new Map<number, any>();
   for (const item of [...statuses.armed, ...statuses.disarmed]) statusBySystem.set(item.alarmSystemId, item);
   const scheduledSystemIds = Array.from(new Set(activeSchedules.map((row) => row.alarmSystemId)));
-  const systemRows = await db.select({ system: alarmSystems, partnerCompanyId: clients.partnerCompanyId })
+  const systemRows = await db.select({
+    system: alarmSystems,
+    partnerCompanyId: clients.partnerCompanyId,
+    monitoringStatus: clients.monitoringStatus,
+    monitoringStatusUntil: clients.monitoringStatusUntil,
+  })
     .from(alarmSystems)
     .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
     .where(and(eq(alarmSystems.isActive, true), inArray(alarmSystems.id, scheduledSystemIds)));
@@ -2885,6 +2899,7 @@ export async function sweepAlarmScheduleCompliance(now = new Date()) {
     const status = statusBySystem.get(schedule.alarmSystemId);
     const systemRow = systemsById.get(schedule.alarmSystemId);
     if (!status || !systemRow) { skipped += 1; continue; }
+    if (isClientMonitoringBlocked(systemRow, now)) { skipped += 1; continue; }
     const partnerId = systemRow.partnerCompanyId;
     const holidays = allHolidays
       .filter((holiday) => holiday.partnerCompanyId === partnerId)

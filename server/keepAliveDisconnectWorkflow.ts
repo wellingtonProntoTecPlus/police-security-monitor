@@ -22,6 +22,7 @@ export type EligibleKeepAliveDisconnectCandidate = Omit<KeepAliveDisconnectCandi
 export async function processKeepAliveDisconnectCandidates<TOpening>(input: {
   systems: KeepAliveDisconnectCandidate[];
   isInMaintenance: (system: KeepAliveDisconnectCandidate) => boolean;
+  isMonitoringBlocked?: (system: KeepAliveDisconnectCandidate) => boolean;
   openOnce: (system: EligibleKeepAliveDisconnectCandidate) => Promise<TOpening | null>;
 }) {
   const opened: TOpening[] = [];
@@ -31,6 +32,7 @@ export async function processKeepAliveDisconnectCandidates<TOpening>(input: {
       && system.keepAliveMonitoringEnabled
       && system.keepAliveDisconnectAlertEnabled
       && !!system.lastKeepAliveAt
+      && !input.isMonitoringBlocked?.(system)
       && !input.isInMaintenance(system);
     if (!eligible) {
       skipped += 1;

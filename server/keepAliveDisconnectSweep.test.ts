@@ -53,6 +53,29 @@ describe("ocorrência por desconexão de Keep Alive", () => {
     expect(first.skipped).toBe(1);
   });
 
+  it("não gera KOFF para cliente bloqueado e volta a verificar a mesma queda após reativação", async () => {
+    const system = {
+      id: 27, account: "0071", brand: "JFL", clientId: 12, receiverPort: 9061,
+      connectionStatus: "offline" as const, keepAliveMonitoringEnabled: true,
+      keepAliveDisconnectAlertEnabled: true, keepAliveOfflineAfterMinutes: 15,
+      cutoffMs: 900_000, lastKeepAliveAt: new Date("2026-08-22T20:00:00Z"),
+      maintenanceStartAt: null, maintenanceEndAt: null,
+    };
+    let generated = 0;
+    const openOnce = async () => { generated += 1; return { incidentId: 12 }; };
+    const blocked = await processKeepAliveDisconnectCandidates({
+      systems: [system], isInMaintenance: () => false, isMonitoringBlocked: () => true, openOnce,
+    });
+    expect(blocked.opened).toEqual([]);
+    expect(blocked.skipped).toBe(1);
+    expect(generated).toBe(0);
+    const resumed = await processKeepAliveDisconnectCandidates({
+      systems: [system], isInMaintenance: () => false, isMonitoringBlocked: () => false, openOnce,
+    });
+    expect(resumed.opened).toEqual([{ incidentId: 12 }]);
+    expect(generated).toBe(1);
+  });
+
   it("mantém a ocorrência restaurada em Observação para finalização manual", async () => {
     const restored: number[] = [];
     const observing: number[] = [];

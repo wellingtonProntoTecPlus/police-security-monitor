@@ -857,7 +857,7 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
 }
 
 // Processa e salva o evento
-async function processEvent(evento: any, remoteIp: string, captureSummary = "", captureFrames = [] as ReturnType<typeof getSafeCaptureFrames>, socket?: net.Socket): Promise<boolean> {
+export async function processEvent(evento: any, remoteIp: string, captureSummary = "", captureFrames = [] as ReturnType<typeof getSafeCaptureFrames>, socket?: net.Socket): Promise<boolean> {
   try {
     // Buscar descrição do código
     let description = `Evento ${evento.eventCode}`;

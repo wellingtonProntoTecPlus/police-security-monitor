@@ -454,7 +454,7 @@ export default function Clients() {
                         <Input className="mt-1" type="datetime-local" value={form.monitoringStatusUntil} onChange={(event) => setForm({ ...form, monitoringStatusUntil: event.target.value })} />
                       </div>}
                     </>}
-                    <p className="text-xs text-muted-foreground">A situação aparece na lista Bloqueados do Dashboard e preserva o motivo para consulta operacional.</p>
+                    <p className="text-xs text-muted-foreground">Bloqueio ou suspensão vigente impede novos atendimentos automáticos. Os eventos recebidos continuam no relatório; atendimentos já abertos não são apagados nem finalizados. A suspensão termina na data indicada e o bloqueio permanece até reativação.</p>
                   </CardContent>
                 </Card>
 
