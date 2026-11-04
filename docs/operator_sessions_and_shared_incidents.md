@@ -8,7 +8,9 @@ Após login local ou OAuth, o PoliceCentral cria uma sessão própria do sistema
 
 Os eventos continuam visíveis para todos os operadores. O primeiro operador que inicia o atendimento faz uma reivindicação atômica no servidor; as demais telas recebem a mudança por Socket.IO e/ou reconciliam a fila. Os cartões indicam quem está atendendo e qual é o estado do registro.
 
-Um atendimento em andamento não pode ser tomado silenciosamente por outro operador. Se o primeiro operador colocar o registro em observação, outro operador pode abrir a ocorrência em modo de leitura e usar **Assumir atendimento**. A assunção cria um registro de atendimento filho, independente e vinculado ao original. O atendimento original permanece em observação; o operador que assumiu pode registrar suas próprias providências e gerar seu próprio relatório. Uma assunção repetida do mesmo operador reutiliza seu filho existente.
+Um atendimento em andamento não pode ser tomado silenciosamente por outro operador. Se o primeiro operador colocar o registro em observação, outro operador pode abrir a ocorrência em modo de leitura e usar **Assumir atendimento**. A assunção transfere a responsabilidade pelo mesmo incidente para o novo operador, retira o registro da observação e mantém o mesmo ID de atendimento e evento. O histórico anterior permanece anexado e recebe a auditoria da transferência; o novo responsável pode continuar o tratamento e finalizar essa mesma ocorrência. Não se cria ocorrência nem atendimento filho.
+
+Atendimentos filhos que já existiam na versão anterior são preservados. Enquanto um desses registros legados estiver aberto, o atendimento principal não pode ser transferido para evitar dois fechamentos paralelos do mesmo evento; a interface informa qual registro antigo precisa ser resolvido.
 
 ### Finalização em massa e observação automática
 
@@ -26,6 +28,6 @@ O cadastro da agenda usa os campos diários legados quando encontrados e preserv
 
 ## Implantação e segurança
 
-O código e as migrações são aditivos e idempotentes, mas precisam ser executados na VPS antes do uso: a instalação antiga da tabela semanal é convertida para o modelo atual, e as tabelas de sessão e histórico são criadas. O primeiro teste recomendado é com dois usuários diferentes: um inicia e observa um incidente, outro assume; verificar os dois atendimentos e seus relatórios. Um teste adicional deve confirmar que o login do mesmo operador no segundo computador invalida o primeiro.
+O código e as migrações são aditivos e idempotentes, mas precisam ser executados na VPS antes do uso: a instalação antiga da tabela semanal é convertida para o modelo atual, e as tabelas de sessão e histórico são criadas. O primeiro teste recomendado é com dois usuários diferentes: um inicia e observa um incidente, o outro assume; verificar que o ID do incidente permanece o mesmo, o responsável muda, a observação termina e o segundo operador consegue finalizar o atendimento com histórico preservado. Um teste adicional deve confirmar que o login do mesmo operador no segundo computador invalida o primeiro.
 
 Esses fluxos não enviam comandos físicos às centrais. A autorização, a identidade e a confirmação dos comandos de Arme/Desarme continuam seguindo seus controles próprios.

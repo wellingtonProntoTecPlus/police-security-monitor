@@ -1,5 +1,5 @@
 export type IncidentOwnershipStatus = "waiting" | "attending" | "observing" | "dispatched" | "maintenance" | "closed";
-export type IncidentOwnershipAction = "claim" | "continue" | "resume" | "assume_child";
+export type IncidentOwnershipAction = "claim" | "continue" | "resume" | "assume";
 
 export function resolveExistingActiveChildAction(input: {
   activeChildOperatorId: number | null | undefined;
@@ -19,6 +19,6 @@ export function resolveIncidentOwnershipAction(input: {
   if (input.assignedOperatorId === input.actingOperatorId) {
     return input.status === "observing" ? "resume" : "continue";
   }
-  if (input.status === "observing") return "assume_child";
+  if (input.status === "observing") return "assume";
   return null;
 }

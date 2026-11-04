@@ -884,7 +884,7 @@ export default function Dashboard() {
     if (!selectedEvent?.incidentId) return;
     try {
       const result = await assumeIncidentMut.mutateAsync({ incidentId: selectedEvent.incidentId });
-      const childEvent: QueueEvent = {
+      const updatedEvent: QueueEvent = {
         ...selectedEvent,
         incidentId: result.id,
         parentIncidentId: result.parentIncidentId,
@@ -892,19 +892,17 @@ export default function Dashboard() {
         incidentOperatorName: result.operatorName,
         incidentNotes: result.notes,
         queueStatus: incidentStatusToQueueStatus(result.status),
-        queuedAt: Date.now(),
+        observationUntil: null,
       };
-      setQueues((previous) => [...previous.filter((item) => item.incidentId !== result.id), childEvent]);
-      setSelectedEvent(childEvent);
+      setQueues((previous) => previous.some((item) => item.incidentId === result.id)
+        ? previous.map((item) => item.incidentId === result.id ? { ...item, ...updatedEvent } : item)
+        : [...previous, updatedEvent]);
+      setSelectedEvent(updatedEvent);
       setAttendStartTime(Date.now());
       setAttendingNotes("");
-      setLogs([result.alreadyAssigned
-        ? `Atendimento independente já existente retomado: #${result.id}; origem #${result.parentIncidentId}.`
-        : `Atendimento assumido de outro operador. Registro independente #${result.id}; origem #${result.parentIncidentId}.`]);
+      setLogs([`Atendimento #${result.id} assumido de ${result.previousOperatorName || "outro operador"}; a responsabilidade agora é sua.`]);
       await utils.incident.openQueue.invalidate();
-      toast.success(result.alreadyAssigned
-        ? "Seu atendimento independente foi reaberto."
-        : "Atendimento assumido. Seu registro será independente e não altera o atendimento que segue em observação.");
+      toast.success("Atendimento assumido. A mesma ocorrência saiu da observação e agora está sob sua responsabilidade.");
     } catch (error: any) {
       toast.error(error?.message || "Não foi possível assumir o atendimento.");
       await utils.incident.openQueue.invalidate();
@@ -1709,7 +1707,7 @@ export default function Dashboard() {
                 <div className="w-full max-w-xl rounded-xl border border-amber-400/50 bg-amber-400/5 p-6 text-center">
                   <Users className="mx-auto mb-3 h-10 w-10 text-amber-300" />
                   <h3 className="text-lg font-bold text-amber-100">Atendimento em observação</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">Este registro pertence a <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Para trabalhar e finalizar sem interferir no registro dele, assuma o atendimento. Será criado um segundo registro vinculado a esta ocorrência.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Este atendimento está em observação com <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Ao assumir, a responsabilidade pela mesma ocorrência passa para você; o histórico existente é preservado.</p>
                   {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
                   <Button className="mt-5 bg-amber-500 font-bold text-black hover:bg-amber-400" disabled={assumeIncidentMut.isPending} onClick={() => void assumeSelectedObservation()}>
                     <Users className="mr-2 h-4 w-4" />{assumeIncidentMut.isPending ? "Assumindo..." : "Assumir atendimento"}

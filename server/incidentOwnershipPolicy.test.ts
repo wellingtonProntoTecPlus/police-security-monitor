@@ -7,9 +7,9 @@ describe("propriedade de atendimento multioperador", () => {
     expect(resolveIncidentOwnershipAction({ status: "waiting", assignedOperatorId: 12, actingOperatorId: 13 })).toBeNull();
   });
 
-  it("permite retomar observação própria e cria assunção separada para outro operador", () => {
+  it("permite retomar observação própria e transferir o mesmo atendimento a outro operador", () => {
     expect(resolveIncidentOwnershipAction({ status: "observing", assignedOperatorId: 12, actingOperatorId: 12 })).toBe("resume");
-    expect(resolveIncidentOwnershipAction({ status: "observing", assignedOperatorId: 12, actingOperatorId: 13 })).toBe("assume_child");
+    expect(resolveIncidentOwnershipAction({ status: "observing", assignedOperatorId: 12, actingOperatorId: 13 })).toBe("assume");
   });
 
   it("reivindica observação automática ou escalada sem operador sem criar filho", () => {

@@ -878,8 +878,9 @@
 - [x] Permitir que novo login do mesmo operador revogue a sessão anterior e derrube seus sockets/dispositivo anterior
 - [x] Atualizar filas em todas as telas por Socket.IO e reconciliar após retorno de aba suspensa
 - [x] Fazer claim atômico de eventos pendentes e mostrar operador/status para os demais
-- [x] Permitir assumir atendimento em observação com botão explícito, criando registro filho independente e preservando o atendimento original
-- [x] Proteger alterações/finalização pelo operador dono do atendimento; separar relatório do atendimento assumido
+- [x] Permitir assumir atendimento em observação com botão explícito, transferindo o mesmo incidente para o segundo operador e preservando histórico/evento
+- [x] Proteger alterações/finalização pelo operador responsável atual; registrar a transferência do mesmo atendimento em auditoria
+- [ ] Publicar e validar com dois operadores na VPS que Assumir preserva o mesmo ID, encerra observação e permite ao novo responsável finalizar
 - [x] Corrigir lote que ignorava KOFF/E361 em observação/escalada sem operador: permitir registros raiz automáticos, preservar terceiros e devolver IDs exatos, com relatório/auditoria/fechamento transacional e feedback de zero/parcial
 - [x] Reivindicar observação automática sem dono sem criar filho e impedir reabertura por disputa com o temporizador Radioenge
 - [x] Proteger API contra fallback SPA/HTML e apresentar erro recuperável sem repetir automaticamente gravações ou comandos

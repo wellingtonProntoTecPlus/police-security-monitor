@@ -2166,7 +2166,7 @@ export async function transitionIncidentForOperator(input: {
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
     const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
-    if (!action || action === "assume_child") throw new Error("Este atendimento pertence a outro operador. Atualize a fila e use ‘Assumir atendimento’ somente se estiver em observação.");
+    if (!action || action === "assume") throw new Error("Este atendimento pertence a outro operador. Atualize a fila e use ‘Assumir atendimento’ somente se estiver em observação.");
     if (current.status === "waiting" && input.status !== "attending") throw new Error("Abra primeiro o atendimento antes de encaminhá-lo ao tático.");
 
     const now = new Date();
@@ -2201,7 +2201,7 @@ export async function putIncidentInObservation(input: { incidentId: number; unti
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
     const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
-    if (!action || action === "assume_child") throw new Error("Somente o operador responsável pode colocar este atendimento em observação.");
+    if (!action || action === "assume") throw new Error("Somente o operador responsável pode colocar este atendimento em observação.");
     const now = new Date();
     const note = input.notes?.trim() || "Ocorrência colocada em observação";
     await tx.update(incidents).set({ status: "observing", operatorId: input.operatorId, claimedAt: current.claimedAt || now, observationUntil: input.until, notes: note, version: (current.version || 0) + 1 })
@@ -2221,51 +2221,69 @@ export async function assumeObservedIncident(input: { incidentId: number; operat
   return db.transaction(async (tx) => {
     const [parent] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!parent) throw new Error("Ocorrência aberta não encontrada");
-    const [activeChild] = await tx.select().from(incidents).where(and(
+    if (parent.status === "closed") throw new Error("Este atendimento já está finalizado");
+    const action = resolveIncidentOwnershipAction({ status: parent.status, assignedOperatorId: parent.operatorId, actingOperatorId: input.operatorId });
+    if (action !== "assume") throw new Error(action === "resume" ? "Você já é responsável por este atendimento; atualize a fila para retomá-lo." : "Só é possível assumir um atendimento em observação por outro operador.");
+
+    // Registros filhos só existiam no fluxo antigo. Não transferir o pai enquanto
+    // houver um atendimento legado aberto, para nunca deixar dois operadores
+    // finalizarem em paralelo o mesmo evento.
+    const [activeChild] = await tx.select({ id: incidents.id, operatorId: incidents.operatorId }).from(incidents).where(and(
       eq(incidents.parentIncidentId, parent.id),
       inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
     )).for("update").limit(1);
     if (activeChild) {
       const childAction = resolveExistingActiveChildAction({ activeChildOperatorId: activeChild.operatorId, actingOperatorId: input.operatorId });
-      if (childAction === "reject_other_operator") {
-        throw new Error("Este evento já tem um atendimento independente ativo com outro operador.");
-      }
-      return {
-        id: activeChild.id,
-        parentIncidentId: parent.id,
-        eventId: activeChild.eventId,
-        alarmSystemId: activeChild.alarmSystemId,
-        clientId: activeChild.clientId,
-        status: activeChild.status,
-        operatorId: activeChild.operatorId,
-        operatorName: input.operatorName.slice(0, 255),
-        notes: activeChild.notes,
-        alreadyAssigned: true as const,
-      };
+      throw new Error(childAction === "reuse_existing"
+        ? `Já existe um atendimento legado seu (#${activeChild.id}) vinculado. Abra esse registro; nenhum atendimento duplicado foi criado.`
+        : `Já existe um atendimento legado ativo (#${activeChild.id}) vinculado a outro operador. Atualize a fila e resolva esse registro antes de assumir o atendimento principal.`);
     }
-    const action = resolveIncidentOwnershipAction({ status: parent.status, assignedOperatorId: parent.operatorId, actingOperatorId: input.operatorId });
-    if (action !== "assume_child") throw new Error(action === "resume" ? "Você já é responsável por este atendimento; atualize a fila para retomá-lo." : "Só é possível assumir um atendimento que esteja em observação por outro operador.");
+
     const now = new Date();
-    const childNotes = `Atendimento assumido de ${parent.operatorId ? `operador ${parent.operatorId}` : "outro atendente"}. Registro independente para este operador.`;
-    const inserted = await tx.insert(incidents).values({
+    const operatorName = input.operatorName.slice(0, 255);
+    const previousOperatorName = parent.operatorId
+      ? (await tx.select({ name: users.name }).from(users).where(eq(users.id, parent.operatorId)).limit(1))[0]?.name || `operador ${parent.operatorId}`
+      : "outro operador";
+    const transferNote = `Atendimento assumido por ${operatorName}; responsabilidade transferida de ${previousOperatorName}.`;
+    const updated = await tx.update(incidents).set({
+      status: "attending",
+      operatorId: input.operatorId,
+      claimedAt: parent.claimedAt || now,
+      observationUntil: null,
+      notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${transferNote}`})`,
+      version: (parent.version || 0) + 1,
+    }).where(and(
+      eq(incidents.id, parent.id),
+      eq(incidents.status, "observing"),
+      eq(incidents.operatorId, parent.operatorId!),
+      eq(incidents.version, parent.version || 0),
+    ));
+    if (Number(updated[0]?.affectedRows) !== 1) throw new Error("O atendimento mudou em outra tela. Atualize a fila e tente novamente.");
+
+    await tx.insert(incidentHistory).values({
+      incidentId: parent.id,
+      parentIncidentId: parent.parentIncidentId,
+      operatorId: input.operatorId,
+      operatorName,
+      action: "assumed",
+      statusBefore: "observing",
+      statusAfter: "attending",
+      note: transferNote,
+    });
+    return {
+      id: parent.id,
+      parentIncidentId: parent.parentIncidentId,
       eventId: parent.eventId,
-      parentIncidentId: parent.id,
       alarmSystemId: parent.alarmSystemId,
       clientId: parent.clientId,
+      status: "attending" as const,
       operatorId: input.operatorId,
-      status: "attending",
-      version: 0,
-      claimedAt: now,
-      priority: parent.priority,
-      notes: childNotes,
-    });
-    const childId = Number(inserted[0].insertId);
-    const operatorName = input.operatorName.slice(0, 255);
-    await tx.insert(incidentHistory).values([
-      { incidentId: parent.id, parentIncidentId: parent.parentIncidentId, operatorId: input.operatorId, operatorName, action: "assumed_by_another_operator", statusBefore: parent.status, statusAfter: parent.status, note: `Operador ${operatorName} abriu um atendimento independente.` },
-      { incidentId: childId, parentIncidentId: parent.id, operatorId: input.operatorId, operatorName, action: "assumed", statusBefore: "observing", statusAfter: "attending", note: childNotes },
-    ]);
-    return { id: childId, parentIncidentId: parent.id, eventId: parent.eventId, alarmSystemId: parent.alarmSystemId, clientId: parent.clientId, status: "attending" as const, operatorId: input.operatorId, operatorName, notes: childNotes, alreadyAssigned: false as const };
+      operatorName,
+      notes: `${parent.notes || ""}\n${transferNote}`.trim(),
+      transferred: true as const,
+      previousOperatorId: parent.operatorId,
+      previousOperatorName,
+    };
   });
 }
 
