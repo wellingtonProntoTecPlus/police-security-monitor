@@ -14,15 +14,23 @@ const clientFixtures = [
   { id: 2, partnerCompanyId: 1, type: "pj", name: "Suspenso Válido", isActive: true, monitoringStatus: "suspended", monitoringStatusUntil: "2099-01-01T00:00:00.000Z", accounts: [] },
   { id: 3, partnerCompanyId: 1, type: "pj", name: "Bloqueado Válido", isActive: true, monitoringStatus: "blocked", accounts: [] },
   { id: 4, partnerCompanyId: 1, type: "pj", name: "Suspensão Expirada", isActive: true, monitoringStatus: "suspended", monitoringStatusUntil: "2000-01-01T00:00:00.000Z", accounts: [] },
+  { id: 5, partnerCompanyId: 1, type: "pj", name: "Cliente Dois Sistemas", isActive: true, monitoringStatus: "active", accounts: ["0101", "0102"] },
+];
+const systemsForClient = [
+  { id: 51, clientId: 5, account: "0101", brand: "JFL", model: "Active 8W" },
+  { id: 52, clientId: 5, account: "0102", brand: "COMPATEC", model: "AW32" },
 ];
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     monitoredClient: {
-      list: { useQuery: (input?: { monitoringStatus?: string }) => ({ data: input?.monitoringStatus ? clientFixtures.filter((client) => input.monitoringStatus === "active" ? client.monitoringStatus === "active" || (client.monitoringStatus === "suspended" && new Date(client.monitoringStatusUntil!) < new Date()) : client.monitoringStatus === input.monitoringStatus) : [], refetch: vi.fn() }) },
+      list: { useQuery: (input?: { monitoringStatus?: string }) => ({ data: input?.monitoringStatus ? clientFixtures.filter((client) => input.monitoringStatus === "active" ? client.monitoringStatus === "active" || (client.monitoringStatus === "suspended" && new Date(client.monitoringStatusUntil!) < new Date()) : client.monitoringStatus === input.monitoringStatus) : clientFixtures, refetch: vi.fn() }) },
       create: { useMutation: () => standardMutation },
       update: { useMutation: () => standardMutation },
       delete: { useMutation: () => standardMutation },
+    },
+    alarmSystem: {
+      list: { useQuery: (input?: { clientId?: number }) => ({ data: input?.clientId === 5 ? systemsForClient : [], isLoading: false, isError: false }) },
     },
     partnerCompany: {
       list: { useQuery: () => ({ data: [{ id: 1, name: "Police Electronics", cnpj: "04252011000110", phone: "44999999999", email: "central@example.com", address: "Rua Central", city: "Maringá", state: "PR", zipCode: "87000000" }] }) },
@@ -107,5 +115,31 @@ describe("Clientes — Novo Cliente", () => {
     await user.selectOptions(status, "active");
     expect(screen.getByText("Suspensão Expirada")).toBeTruthy();
     expect(screen.queryByText("Bloqueado Válido")).toBeNull();
+  });
+
+  it("identifica o cliente e enumera todos os sistemas antes de confirmar o bloqueio", async () => {
+    const user = userEvent.setup();
+    render(<Clients />);
+    const clientName = screen.getByText("Cliente Dois Sistemas");
+    const clientRow = clientName.closest("div.grid");
+    expect(clientRow).toBeTruthy();
+    await user.click(within(clientRow as HTMLElement).getByTitle("Editar cliente"));
+    await screen.findByRole("heading", { name: "Editar Cliente" });
+
+    const selects = screen.getAllByRole("combobox");
+    await user.selectOptions(selects[3], "blocked");
+    await user.type(screen.getByPlaceholderText("Ex.: pendência financeira"), "Inadimplência");
+    await user.click(screen.getByRole("button", { name: "Salvar Alterações" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/Cliente Dois Sistemas/)).toBeTruthy();
+    expect(within(dialog).getByRole("list", { name: "Sistemas afetados" }).textContent).toContain("0101");
+    expect(within(dialog).getByRole("list", { name: "Sistemas afetados" }).textContent).toContain("0102");
+    expect(standardMutation.mutate).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Confirmar bloqueio" }));
+    expect(standardMutation.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      id: 5, monitoringStatus: "blocked", monitoringStatusReason: "Inadimplência",
+    }));
   });
 });

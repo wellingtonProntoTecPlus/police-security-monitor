@@ -170,6 +170,7 @@
 
 ## Melhorias no Cadastro de Cliente
 - [x] Adicionar filtro por empresa parceira na página Clientes Monitorados
+- [x] Antes de salvar bloqueio/suspensão, identificar o cliente, declarar que o status afeta todos os seus sistemas e listar cada conta/marca/modelo para confirmação explícita
 - [x] Exibir o total de clientes para a parceira selecionada e para a busca combinada
 - [x] Exibir a conta como primeira coluna da lista de clientes, ordenar por conta e permitir busca pela conta
 - [x] Aumentar o tamanho, o espaçamento e o destaque visual da conta na lista de clientes

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Trash2, Pencil, Ban } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -122,10 +123,16 @@ export default function Clients() {
   const [editingClient, setEditingClient] = useState<any>(null);
   const [reuseConfirmedKey, setReuseConfirmedKey] = useState<string | null>(null);
   const [duplicatePromptPartner, setDuplicatePromptPartner] = useState<any>(null);
+  const [statusConfirmationOpen, setStatusConfirmationOpen] = useState(false);
   const [loadingCep, setLoadingCep] = useState(false);
 
   const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(statusFilter === "all" ? undefined : { monitoringStatus: statusFilter });
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
+  const affectedSystemsQuery = trpc.alarmSystem.list.useQuery(
+    { clientId: editingClient?.id || 0 },
+    { enabled: view === "create" && Boolean(editingClient?.id) && form.monitoringStatus !== "active" },
+  );
+  const affectedSystems = affectedSystemsQuery.data || [];
   const createMutation = trpc.monitoredClient.create.useMutation({
     onSuccess: () => {
       toast.success("Cliente cadastrado com sucesso!");
@@ -142,6 +149,7 @@ export default function Clients() {
   const updateMutation = trpc.monitoredClient.update.useMutation({
     onSuccess: () => {
       toast.success("Cliente atualizado com sucesso!");
+      setStatusConfirmationOpen(false);
       setView("list");
       setEditingClient(null);
       setForm({ ...INITIAL_FORM });
@@ -196,7 +204,7 @@ export default function Clients() {
   const ownPartnerDocument = form.type === "pj" ? partners.find((partner: any) => Number(partner.id) === Number(form.partnerCompanyId) && normalizeBrazilianDocument(partner.cnpj) === formDocument) : null;
   const ownPartnerDocumentKey = ownPartnerDocument && formDocument ? `${ownPartnerDocument.id}:${formDocument}` : null;
 
-  function handleSubmit() {
+  function handleSubmit(skipStatusConfirmation = false) {
     if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
     if (!form.name.trim()) { toast.error("Informe a Razão Social / Nome"); return; }
     if (form.monitoringStatus !== "active" && !form.monitoringStatusReason.trim()) { toast.error("Informe o motivo do bloqueio ou da suspensão"); return; }
@@ -204,6 +212,10 @@ export default function Clients() {
     const documentCheck = validateOptionalBrazilianDocument(form.document, form.type === "pf" ? "cpf" : "cnpj");
     if (documentCheck.error) { toast.error(documentCheck.error); return; }
     if (ownPartnerDocument && reuseConfirmedKey !== ownPartnerDocumentKey) { setDuplicatePromptPartner(ownPartnerDocument); return; }
+    if (editingClient && form.monitoringStatus !== "active" && !skipStatusConfirmation) {
+      setStatusConfirmationOpen(true);
+      return;
+    }
     const values = {
       ...form,
       document: documentCheck.document ?? undefined,
@@ -217,6 +229,8 @@ export default function Clients() {
     if (editingClient) updateMutation.mutate({ id: editingClient.id, ...values });
     else createMutation.mutate(values);
   }
+
+  const requestedStatusLabel = form.monitoringStatus === "blocked" ? "BLOQUEAR" : "SUSPENDER TEMPORARIAMENTE";
 
   function openClientForm(client?: any) {
     if (client) {
@@ -468,7 +482,14 @@ export default function Clients() {
                         <Input className="mt-1" type="datetime-local" value={form.monitoringStatusUntil} onChange={(event) => setForm({ ...form, monitoringStatusUntil: event.target.value })} />
                       </div>}
                     </>}
-                    <p className="text-xs text-muted-foreground">Bloqueio ou suspensão vigente impede novos atendimentos automáticos. Os eventos recebidos continuam no relatório; atendimentos já abertos não são apagados nem finalizados. A suspensão termina na data indicada e o bloqueio permanece até reativação.</p>
+                <p className="text-xs text-muted-foreground">Bloqueio ou suspensão vigente impede novos atendimentos automáticos. Os eventos recebidos continuam no relatório; atendimentos já abertos não são apagados nem finalizados. A suspensão termina na data indicada e o bloqueio permanece até reativação.</p>
+                {editingClient && form.monitoringStatus !== "active" && <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                  <p className="font-semibold text-amber-200">Esta alteração será aplicada ao cliente {editingClient.name} e a todos os sistemas vinculados a ele.</p>
+                  {affectedSystemsQuery.isLoading ? <p className="mt-2 text-muted-foreground">Conferindo sistemas vinculados…</p>
+                    : affectedSystemsQuery.isError ? <p className="mt-2 text-destructive">Não foi possível confirmar a lista de sistemas. Tente novamente antes de salvar o bloqueio/suspensão.</p>
+                      : affectedSystems.length > 0 ? <ul className="mt-2 list-inside list-disc space-y-1 text-foreground">{affectedSystems.map((system: any) => <li key={system.id}>Conta {system.account || "—"} · {system.brand || "Marca não informada"}{system.model ? ` · ${system.model}` : ""}</li>)}</ul>
+                        : <p className="mt-2 text-muted-foreground">Nenhum sistema está vinculado atualmente a este cliente.</p>}
+                </div>}
                   </CardContent>
                 </Card>
 
@@ -486,7 +507,7 @@ export default function Clients() {
                 </Card>
 
                 {/* Botão Salvar */}
-                <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="w-full h-12 text-base font-bold">
+                <Button onClick={() => handleSubmit()} disabled={createMutation.isPending || updateMutation.isPending} className="w-full h-12 text-base font-bold">
                   <Save className="h-5 w-5 mr-2" />
                   {createMutation.isPending || updateMutation.isPending ? "Salvando..." : editingClient ? "Salvar Alterações" : "Cadastrar Cliente"}
                 </Button>
@@ -494,6 +515,30 @@ export default function Clients() {
             </div>
           </div>
         </div>
+        <AlertDialog open={statusConfirmationOpen} onOpenChange={setStatusConfirmationOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{requestedStatusLabel}: confirmar cliente e sistemas</AlertDialogTitle>
+              <AlertDialogDescription>
+                Você vai {form.monitoringStatus === "blocked" ? "bloquear" : "suspender temporariamente"} <strong className="text-foreground">{editingClient?.name || form.name}</strong>. O status é do cliente e afeta todos os sistemas listados abaixo; não há escolha de apenas uma conta nesta tela.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {affectedSystemsQuery.isLoading ? <p role="status" className="text-sm text-muted-foreground">Conferindo sistemas vinculados…</p>
+              : affectedSystemsQuery.isError ? <p role="alert" className="text-sm text-destructive">Não foi possível consultar os sistemas. Cancele e tente novamente antes de salvar.</p>
+                : affectedSystems.length ? <ul aria-label="Sistemas afetados" className="max-h-48 list-inside list-disc space-y-2 overflow-y-auto rounded-md border border-border p-3 text-sm">{affectedSystems.map((system: any) => <li key={system.id}>Conta <strong>{system.account || "—"}</strong> · {system.brand || "Marca não informada"}{system.model ? ` · ${system.model}` : ""}</li>)}</ul>
+                  : <p className="rounded-md border border-border p-3 text-sm">Nenhum sistema está vinculado atualmente. A alteração será gravada no cadastro do cliente.</p>}
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-muted-foreground">
+              {form.monitoringStatus === "blocked" ? "Bloqueio ativo até reativação manual." : `Suspensão temporária até ${form.monitoringStatusUntil ? new Date(form.monitoringStatusUntil).toLocaleString("pt-BR") : "data não informada"}.`}
+              {form.monitoringStatusReason.trim() ? ` Motivo: ${form.monitoringStatusReason.trim()}.` : ""} Novos atendimentos automáticos não serão abertos para estes sistemas durante o período; eventos recebidos continuam no relatório e atendimentos já abertos permanecem intactos.
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <Button variant="destructive" disabled={affectedSystemsQuery.isLoading || affectedSystemsQuery.isError || updateMutation.isPending} onClick={() => handleSubmit(true)}>
+                {updateMutation.isPending ? "Salvando…" : `Confirmar ${form.monitoringStatus === "blocked" ? "bloqueio" : "suspensão"}`}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {duplicatePromptPartner && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="partner-document-prompt-title">
           <div className="w-full max-w-md rounded-xl border border-primary/40 bg-card p-5 text-card-foreground shadow-2xl">
             <h2 id="partner-document-prompt-title" className="text-lg font-semibold">CNPJ CADASTRADO. DESEJA CONTINUAR?</h2>
