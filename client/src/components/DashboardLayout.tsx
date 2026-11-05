@@ -31,6 +31,7 @@ import WorkspaceScreenMenu from "./WorkspaceScreenMenu";
 import OperatorHandoffMessageDialog from "./OperatorHandoffMessageDialog";
 import { useSocket } from "@/hooks/useSocket";
 import { OPERATOR_SHIFT_LABELS, type OperatorShiftCode } from "@shared/operatorShift";
+import OperatorScheduleDecisionDialog from "./OperatorScheduleDecisionDialog";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -158,6 +159,7 @@ function DashboardLayoutContent({
   const [handoffUntil, setHandoffUntil] = useState<Record<number, string>>({});
   const [logoutSubmitting, setLogoutSubmitting] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [scheduleDecisionError, setScheduleDecisionError] = useState("");
   const [activeInboxMessageId, setActiveInboxMessageId] = useState<number | null>(null);
   const [activeReminderId, setActiveReminderId] = useState<number | null>(null);
   const [noticeError, setNoticeError] = useState("");
@@ -170,10 +172,14 @@ function DashboardLayoutContent({
   const visibleMenuItems = user ? menuItems.filter((item) => (ROLE_MENU_ITEMS[user.role] || ROLE_MENU_ITEMS.operator).includes(item.path)) : menuItems;
   const changeOwnPasswordMut = trpc.auth.changeOwnPassword.useMutation();
   const isOperational = Boolean(user && ["admin", "supervisor", "operator"].includes(user.role));
-  const logoutPreview = trpc.operatorShift.logoutPreview.useQuery(undefined, { enabled: logoutDialogOpen && isOperational, retry: false });
-  const inboxQuery = trpc.operatorShift.inbox.useQuery(undefined, { enabled: isOperational, refetchOnWindowFocus: true, retry: false });
-  const remindersQuery = trpc.operatorShift.pendingReminders.useQuery(undefined, { enabled: isOperational, refetchOnWindowFocus: true, retry: false });
-  const { operatorNotices, connected: noticesConnected } = useSocket({ operationalNoticesOnly: true, enabled: isOperational });
+  const needsScheduleCheck = user?.role === "operator";
+  const scheduleDecision = trpc.operatorShift.loginScheduleDecision.useQuery(undefined, { enabled: needsScheduleCheck, retry: false, refetchOnWindowFocus: true });
+  const scheduleConfirmed = !needsScheduleCheck || Boolean(scheduleDecision.data && !scheduleDecision.data.required && !scheduleDecision.isError);
+  const logoutPreview = trpc.operatorShift.logoutPreview.useQuery(undefined, { enabled: logoutDialogOpen && isOperational && scheduleConfirmed, retry: false });
+  const confirmScheduleDecision = trpc.operatorShift.confirmLoginScheduleException.useMutation();
+  const inboxQuery = trpc.operatorShift.inbox.useQuery(undefined, { enabled: isOperational && scheduleConfirmed, refetchOnWindowFocus: true, retry: false });
+  const remindersQuery = trpc.operatorShift.pendingReminders.useQuery(undefined, { enabled: isOperational && scheduleConfirmed, refetchOnWindowFocus: true, retry: false });
+  const { operatorNotices, connected: noticesConnected } = useSocket({ operationalNoticesOnly: true, enabled: isOperational && scheduleConfirmed });
   const noticeRefetchers = useRef({ inbox: inboxQuery.refetch, reminders: remindersQuery.refetch });
   noticeRefetchers.current = { inbox: inboxQuery.refetch, reminders: remindersQuery.refetch };
   const markMessageRead = trpc.operatorShift.markRead.useMutation({ onSuccess: async () => { await inboxQuery.refetch(); } });
@@ -187,6 +193,16 @@ function DashboardLayoutContent({
     setNoticeError("");
     try { await acknowledgeReminder.mutateAsync({ reminderId: id }); setActiveReminderId(null); }
     catch (error) { setNoticeError(error instanceof Error ? error.message : "Não foi possível confirmar o aviso. Tente novamente."); }
+  };
+
+  const chooseScheduleDecision = async (reason: "scale_swap" | "double_shift" | "vacation_coverage") => {
+    setScheduleDecisionError("");
+    try {
+      await confirmScheduleDecision.mutateAsync({ reason });
+      await scheduleDecision.refetch();
+    } catch (error) {
+      setScheduleDecisionError(error instanceof Error ? error.message : "Não foi possível gravar a justificativa. Tente novamente.");
+    }
   };
 
   useEffect(() => {
@@ -563,8 +579,19 @@ function DashboardLayoutContent({
             />
           </div>
         )}
-        <main className={`min-h-0 flex-1 overflow-hidden ${workspaceMenuPlacement === "global" ? "h-[calc(100dvh-6.5rem)] md:h-[calc(100dvh-3rem)]" : "h-[calc(100dvh-3.5rem)] md:h-[100dvh]"}`}>{children}</main>
+        <main className={`min-h-0 flex-1 overflow-hidden ${workspaceMenuPlacement === "global" ? "h-[calc(100dvh-6.5rem)] md:h-[calc(100dvh-3rem)]" : "h-[calc(100dvh-3.5rem)] md:h-[100dvh]"}`}>{scheduleConfirmed ? children : <div role="status" className="p-5 text-sm text-muted-foreground">Conferindo sua escala de trabalho...</div>}</main>
       </SidebarInset>
+      {needsScheduleCheck && <OperatorScheduleDecisionDialog
+        open={scheduleDecision.isError || scheduleDecision.data?.required === true}
+        operatorName={user?.name || "Operador"}
+        isError={scheduleDecision.isError}
+        errorMessage={scheduleDecision.error?.message || ""}
+        isRetrying={scheduleDecision.isFetching}
+        isSubmitting={confirmScheduleDecision.isPending}
+        submitError={scheduleDecisionError}
+        onRetry={() => { void scheduleDecision.refetch(); }}
+        onChoose={(reason) => { void chooseScheduleDecision(reason); }}
+      />}
     </>
   );
 }

@@ -898,3 +898,11 @@
 - [x] Disponibilizar mensagem privada avulsa e passagem por atendimento com destinatário, justificativa e prazo; validar todas as pendências atomicamente antes de revogar a sessão
 - [x] Bloquear login substituto quando a sessão anterior ainda tem ocorrências pendentes; revalidar ID de sessão sob lock em mutações da fila para rejeitar alterações tardias após o logoff
 - [ ] Publicar na VPS e homologar relatório, cron de avisos, troca dia 16/17, mensagens e logoff com duas contas; a implantação não recria logoffs passados sem dados históricos
+
+## Cadastro documental, status e justificativa de escala
+- [x] Manter vários sistemas no mesmo cliente e liberar o CNPJ da própria parceira como sua sede cliente somente com confirmação explícita e validação no servidor
+- [x] Reaproveitar dados da parceira e persistir marcador de sede; reserva documental transacional, unicidade por categoria e preservação da edição da própria parceira
+- [x] Adicionar filtro Ativo/Suspenso/Bloqueado em Clientes, combinado com busca/parceira e considerando suspensão vencida como ativa
+- [x] Remover card manual de troca pontual e pedir motivo no novo login do operador fora do dia/horário previsto: troca de escala, dobra ou cobertura de férias
+- [x] Registrar a justificativa por sessão com horário e idempotência, exibir no relatório/CSV e não modificar escala permanente nem classificar sessões antigas retroativamente
+- [ ] Aplicar a versão na VPS e homologar com cliente-sede da própria parceira, filtros de status e operador em dia/horário diferente; nenhum comando físico faz parte desta implantação

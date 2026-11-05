@@ -48,3 +48,15 @@ export async function getUserShiftAttendanceWindow(db: any, userId: number, now:
   }
   return null;
 }
+
+/** A janela de lembretes permite entrada antecipada; a auditoria do login não. */
+export async function getUserLoginScheduleStatus(db: any, userId: number, loginAt: Date, reminderWindow: Awaited<ReturnType<typeof getUserShiftAttendanceWindow>>) {
+  if (reminderWindow) return loginAt >= reminderWindow.startAt && loginAt < reminderWindow.endAt ? "scheduled" as const : "outside_window" as const;
+  const [assignment] = await db.select({ id: operatorShiftAssignments.id }).from(operatorShiftAssignments).where(and(
+    eq(operatorShiftAssignments.userId, userId), eq(operatorShiftAssignments.isActive, true),
+    lte(operatorShiftAssignments.effectiveFromDate, localDateKey(loginAt)),
+    or(isNull(operatorShiftAssignments.effectiveUntilDate), gte(operatorShiftAssignments.effectiveUntilDate, localDateKey(loginAt))),
+  )).limit(1);
+  // Sem escala vigente, não inventar falta nem obrigar uma justificativa falsa.
+  return assignment ? "outside_window" as const : null;
+}

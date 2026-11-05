@@ -78,6 +78,9 @@ export const operatorAttendanceRecords = mysqlTable("operator_attendance_records
   logoutAt: timestamp("logoutAt"),
   logoutReason: mysqlEnum("logoutReason", ["logout", "session_replaced", "session_expired", "revoked"]),
   shiftCode: mysqlEnum("shiftCode", ["first", "second", "third", "commercial"]),
+  scheduleStatus: mysqlEnum("scheduleStatus", ["scheduled", "outside_window"]),
+  outOfScheduleReason: mysqlEnum("outOfScheduleReason", ["scale_swap", "double_shift", "vacation_coverage"]),
+  outOfScheduleDecisionAt: timestamp("outOfScheduleDecisionAt"),
   workDate: varchar("workDate", { length: 10 }),
   scheduledStartAt: timestamp("scheduledStartAt"),
   scheduledEndAt: timestamp("scheduledEndAt"),
@@ -170,15 +173,15 @@ export const partnerCompanies = mysqlTable("partner_companies", {
 export type PartnerCompany = typeof partnerCompanies.$inferSelect;
 export type InsertPartnerCompany = typeof partnerCompanies.$inferInsert;
 
-/** Documento normalizado, único em clientes e empresas parceiras. */
+/** Um cliente e a sua própria parceira podem partilhar o mesmo documento; não se repete dentro da mesma categoria. */
 export const registrationDocuments = mysqlTable("registration_documents", {
   id: int("id").autoincrement().primaryKey(),
-  document: varchar("document", { length: 18 }).notNull().unique(),
+  document: varchar("document", { length: 18 }).notNull(),
   ownerType: varchar("ownerType", { length: 20 }).notNull(),
   ownerId: int("ownerId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [uniqueIndex("registration_documents_document_ownerType_unique").on(table.document, table.ownerType)]);
 
 // ============================================================
 // TÁTICO MÓVEL DAS EMPRESAS PARCEIRAS
@@ -211,6 +214,7 @@ export const clients = mysqlTable("clients", {
   name: varchar("name", { length: 255 }).notNull(), // Razão Social ou Nome Completo
   fantasyName: varchar("fantasyName", { length: 255 }), // Nome Fantasia
   document: varchar("document", { length: 18 }), // CPF ou CNPJ opcional
+  isPartnerHeadquarters: boolean("isPartnerHeadquarters").default(false).notNull(),
   phone: varchar("phone", { length: 20 }),
   whatsapp: varchar("whatsapp", { length: 20 }),
   email: varchar("email", { length: 320 }),

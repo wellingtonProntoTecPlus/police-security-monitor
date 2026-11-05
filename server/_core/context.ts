@@ -29,6 +29,7 @@ export type TrpcContext = {
   authSessionId: number | null;
   authSessionTokenHash: string | null;
   authSessionInvalid: boolean;
+  authSessionScheduleDecisionPending?: boolean;
   /** Banco indisponível/lento: não é logout nem sessão substituída. */
   authSessionValidationTimedOut?: boolean;
 };
@@ -40,6 +41,7 @@ export async function createContext(
   let authSessionId: number | null = null;
   let authSessionTokenHash: string | null = null;
   let authSessionInvalid = false;
+  let authSessionScheduleDecisionPending = false;
   let sessionLookupSuccessful = false;
   let authSessionValidationTimedOut = false;
 
@@ -55,6 +57,7 @@ export async function createContext(
       if (activeSession) {
         user = activeSession.user;
         authSessionId = Number(activeSession.sessionId);
+        authSessionScheduleDecisionPending = Boolean(activeSession.scheduleDecisionPending);
       }
     } catch (error) {
       // Falha fechada: não aceitar token sem validar sua revogação no banco.
@@ -85,6 +88,7 @@ export async function createContext(
     authSessionId,
     authSessionTokenHash,
     authSessionInvalid,
+    authSessionScheduleDecisionPending,
     authSessionValidationTimedOut,
   };
 }

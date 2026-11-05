@@ -1,52 +1,29 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { toast } from "sonner";
-import { CalendarClock, RefreshCw, Users, ArrowLeftRight } from "lucide-react";
-import { OPERATOR_SHIFT_CODES, OPERATOR_SHIFT_LABELS, localDateKey, type OperatorShiftCode } from "@shared/operatorShift";
-import { buildOperatorAttendanceCsv } from "./operatorAttendanceExport";
+import { CalendarClock, RefreshCw, Users } from "lucide-react";
+import { OPERATOR_SHIFT_LABELS, localDateKey, type OperatorShiftCode } from "@shared/operatorShift";
+import { buildOperatorAttendanceCsv, OPERATOR_SCHEDULE_REASON_LABELS } from "./operatorAttendanceExport";
 
 const ROLE_LABELS: Record<string, string> = { admin: "Administrador", supervisor: "Supervisor", operator: "Operador" };
 const LOGOUT_LABELS: Record<string, string> = { logout: "Logoff normal", session_replaced: "Sessão substituída por novo login", session_expired: "Sessão expirada", revoked: "Sessão revogada" };
-const SHIFT_CODES: OperatorShiftCode[] = [...OPERATOR_SHIFT_CODES];
 const dateDisplay = (value: unknown) => value ? new Date(value as string | number | Date).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—";
 const shortDate = (value: unknown) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("pt-BR") : "—";
 const startOfMonth = (today: string) => `${today.slice(0, 7)}-01`;
 const endOfMonth = (today: string) => { const [y, m] = today.split("-").map(Number); return `${today.slice(0, 7)}-${new Date(y, m, 0).getDate()}`; };
 
 export default function OperatorShiftsPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
   const today = localDateKey(new Date());
   const [fromDate, setFromDate] = useState(startOfMonth(today));
   const [toDate, setToDate] = useState(endOfMonth(today));
   const [reportUserId, setReportUserId] = useState("all");
-  const [swapUserA, setSwapUserA] = useState("");
-  const [swapUserB, setSwapUserB] = useState("");
-  const [dateA, setDateA] = useState(today);
-  const [dateB, setDateB] = useState(today);
-  const [shiftA, setShiftA] = useState<OperatorShiftCode>("first");
-  const [shiftB, setShiftB] = useState<OperatorShiftCode>("first");
-  const [swapReason, setSwapReason] = useState("");
-
   const usersQuery = trpc.operatorShift.reportUsers.useQuery(undefined, { retry: false });
   const users = usersQuery.data || [];
   const reportQuery = trpc.operatorShift.report.useQuery({ fromDate, toDate, ...(reportUserId !== "all" ? { userId: Number(reportUserId) } : {}) }, { refetchOnWindowFocus: true });
-  const exceptionsQuery = trpc.operatorShift.exceptions.useQuery({ fromDate, toDate }, { enabled: isAdmin, retry: false });
-  const utils = trpc.useUtils();
-  const swapMutation = trpc.operatorShift.swap.useMutation({
-    onSuccess: async () => {
-      toast.success("Troca pontual registrada para as duas datas; a escala permanente não foi alterada.");
-      setSwapReason("");
-      await Promise.all([utils.operatorShift.report.invalidate(), utils.operatorShift.exceptions.invalidate()]);
-    },
-    onError: (error) => toast.error(error.message),
-  });
 
   const current = reportQuery.data?.currentShift;
   const currentShifts = reportQuery.data?.currentShifts || (current ? [current] : []);
@@ -57,14 +34,6 @@ export default function OperatorShiftsPage() {
     if (!reportQuery.data) return;
     const url = URL.createObjectURL(new Blob([buildOperatorAttendanceCsv(reportQuery.data.attendance)], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = `presenca-${fromDate}-${toDate}.csv`; anchor.click(); URL.revokeObjectURL(url);
-  };
-
-  const submitSwap = () => {
-    if (!swapUserA || !swapUserB || !dateA || !dateB || !swapReason.trim()) {
-      toast.error("Selecione os dois operadores, as duas datas e informe o motivo da troca.");
-      return;
-    }
-    swapMutation.mutate({ firstUserId: Number(swapUserA), firstWorkDate: dateA, secondUserId: Number(swapUserB), secondWorkDate: dateB, shiftOnFirstDate: shiftA, shiftOnSecondDate: shiftB, reason: swapReason.trim() });
   };
 
   return <DashboardLayout workspaceMenuPlacement="page-header">
@@ -118,13 +87,14 @@ export default function OperatorShiftsPage() {
             {reportQuery.data?.resultLimitReached ? <p role="alert" className="text-xs text-amber-300">Exibindo até 2.000 sessões. Filtre um operador ou reduza o período para obter a relação completa.</p> : null}
             <div className="max-h-[330px] overflow-auto rounded border border-border">
               <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-muted"><tr><th className="p-2">Operador</th><th className="p-2">Login</th><th className="p-2">Logoff</th><th className="p-2">Situação</th></tr></thead>
+                <thead className="sticky top-0 bg-muted"><tr><th className="p-2">Operador</th><th className="p-2">Login</th><th className="p-2">Logoff</th><th className="p-2">Situação</th><th className="p-2">Escala / motivo informado</th></tr></thead>
                 <tbody>{reportQuery.data?.attendance.length ? reportQuery.data.attendance.map((row) => <tr key={row.id} className="border-t border-border">
                   <td className="p-2">{row.operatorName}<span className="block text-muted-foreground">{ROLE_LABELS[row.role] || row.role}</span></td>
                   <td className="p-2">{dateDisplay(row.loginAt)}<span className="block text-muted-foreground">{row.shiftCode ? OPERATOR_SHIFT_LABELS[row.shiftCode as OperatorShiftCode] : "Sem turno vinculado"}</span></td>
                   <td className="p-2">{dateDisplay(row.logoutAt)}</td>
                   <td className="p-2">{row.logoutReason ? LOGOUT_LABELS[row.logoutReason] || row.logoutReason : "Sessão ativa"}</td>
-                </tr>) : <tr><td colSpan={4} className="p-5 text-center text-muted-foreground">Nenhum login registrado neste período.</td></tr>}</tbody>
+                  <td className="p-2">{row.scheduleStatus === "scheduled" ? "Escalado" : row.scheduleStatus === "outside_window" ? <><span className="block text-amber-300">Fora da escala</span><span className="text-muted-foreground">{row.outOfScheduleReason ? OPERATOR_SCHEDULE_REASON_LABELS[row.outOfScheduleReason] || row.outOfScheduleReason : "Aguardando justificativa"}</span></> : "Sem classificação"}</td>
+                </tr>) : <tr><td colSpan={5} className="p-5 text-center text-muted-foreground">Nenhum login registrado neste período.</td></tr>}</tbody>
               </table>
             </div>
             <p className="text-xs text-muted-foreground">“Conectado agora” significa que a sessão autenticada tem uma conexão ativa com o servidor; uma sessão sem conexão não é contada como operador trabalhando.</p>
@@ -138,36 +108,6 @@ export default function OperatorShiftsPage() {
         </tbody></table></div>
       </CardContent></Card>
 
-      {isAdmin && <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ArrowLeftRight className="h-4 w-4" /> Registrar troca pontual de turno</CardTitle><p className="text-sm text-muted-foreground">A troca substitui a escala somente nas duas datas informadas. A escala permanente e sua data-âncora permanecem intactas.</p></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="space-y-3 rounded-lg border border-border p-3">
-              <p className="text-sm font-semibold">Dia combinado 1</p>
-              <Select value={swapUserA} onValueChange={setSwapUserA}><SelectTrigger><SelectValue placeholder="Operador que folgará neste dia" /></SelectTrigger><SelectContent>{users.map((person) => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}</SelectContent></Select>
-              <InputDate value={dateA} onChange={setDateA} />
-              <label className="text-xs text-muted-foreground">Turno que será coberto pelo outro operador</label>
-              <Select value={shiftA} onValueChange={(value) => setShiftA(value as OperatorShiftCode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SHIFT_CODES.map((code) => <SelectItem key={code} value={code}>{OPERATOR_SHIFT_LABELS[code]}</SelectItem>)}</SelectContent></Select>
-            </div>
-            <div className="space-y-3 rounded-lg border border-border p-3">
-              <p className="text-sm font-semibold">Dia combinado 2</p>
-              <Select value={swapUserB} onValueChange={setSwapUserB}><SelectTrigger><SelectValue placeholder="Operador que folgará neste dia" /></SelectTrigger><SelectContent>{users.map((person) => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}</SelectContent></Select>
-              <InputDate value={dateB} onChange={setDateB} />
-              <label className="text-xs text-muted-foreground">Turno que será coberto pelo primeiro operador</label>
-              <Select value={shiftB} onValueChange={(value) => setShiftB(value as OperatorShiftCode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SHIFT_CODES.map((code) => <SelectItem key={code} value={code}>{OPERATOR_SHIFT_LABELS[code]}</SelectItem>)}</SelectContent></Select>
-            </div>
-          </div>
-          <label className="block text-xs text-muted-foreground">Motivo / acordo entre operadores
-            <textarea value={swapReason} onChange={(event) => setSwapReason(event.target.value)} maxLength={500} rows={2} placeholder="Ex.: troca combinada entre Amanda e Stephane" className="mt-1 w-full rounded-md border border-input bg-background p-3 text-sm text-foreground" />
-          </label>
-          <div className="flex justify-end"><Button onClick={submitSwap} disabled={swapMutation.isPending}>{swapMutation.isPending ? "Registrando..." : "Registrar troca pontual"}</Button></div>
-          <div className="overflow-auto rounded border border-border">
-            <table className="w-full text-left text-xs"><thead className="bg-muted"><tr><th className="p-2">Data</th><th className="p-2">Operador</th><th className="p-2">Ajuste</th><th className="p-2">Motivo</th><th className="p-2">Registrado em</th></tr></thead>
-              <tbody>{exceptionsQuery.data?.length ? exceptionsQuery.data.map((row) => <tr key={row.id} className="border-t border-border"><td className="p-2">{shortDate(row.workDate)}</td><td className="p-2">{row.operatorName}</td><td className="p-2">{row.kind === "off" ? `Folga (troca com ${row.pairedOperatorName || "—"})` : `Trabalha · ${row.shiftCode ? OPERATOR_SHIFT_LABELS[row.shiftCode as OperatorShiftCode] : "turno não definido"}`}</td><td className="p-2">{row.reason}</td><td className="p-2">{dateDisplay(row.createdAt)}</td></tr>) : <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">Nenhuma troca registrada neste mês.</td></tr>}</tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>}
     </div>
   </DashboardLayout>;
 }

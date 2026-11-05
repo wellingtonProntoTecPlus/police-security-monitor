@@ -58,4 +58,17 @@ describe("rotas de escala e saída segura", () => {
     await expect(caller.operatorShift.report({ fromDate: "2026-11-01", toDate: "2026-11-30" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.operatorShift.sendMessage({ toUserId: 2, message: "Não pode acessar recado operacional" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+
+  it("bloqueia o uso operacional até justificar login fora da escala, mantendo a consulta e confirmação disponíveis", async () => {
+    const { ctx } = context();
+    ctx.authSessionScheduleDecisionPending = true;
+    const decision = vi.spyOn(shiftDb, "getLoginScheduleDecision").mockResolvedValue({ required: true, scheduleStatus: "outside_window", reason: null, attendanceId: 201 } as any);
+    const confirm = vi.spyOn(shiftDb, "confirmLoginScheduleException").mockResolvedValue({ success: true, alreadyRecorded: false });
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.operatorShift.recipients()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await caller.operatorShift.loginScheduleDecision()).toMatchObject({ required: true, scheduleStatus: "outside_window" });
+    expect(await caller.operatorShift.confirmLoginScheduleException({ reason: "double_shift" })).toEqual({ success: true, alreadyRecorded: false });
+    expect(confirm).toHaveBeenCalledWith({ userId: 1, authSessionId: 101, reason: "double_shift" });
+    expect(decision).toHaveBeenCalledWith({ userId: 1, authSessionId: 101 });
+  });
 });

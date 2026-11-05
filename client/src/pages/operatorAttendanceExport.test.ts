@@ -30,7 +30,7 @@ describe("exportação CSV de presença dos operadores", () => {
     ]);
 
     expect(csv.charCodeAt(0)).toBe(0xfeff);
-    expect(csv.split("\n")[0]).toBe("\uFEFF\"Operador\";\"Perfil\";\"Login\";\"Logoff\";\"Situação\";\"Turno\";\"Dia da escala\"");
+    expect(csv.split("\n")[0]).toBe("\uFEFF\"Operador\";\"Perfil\";\"Login\";\"Logoff\";\"Situação do logoff\";\"Escala no login\";\"Motivo fora da escala\";\"Turno\";\"Dia da escala\"");
     expect(csv).toContain("\"'=HYPERLINK(\"\"https://exemplo.test\"\")\";\"'+perfil\"");
     expect(csv).toContain("\"'+perfil\"");
     expect(csv).toContain(";\"'@2026-01-16\"");
@@ -42,6 +42,6 @@ describe("exportação CSV de presença dos operadores", () => {
     ]);
 
     expect(csv).toContain('"Ana ""A""";"Operadora"');
-    expect(csv).toContain('"Não registrado";"Sessão não encerrada";"Sem turno vinculado";""');
+    expect(csv).toContain('"Não registrado";"Sessão não encerrada";"Sem classificação";"";"Sem turno vinculado";""');
   });
 });

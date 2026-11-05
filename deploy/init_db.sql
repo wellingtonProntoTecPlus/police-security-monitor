@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS clients (
   name VARCHAR(255) NOT NULL,
   fantasyName VARCHAR(255),
   document VARCHAR(20),
+  isPartnerHeadquarters TINYINT(1) NOT NULL DEFAULT 0,
   phone VARCHAR(20),
   whatsapp VARCHAR(20),
   email VARCHAR(320),

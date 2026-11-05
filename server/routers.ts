@@ -32,17 +32,24 @@ const supervisorProcedure = protectedProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
-const operatorProcedure = protectedProcedure.use(({ ctx, next }) => {
+function assertOperatorScheduleDecisionComplete(ctx: any) {
+  if (ctx.user?.role !== "operator") return;
+  if (ctx.authSessionScheduleDecisionPending) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Antes de usar o PoliceCentral, informe se você trocou a escala, está fazendo uma dobra ou cobrindo férias." });
+}
+
+const operatorProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   if (!ctx.user || !["admin", "supervisor", "operator"].includes(ctx.user.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Seu usuário não possui permissão operacional" });
   }
+  await assertOperatorScheduleDecisionComplete(ctx);
   return next({ ctx });
 });
 
-const scheduleOperatorProcedure = protectedProcedure.use(({ ctx, next }) => {
+const scheduleOperatorProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   if (!ctx.user || !["admin", "supervisor", "operator", "partner"].includes(ctx.user.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Seu usuário não pode administrar agendas operacionais" });
   }
+  await assertOperatorScheduleDecisionComplete(ctx);
   return next({ ctx });
 });
 
@@ -325,12 +332,12 @@ export const appRouter = router({
   // CLIENTS
   // ============================================================
   monitoredClient: router({
-    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number().optional() }).optional()).query(({ input, ctx }) => {
+    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number().optional(), monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional() }).optional()).query(({ input, ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
-        return db.listClients(ctx.user.partnerId);
+        return db.listClients(ctx.user.partnerId, input?.monitoringStatus);
       }
-      return db.listClients(input?.partnerCompanyId);
+      return db.listClients(input?.partnerCompanyId, input?.monitoringStatus);
     }),
     get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       const client = await db.getClient(input.id);
@@ -362,7 +369,11 @@ export const appRouter = router({
       monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional(),
       monitoringStatusReason: z.string().max(255).optional().nullable(),
       monitoringStatusUntil: z.date().optional().nullable(),
-    })).mutation(({ input }) => db.createClient(input)),
+      confirmPartnerDocumentReuse: z.boolean().optional(),
+    })).mutation(({ input }) => {
+      const { confirmPartnerDocumentReuse, ...data } = input;
+      return db.createClient(data, { confirmPartnerDocumentReuse });
+    }),
     update: operatorProcedure.input(z.object({
       id: z.number(),
       partnerCompanyId: z.number().optional(),
@@ -388,9 +399,10 @@ export const appRouter = router({
       monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional(),
       monitoringStatusReason: z.string().max(255).optional().nullable(),
       monitoringStatusUntil: z.date().optional().nullable(),
+      confirmPartnerDocumentReuse: z.boolean().optional(),
     })).mutation(({ input }) => {
-      const { id, ...data } = input;
-      return db.updateClient(id, data);
+      const { id, confirmPartnerDocumentReuse, ...data } = input;
+      return db.updateClient(id, data, { confirmPartnerDocumentReuse });
     }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteClient(input.id)),
   }),
@@ -1364,6 +1376,15 @@ export const appRouter = router({
     }),
   }),
   operatorShift: router({
+    loginScheduleDecision: protectedProcedure.query(({ ctx }) => {
+      if (!ctx.authSessionId || !["admin", "supervisor", "operator"].includes(ctx.user.role)) return { required: false, scheduleStatus: null, reason: null, attendanceId: null };
+      return operatorShiftDb.getLoginScheduleDecision({ userId: ctx.user.id, authSessionId: ctx.authSessionId });
+    }),
+    confirmLoginScheduleException: protectedProcedure.input(z.object({ reason: z.enum(["scale_swap", "double_shift", "vacation_coverage"]) })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "operator") throw new TRPCError({ code: "FORBIDDEN", message: "Somente operadores precisam informar esta justificativa" });
+      if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
+      return operatorShiftDb.confirmLoginScheduleException({ userId: ctx.user.id, authSessionId: ctx.authSessionId, reason: input.reason });
+    }),
     reportUsers: supervisorProcedure.query(() => operatorShiftDb.listOperatorShiftAssignments()),
     recipients: operatorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorMessageRecipients(ctx.user.id)),
     sendMessage: operatorProcedure.input(z.object({ toUserId: z.number().int().positive(), message: z.string().trim().min(10).max(4000) })).mutation(async ({ input, ctx }) => {

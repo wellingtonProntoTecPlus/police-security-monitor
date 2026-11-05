@@ -24,14 +24,59 @@ async function ensureSessionAttendance(tx: DbLike, userId: number, authSessionId
   if (existing) return existing;
   const [person] = await tx.select({ name: users.name, role: users.role, loginMethod: users.loginMethod }).from(users).where(eq(users.id, userId)).limit(1);
   if (!person || !OPERATIONAL_ROLES.includes(person.role)) throw new Error("Usuário operacional não encontrado");
-  const window = await getUserShiftAttendanceWindow(tx, userId, now);
+  const window = await getUserShiftAttendanceWindow(tx, userId, sessionCreatedAt);
   const values = {
     authSessionId, userId, operatorName: person.name || `Operador ${userId}`, role: person.role, loginMethod: person.loginMethod,
     loginAt: sessionCreatedAt, shiftCode: window?.shiftCode || null, workDate: window?.workDate || null,
     scheduledStartAt: window?.startAt || null, scheduledEndAt: window?.endAt || null,
+    scheduleStatus: null,
   };
   const result = await tx.insert(operatorAttendanceRecords).values(values);
   return { ...values, id: Number(result[0].insertId), logoutAt: null };
+}
+
+export async function getLoginScheduleDecision(input: { userId: number; authSessionId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const [attendance] = await db.select().from(operatorAttendanceRecords).where(and(
+    eq(operatorAttendanceRecords.authSessionId, input.authSessionId), eq(operatorAttendanceRecords.userId, input.userId),
+  )).limit(1);
+  if (!attendance) return { required: false, scheduleStatus: null, reason: null, attendanceId: null };
+  return {
+    required: attendance.role === "operator" && attendance.scheduleStatus === "outside_window" && !attendance.outOfScheduleReason,
+    scheduleStatus: attendance.scheduleStatus || null,
+    reason: attendance.outOfScheduleReason || null,
+    attendanceId: Number(attendance.id),
+    loginAt: attendance.loginAt,
+    shiftCode: attendance.shiftCode || null,
+  };
+}
+
+export async function confirmLoginScheduleException(input: {
+  userId: number; authSessionId: number; reason: "scale_swap" | "double_shift" | "vacation_coverage"; now?: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const now = input.now || new Date();
+  return db.transaction(async (tx: DbLike) => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("update").limit(1);
+    const [session] = await tx.select().from(authSessions).where(and(
+      eq(authSessions.id, input.authSessionId), eq(authSessions.userId, input.userId), isNull(authSessions.revokedAt), gt(authSessions.expiresAt, now),
+    )).for("update").limit(1);
+    if (!session) throw new Error("A sessão foi encerrada ou substituída; faça login novamente");
+    const [attendance] = await tx.select().from(operatorAttendanceRecords).where(and(
+      eq(operatorAttendanceRecords.authSessionId, input.authSessionId), eq(operatorAttendanceRecords.userId, input.userId),
+    )).for("update").limit(1);
+    if (!attendance || attendance.role !== "operator" || attendance.scheduleStatus !== "outside_window") throw new Error("Esta sessão não possui uma decisão de escala pendente");
+    if (attendance.outOfScheduleReason) {
+      if (attendance.outOfScheduleReason !== input.reason) throw new Error("O motivo desta sessão já foi registrado e não pode ser alterado");
+      return { success: true, alreadyRecorded: true };
+    }
+    const changed = await tx.update(operatorAttendanceRecords).set({ outOfScheduleReason: input.reason, outOfScheduleDecisionAt: now })
+      .where(and(eq(operatorAttendanceRecords.id, Number(attendance.id)), isNull(operatorAttendanceRecords.outOfScheduleReason)));
+    if (Number(changed[0]?.affectedRows) !== 1) throw new Error("A decisão de escala mudou durante a gravação. Atualize a tela.");
+    return { success: true, alreadyRecorded: false };
+  });
 }
 
 export async function listOperatorShiftAssignments() {

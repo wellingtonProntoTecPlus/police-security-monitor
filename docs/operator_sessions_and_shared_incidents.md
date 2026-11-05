@@ -16,6 +16,14 @@ No expediente comercial, os avisos são às **17:20 e 17:40**, e o término prev
 
 A tela **Escalas e Presença** separa previsão do turno e entrada/saída reais. O relatório filtrável por operador e intervalo mostra login, logoff e motivo de encerramento; a exportação CSV também preserva a diferença entre saída normal e substituição/expiração da sessão. Sessões existentes durante a migração entram com o login real guardado pela sessão autenticada, sem criar logoff fictício nem horário de trabalho retroativo.
 
+### Login em dia ou horário diferente da escala
+
+O card de cadastro manual de troca pontual foi retirado da tela. Ao fazer um **novo login** fora do dia ou horário da escala vigente, o usuário de perfil Operador recebe o modal **“[Nome], hoje não é o seu dia de trabalho.”**, com **EU TROQUEI MINHA ESCALA**, **ESTOU FAZENDO UMA DOBRA** e **ESTOU COBRINDO FÉRIAS**. A decisão é vinculada ao usuário e à sessão autenticados; registra motivo e horário da resposta. A mesma resposta pode ser repetida sem duplicação, mas uma resposta já gravada não pode ser substituída por outro motivo.
+
+A tela operacional não é montada e as APIs operacionais recusam alterações enquanto a resposta estiver pendente. Uma falha ao conferir/gravar não é tratada como resposta válida e pode ser tentada novamente. O relatório individual e o CSV mostram **Escala no login** e **Motivo fora da escala**, separados do motivo de logoff. A escolha **não modifica** a data-âncora nem a escala permanente. As exceções antigas continuam preservadas e consideradas pela previsão mensal.
+
+A classificação usa o dia e horário efetivos de login, respeitando a virada de data do terceiro turno e o Comercial de segunda a sexta. A janela de até seis horas de entrada antecipada serve apenas para vincular os avisos 40/20; não significa que o operador estava escalado naquela hora. Sem escala vigente cadastrada, ou em sessões anteriores à implantação, a classificação permanece **Sem classificação** e não exige uma justificativa fictícia. Administradores e supervisores não recebem esse modal do perfil Operador.
+
 O operador pode escrever um recado particular para outro colega de qualquer tela, ou associar notas e um prazo futuro a cada ocorrência pendente ao sair. O logoff em si é uma transação única: todas as ocorrências abertas atribuídas ao usuário precisam ser finalizadas ou ter destinatário, anotação e prazo validados antes; se uma delas falhar, sessão, notas, fila e mensagens permanecem sem alteração. Recados avulsos são registrados na caixa privada e não criam evento, ocorrência nem alteram a agenda. O cron operacional existente executa o envio 40/20 a cada minuto e a reconexão refaz a consulta para recuperar avisos que não foram vistos online.
 
 ## Fila compartilhada entre telas

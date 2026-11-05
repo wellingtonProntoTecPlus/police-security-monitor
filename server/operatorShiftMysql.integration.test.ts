@@ -3,11 +3,11 @@ import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
-import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator } from "./db";
-import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport } from "./operatorShiftDb";
+import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, getActiveAuthSessionByTokenHash, createClient, createPartnerCompany, updatePartnerCompany } from "./db";
+import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException } from "./operatorShiftDb";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
-import { authSessions, incidents, incidentHistory, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions } from "../drizzle/schema";
+import { authSessions, incidents, incidentHistory, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, clients, partnerCompanies, registrationDocuments } from "../drizzle/schema";
 
 // Explicit opt-in, Unix socket only. Never reads DATABASE_URL or connects to a VPS.
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
@@ -17,10 +17,9 @@ const until = new Date("2026-11-04T16:30:00Z");
 let pool: mysql.Pool;
 let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
-const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders"];
-
+const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents"];
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0044_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0045_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
@@ -153,6 +152,19 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(report.monthlyPlan.filter((row) => row.userId === 1)).toHaveLength(5);
   });
 
+  it("registra justificativa fora da escala só na sessão autenticada e a exibe no relatório", async () => {
+    await orm.update(operatorAttendanceRecords).set({ scheduleStatus: "outside_window", shiftCode: null, workDate: null, scheduledStartAt: null, scheduledEndAt: null }).where(eq(operatorAttendanceRecords.id, 201));
+    expect(await getLoginScheduleDecision({ userId: 1, authSessionId: 101 })).toMatchObject({ required: true, scheduleStatus: "outside_window", reason: null });
+    expect(await getLoginScheduleDecision({ userId: 1, authSessionId: 999 })).toMatchObject({ required: false, attendanceId: null });
+    await expect(confirmLoginScheduleException({ userId: 1, authSessionId: 999, reason: "double_shift", now })).rejects.toThrow("encerrada ou substituída");
+    await expect(confirmLoginScheduleException({ userId: 1, authSessionId: 101, reason: "double_shift", now })).resolves.toMatchObject({ success: true, alreadyRecorded: false });
+    await expect(confirmLoginScheduleException({ userId: 1, authSessionId: 101, reason: "double_shift", now })).resolves.toMatchObject({ success: true, alreadyRecorded: true });
+    await expect(confirmLoginScheduleException({ userId: 1, authSessionId: 101, reason: "vacation_coverage", now })).rejects.toThrow("não pode ser alterado");
+    const report = await getOperatorShiftReport({ fromDate: "2026-11-04", toDate: "2026-11-04", userId: 1, now });
+    expect(report.attendance[0]).toMatchObject({ scheduleStatus: "outside_window", outOfScheduleReason: "double_shift" });
+    expect(await getLoginScheduleDecision({ userId: 1, authSessionId: 101 })).toMatchObject({ required: false, reason: "double_shift" });
+  });
+
   it("avisa Comercial às 17:20 e 17:40, uma única vez por sessão/aviso", async () => {
     await orm.update(operatorAttendanceRecords).set({ shiftCode: "commercial", scheduledStartAt: new Date("2026-11-04T11:00:00Z"), scheduledEndAt: new Date("2026-11-04T21:00:00Z") }).where(eq(operatorAttendanceRecords.id, 201));
     const first = await sweepOperatorShiftOperations(new Date("2026-11-04T20:20:00Z"));
@@ -182,6 +194,33 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(await orm.select().from(operatorShiftAssignments)).toHaveLength(0);
   });
 
+  it("a sessão nasce pendente só para login efetivamente fora da escala e deixa de estar pendente após justificativa", async () => {
+    await orm.insert(operatorShiftAssignments).values({ userId: 3, operatorName: "Stephane", shiftCode: "first", effectiveFromDate: "2026-11-01", cycleAnchorDate: "2026-11-04", changeReason: "Inicial", changedBy: 1 });
+    const loginAt = new Date("2026-11-05T11:00:00Z");
+    const token = "c".repeat(64);
+    const { sessionId } = await replaceActiveAuthSession(3, token, new Date("2027-01-01T00:00:00Z"), loginAt);
+    expect(await getActiveAuthSessionByTokenHash(token, loginAt)).toMatchObject({ sessionId, scheduleDecisionPending: true });
+    await confirmLoginScheduleException({ userId: 3, authSessionId: sessionId, reason: "scale_swap", now: loginAt });
+    expect(await getActiveAuthSessionByTokenHash(token, loginAt)).toMatchObject({ scheduleDecisionPending: false });
+    expect((await orm.select().from(operatorShiftAssignments))[0].cycleAnchorDate).toBe("2026-11-04");
+  });
+
+  it("reutiliza o CNPJ apenas na sede confirmada da própria parceira, preservando a edição e impedindo outro cliente", async () => {
+    const document = "04252011000110";
+    const partner = await createPartnerCompany({ name: "Parceira fictícia", managingCompanyId: 1, cnpj: document });
+    const customer = { partnerCompanyId: partner.id, type: "pj" as const, propertyType: "company" as const, name: "Sede fictícia", document };
+    await expect(createClient(customer)).rejects.toThrow("CPF/CNPJ já cadastrado");
+    expect(await orm.select().from(clients)).toHaveLength(0);
+    const result = await createClient(customer, { confirmPartnerDocumentReuse: true });
+    expect((await orm.select().from(clients))[0]).toMatchObject({ id: result.id, isPartnerHeadquarters: true });
+    expect(await orm.select().from(registrationDocuments)).toHaveLength(2);
+    await expect(updatePartnerCompany(partner.id, { name: "Parceira editada", cnpj: document })).resolves.toBeUndefined();
+    await expect(createClient({ ...customer, name: "Duplicidade não autorizada" }, { confirmPartnerDocumentReuse: true })).rejects.toThrow("CPF/CNPJ já cadastrado");
+    expect(await orm.select().from(clients)).toHaveLength(1);
+    expect(await orm.select().from(partnerCompanies)).toHaveLength(1);
+    expect(await orm.select().from(registrationDocuments)).toHaveLength(2);
+  });
+
   it("SQL de upgrade da nova função pode ser reaplicado sem perder mensagens ou presenças", async () => {
     await logoff();
     for (const [table, required] of [["operator_attendance_records", false], ["operator_shift_assignments", true], ["operator_shift_exceptions", false], ["operator_shift_reminders", true]] as const) {
@@ -195,5 +234,22 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(await orm.select().from(operatorShiftMessages)).toHaveLength(1);
     expect((await orm.select().from(operatorAttendanceRecords))[0].logoutReason).toBe("logout");
     expect((await orm.select().from(operatorAttendanceRecords))[0].shiftCode).toBe("commercial");
+  });
+
+  it("migra índice documental antigo e colunas novas de modo repetível, sem inventar motivos históricos", async () => {
+    await createPartnerCompany({ name: "Sede de teste", managingCompanyId: 1, cnpj: "04252011000110" });
+    await pool.query("ALTER TABLE registration_documents ADD UNIQUE KEY registration_documents_document_unique (document); ALTER TABLE registration_documents DROP INDEX registration_documents_document_ownerType_unique; ALTER TABLE clients DROP COLUMN isPartnerHeadquarters; ALTER TABLE operator_attendance_records DROP COLUMN scheduleStatus, DROP COLUMN outOfScheduleReason, DROP COLUMN outOfScheduleDecisionAt;");
+    const source = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    const docs = source.slice(source.indexOf("-- CPF/CNPJ é único"), source.indexOf("-- Bloqueia qualquer transmissão MicroBus"));
+    const columns = source.slice(source.indexOf("-- Dados de cliente/parceira e exceções de escala"));
+    await pool.query(`SET @schema_name = DATABASE(); ${docs} ${columns}`);
+    expect((await orm.select().from(operatorAttendanceRecords))[0]).toMatchObject({ scheduleStatus: null, outOfScheduleReason: null });
+    const [partner] = await orm.select().from(partnerCompanies);
+    await createClient({ name: "Sede fictícia", type: "pj", propertyType: "company", partnerCompanyId: partner.id, document: partner.cnpj }, { confirmPartnerDocumentReuse: true });
+    await orm.update(operatorAttendanceRecords).set({ scheduleStatus: "outside_window", outOfScheduleReason: "double_shift", outOfScheduleDecisionAt: now }).where(eq(operatorAttendanceRecords.id, 201));
+    await pool.query(`SET @schema_name = DATABASE(); ${docs} ${columns}`);
+    expect(await orm.select().from(registrationDocuments)).toHaveLength(2);
+    expect((await orm.select().from(operatorAttendanceRecords))[0]).toMatchObject({ outOfScheduleReason: "double_shift" });
+    expect((await orm.select().from(clients))[0].isPartnerHeadquarters).toBe(true);
   });
 });

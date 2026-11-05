@@ -52,8 +52,8 @@ SET @statement = (
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
 
--- CPF/CNPJ de clientes e parceiras é opcional; quando informado, fica registrado
--- em uma tabela única para impedir repetição entre os dois cadastros.
+-- CPF/CNPJ é único dentro de cada categoria. Um documento pode existir uma vez
+-- como parceira e uma vez como o cliente que representa a sua própria sede.
 ALTER TABLE `clients` MODIFY COLUMN `document` VARCHAR(18) NULL;
 ALTER TABLE `partner_companies` MODIFY COLUMN `cnpj` VARCHAR(18) NULL;
 
@@ -65,8 +65,20 @@ CREATE TABLE IF NOT EXISTS `registration_documents` (
   `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `registration_documents_document_unique` (`document`)
+  UNIQUE KEY `registration_documents_document_ownerType_unique` (`document`,`ownerType`)
 );
+
+-- Migra instalações antigas do índice global para a unicidade por categoria.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `registration_documents` ADD UNIQUE KEY `registration_documents_document_ownerType_unique` (`document`,`ownerType`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='registration_documents' AND INDEX_NAME='registration_documents_document_ownerType_unique'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) > 0, 'ALTER TABLE `registration_documents` DROP INDEX `registration_documents_document_unique`', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='registration_documents' AND INDEX_NAME='registration_documents_document_unique'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
 
 INSERT IGNORE INTO `registration_documents` (`document`, `ownerType`, `ownerId`)
 SELECT `document`, 'client', `id` FROM `clients` WHERE `document` IS NOT NULL AND TRIM(`document`) <> '';
@@ -1210,3 +1222,26 @@ FROM `auth_sessions` s
 JOIN `users` u ON u.`id` = s.`userId`
 WHERE s.`revokedAt` IS NULL AND s.`expiresAt` > CURRENT_TIMESTAMP
   AND u.`role` IN ('admin','supervisor','operator');
+
+-- Dados de cliente/parceira e exceções de escala são aditivos; sem excluir dados.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `clients` ADD COLUMN `isPartnerHeadquarters` TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='clients' AND COLUMN_NAME='isPartnerHeadquarters'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `operator_attendance_records` ADD COLUMN `scheduleStatus` ENUM(''scheduled'',''outside_window'') NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_attendance_records' AND COLUMN_NAME='scheduleStatus'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `operator_attendance_records` ADD COLUMN `outOfScheduleReason` ENUM(''scale_swap'',''double_shift'',''vacation_coverage'') NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_attendance_records' AND COLUMN_NAME='outOfScheduleReason'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `operator_attendance_records` ADD COLUMN `outOfScheduleDecisionAt` TIMESTAMP NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_attendance_records' AND COLUMN_NAME='outOfScheduleDecisionAt'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;

@@ -58,7 +58,7 @@ import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type 
 import { canBulkFinalizeIncident } from "@shared/incidentBulkFinalization";
 import { isClientMonitoringBlocked } from "@shared/clientMonitoringStatus";
 import { isConfirmedBulkSetEligible, summarizeBulkIncidents } from "@shared/bulkIncidentSummary";
-import { getUserShiftAttendanceWindow, OPERATIONAL_ROLES } from "./operatorShiftSchedule";
+import { getUserShiftAttendanceWindow, getUserLoginScheduleStatus, OPERATIONAL_ROLES } from "./operatorShiftSchedule";
 import { saveOperatorShiftAssignmentWithTransaction, type ShiftAssignmentInput } from "./operatorShiftPersistence";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -210,6 +210,7 @@ export async function replaceActiveAuthSession(userId: number, tokenHash: string
         role: user.role, loginMethod: user.loginMethod, loginAt: now,
         shiftCode: shiftWindow?.shiftCode || null, workDate: shiftWindow?.workDate || null,
         scheduledStartAt: shiftWindow?.startAt || null, scheduledEndAt: shiftWindow?.endAt || null,
+        scheduleStatus: user.role === "operator" ? await getUserLoginScheduleStatus(tx, userId, now, shiftWindow) : null,
       });
     }
     return { sessionId, revokedSessionIds: previous.map(row => Number(row.id)) };
@@ -219,14 +220,27 @@ export async function replaceActiveAuthSession(userId: number, tokenHash: string
 export async function getActiveAuthSessionByTokenHash(tokenHash: string, now = new Date()) {
   const db = await getDb();
   if (!db) return null;
-  const rows = await db.select({ sessionId: authSessions.id, user: users }).from(authSessions)
+  const rows = await db.select({
+    sessionId: authSessions.id, user: users,
+    attendanceScheduleStatus: operatorAttendanceRecords.scheduleStatus,
+    outOfScheduleReason: operatorAttendanceRecords.outOfScheduleReason,
+  }).from(authSessions)
     .innerJoin(users, eq(authSessions.userId, users.id))
+    .leftJoin(operatorAttendanceRecords, and(
+      eq(operatorAttendanceRecords.authSessionId, authSessions.id), eq(operatorAttendanceRecords.userId, authSessions.userId),
+    ))
     .where(and(
       eq(authSessions.tokenHash, tokenHash),
       isNull(authSessions.revokedAt),
       gt(authSessions.expiresAt, now),
     )).limit(1);
-  return rows[0] || null;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    sessionId: row.sessionId,
+    user: row.user,
+    scheduleDecisionPending: row.user.role === "operator" && row.attendanceScheduleStatus === "outside_window" && !row.outOfScheduleReason,
+  };
 }
 
 export async function isAuthSessionActive(sessionId: number, now = new Date()) {
@@ -351,11 +365,13 @@ export async function createPartnerCompany(data: InsertPartnerCompany) {
   const documentCheck = validateOptionalBrazilianDocument(cleanData.cnpj, "cnpj");
   if (documentCheck.error) throw new Error(documentCheck.error);
   cleanData.cnpj = documentCheck.document ?? undefined;
-  await assertDocumentAvailable(db, documentCheck.document, "partner");
-  const result = await db.insert(partnerCompanies).values(cleanData as InsertPartnerCompany);
-  const id = Number(result[0].insertId);
-  await syncRegistrationDocument(db, documentCheck.document, "partner", id);
-  return { id };
+  return db.transaction(async (tx: any) => {
+    await assertDocumentAvailable(tx, documentCheck.document, "partner");
+    const result = await tx.insert(partnerCompanies).values(cleanData as InsertPartnerCompany);
+    const id = Number(result[0].insertId);
+    await syncRegistrationDocument(tx, documentCheck.document, "partner", id);
+    return { id };
+  });
 }
 
 export async function updatePartnerCompany(id: number, data: Partial<InsertPartnerCompany>) {
@@ -372,9 +388,11 @@ export async function updatePartnerCompany(id: number, data: Partial<InsertPartn
     const documentCheck = validateOptionalBrazilianDocument(cleanData.cnpj, "cnpj");
     if (documentCheck.error) throw new Error(documentCheck.error);
     cleanData.cnpj = documentCheck.document;
-    await assertDocumentAvailable(db, documentCheck.document, "partner", id);
-    await db.update(partnerCompanies).set(cleanData).where(eq(partnerCompanies.id, id));
-    await syncRegistrationDocument(db, documentCheck.document, "partner", id);
+    await db.transaction(async (tx: any) => {
+      await assertDocumentAvailable(tx, documentCheck.document, "partner", id);
+      await tx.update(partnerCompanies).set(cleanData).where(eq(partnerCompanies.id, id));
+      await syncRegistrationDocument(tx, documentCheck.document, "partner", id);
+    });
     return;
   }
   await db.update(partnerCompanies).set(cleanData).where(eq(partnerCompanies.id, id));
@@ -411,12 +429,19 @@ export async function deleteTacticalMobile(id: number) {
 // ============================================================
 // CLIENTS
 // ============================================================
-export async function listClients(partnerCompanyId?: number) {
+export async function listClients(partnerCompanyId?: number, monitoringStatus?: "active" | "blocked" | "suspended") {
   const db = await getDb();
   if (!db) return [];
-  const clientRows = partnerCompanyId
-    ? await db.select().from(clients).where(eq(clients.partnerCompanyId, partnerCompanyId)).orderBy(clients.name)
-    : await db.select().from(clients).orderBy(clients.name);
+  const conditions: any[] = [];
+  if (partnerCompanyId) conditions.push(eq(clients.partnerCompanyId, partnerCompanyId));
+  const now = new Date();
+  if (monitoringStatus === "blocked") conditions.push(eq(clients.monitoringStatus, "blocked"));
+  if (monitoringStatus === "suspended") conditions.push(and(eq(clients.monitoringStatus, "suspended"), or(isNull(clients.monitoringStatusUntil), gt(clients.monitoringStatusUntil, now))));
+  if (monitoringStatus === "active") conditions.push(or(
+    eq(clients.monitoringStatus, "active"),
+    and(eq(clients.monitoringStatus, "suspended"), isNotNull(clients.monitoringStatusUntil), lte(clients.monitoringStatusUntil, now)),
+  ));
+  const clientRows = await db.select().from(clients).where(conditions.length ? and(...conditions) : undefined).orderBy(clients.name);
   const systemRows = await db.select({ clientId: alarmSystems.clientId, account: alarmSystems.account }).from(alarmSystems);
   return enrichClientsWithAccounts(clientRows, systemRows);
 }
@@ -444,58 +469,92 @@ export async function getClientOperationalProfile(id: number) {
   return result[0];
 }
 
-export async function createClient(data: InsertClient) {
+export async function createClient(data: InsertClient, options: { confirmPartnerDocumentReuse?: boolean } = {}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const cleanData = formatRegistrationFields(data, ["name", "fantasyName", "address", "complement", "neighborhood", "city"]);
-  const documentCheck = validateOptionalBrazilianDocument(cleanData.document, cleanData.type === "pf" ? "cpf" : "cnpj");
-  if (documentCheck.error) throw new Error(documentCheck.error);
-  cleanData.document = documentCheck.document;
-  await assertDocumentAvailable(db, documentCheck.document, "client");
-  const result = await db.insert(clients).values(cleanData);
-  const id = Number(result[0].insertId);
-  await syncRegistrationDocument(db, documentCheck.document, "client", id);
-  return { id };
+  return db.transaction(async (tx: any) => {
+    const cleanData = formatRegistrationFields(data, ["name", "fantasyName", "address", "complement", "neighborhood", "city"]);
+    delete cleanData.isPartnerHeadquarters;
+    const documentCheck = validateOptionalBrazilianDocument(cleanData.document, cleanData.type === "pf" ? "cpf" : "cnpj");
+    if (documentCheck.error) throw new Error(documentCheck.error);
+    cleanData.document = documentCheck.document;
+    const isPartnerHeadquarters = await assertDocumentAvailable(tx, documentCheck.document, "client", undefined, {
+      partnerCompanyId: cleanData.partnerCompanyId,
+      type: cleanData.type,
+      propertyType: cleanData.propertyType,
+      confirmed: options.confirmPartnerDocumentReuse === true,
+    });
+    cleanData.isPartnerHeadquarters = isPartnerHeadquarters;
+    const result = await tx.insert(clients).values(cleanData);
+    const id = Number(result[0].insertId);
+    await syncRegistrationDocument(tx, documentCheck.document, "client", id);
+    return { id };
+  });
 }
 
-export async function updateClient(id: number, data: Partial<InsertClient>) {
+export async function updateClient(id: number, data: Partial<InsertClient>, options: { confirmPartnerDocumentReuse?: boolean } = {}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const cleanData = formatRegistrationFields(data, ["name", "fantasyName", "address", "complement", "neighborhood", "city"]);
-  if (Object.prototype.hasOwnProperty.call(cleanData, "document") || Object.prototype.hasOwnProperty.call(cleanData, "type")) {
-    const current = await getClient(id);
-    if (!current) throw new Error("Cliente não encontrado");
-    const type = cleanData.type ?? current.type;
-    const hasDocumentChange = Object.prototype.hasOwnProperty.call(cleanData, "document");
-    const documentCheck = validateOptionalBrazilianDocument(hasDocumentChange ? cleanData.document : current.document, type === "pf" ? "cpf" : "cnpj");
-    if (documentCheck.error) throw new Error(documentCheck.error);
-    if (hasDocumentChange) {
-      cleanData.document = documentCheck.document;
-      await assertDocumentAvailable(db, documentCheck.document, "client", id);
+  return db.transaction(async (tx: any) => {
+    const cleanData = formatRegistrationFields(data, ["name", "fantasyName", "address", "complement", "neighborhood", "city"]);
+    delete cleanData.isPartnerHeadquarters;
+    const identityFieldsChanged = ["document", "type", "propertyType", "partnerCompanyId"].some((field) => Object.prototype.hasOwnProperty.call(cleanData, field));
+    let documentToSync: string | null | undefined;
+    if (identityFieldsChanged) {
+      const [current] = await tx.select().from(clients).where(eq(clients.id, id)).limit(1);
+      if (!current) throw new Error("Cliente não encontrado");
+      const type = cleanData.type ?? current.type;
+      const documentValue = Object.prototype.hasOwnProperty.call(cleanData, "document") ? cleanData.document : current.document;
+      const documentCheck = validateOptionalBrazilianDocument(documentValue, type === "pf" ? "cpf" : "cnpj");
+      if (documentCheck.error) throw new Error(documentCheck.error);
+      const partnerCompanyId = cleanData.partnerCompanyId ?? current.partnerCompanyId;
+      const propertyType = cleanData.propertyType ?? current.propertyType;
+      const isPartnerHeadquarters = await assertDocumentAvailable(tx, documentCheck.document, "client", id, {
+        partnerCompanyId, type, propertyType, confirmed: options.confirmPartnerDocumentReuse === true,
+      });
+      cleanData.isPartnerHeadquarters = isPartnerHeadquarters;
+      if (Object.prototype.hasOwnProperty.call(cleanData, "document")) cleanData.document = documentCheck.document;
+      documentToSync = documentCheck.document;
     }
-    await db.update(clients).set(cleanData).where(eq(clients.id, id));
-    if (hasDocumentChange) await syncRegistrationDocument(db, documentCheck.document, "client", id);
-    return;
-  }
-  await db.update(clients).set(cleanData).where(eq(clients.id, id));
+    await tx.update(clients).set(cleanData).where(eq(clients.id, id));
+    if (documentToSync !== undefined) await syncRegistrationDocument(tx, documentToSync, "client", id);
+  });
 }
 
 type DocumentOwnerType = "client" | "partner";
 
-export async function assertDocumentAvailable(db: any, document: string | null, ownerType: DocumentOwnerType, ownerId?: number) {
-  if (!document) return;
-  const existing = await db.select().from(registrationDocuments).where(eq(registrationDocuments.document, document)).limit(1);
-  if (existing[0] && (existing[0].ownerType !== ownerType || existing[0].ownerId !== ownerId)) {
-    throw new Error("CPF/CNPJ já cadastrado em outro cliente ou empresa parceira");
-  }
-  const clientMatches = await db.select({ id: clients.id }).from(clients).where(eq(clients.document, document));
-  if (clientMatches.some((row: { id: number }) => ownerType !== "client" || row.id !== ownerId)) {
-    throw new Error("CPF/CNPJ já cadastrado em outro cliente ou empresa parceira");
-  }
-  const partnerMatches = await db.select({ id: partnerCompanies.id }).from(partnerCompanies).where(eq(partnerCompanies.cnpj, document));
-  if (partnerMatches.some((row: { id: number }) => ownerType !== "partner" || row.id !== ownerId)) {
-    throw new Error("CPF/CNPJ já cadastrado em outro cliente ou empresa parceira");
-  }
+export async function assertDocumentAvailable(
+  db: any,
+  document: string | null,
+  ownerType: DocumentOwnerType,
+  ownerId?: number,
+  options: { partnerCompanyId?: number; type?: string; propertyType?: string | null; confirmed?: boolean } = {},
+) {
+  if (!document) return false;
+  // Lock do índice documental antes de consultar titulares: concorrência entre
+  // cliente e parceira não pode aproveitar a unicidade por categoria para burlar o vínculo.
+  const existing = await db.select().from(registrationDocuments).where(eq(registrationDocuments.document, document)).for("update");
+  const clientMatches = await db.select({ id: clients.id, partnerCompanyId: clients.partnerCompanyId, isPartnerHeadquarters: clients.isPartnerHeadquarters, type: clients.type, propertyType: clients.propertyType }).from(clients).where(eq(clients.document, document));
+  const partnerMatches = await db.select({ id: partnerCompanies.id, cnpj: partnerCompanies.cnpj }).from(partnerCompanies).where(eq(partnerCompanies.cnpj, document));
+  const eligiblePartner = ownerType === "client" && options.confirmed === true && options.type === "pj" && options.propertyType === "company"
+    ? partnerMatches.find((row: { id: number }) => Number(row.id) === Number(options.partnerCompanyId))
+    : undefined;
+  const existingHeadquarters = ownerType === "partner" && ownerId ? clientMatches.find((row: any) => row.isPartnerHeadquarters && Number(row.partnerCompanyId) === Number(ownerId) && row.type === "pj" && row.propertyType === "company") : undefined;
+  const clientConflict = clientMatches.some((row: { id: number }) => {
+    if (ownerType === "client" && Number(row.id) === Number(ownerId)) return false;
+    return !existingHeadquarters || Number(row.id) !== Number(existingHeadquarters.id);
+  });
+  const partnerConflict = partnerMatches.some((row: { id: number }) => {
+    if (ownerType === "partner" && Number(row.id) === Number(ownerId)) return false;
+    return !eligiblePartner || Number(row.id) !== Number(eligiblePartner.id);
+  });
+  const registryConflict = existing.some((row: { ownerType: string; ownerId: number }) => {
+    if (row.ownerType === ownerType && Number(row.ownerId) === Number(ownerId)) return false;
+    if (existingHeadquarters && row.ownerType === "client" && Number(row.ownerId) === Number(existingHeadquarters.id)) return false;
+    return !(eligiblePartner && row.ownerType === "partner" && Number(row.ownerId) === Number(eligiblePartner.id));
+  });
+  if (clientConflict || partnerConflict || registryConflict) throw new Error("CPF/CNPJ já cadastrado em outro cliente ou empresa parceira");
+  return Boolean(eligiblePartner);
 }
 
 async function syncRegistrationDocument(db: any, document: string | null, ownerType: DocumentOwnerType, ownerId: number) {

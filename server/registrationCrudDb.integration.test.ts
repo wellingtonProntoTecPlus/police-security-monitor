@@ -23,6 +23,7 @@ const updated: unknown[] = [];
 let currentSystem: Record<string, unknown> = { id: 1, brand: "VIAWEB", account: "0336", isepId: "693E" };
 
 const fakeDb = {
+  transaction: async (callback: (tx: any) => Promise<unknown>) => callback(fakeDb),
   insert: () => ({
     values: async (value: unknown) => {
       inserted.push(value);

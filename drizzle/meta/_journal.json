@@ -316,6 +316,13 @@
       "when": 1793832462771,
       "tag": "0044_groovy_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "5",
+      "when": 1793836546739,
+      "tag": "0045_lazy_lightspeed",
+      "breakpoints": true
     }
   ]
 }

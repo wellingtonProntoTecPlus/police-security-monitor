@@ -75,6 +75,8 @@ vi.mock("@/lib/trpc", () => {
         changeOwnPassword: { useMutation: mutation },
       },
       operatorShift: {
+        loginScheduleDecision: { useQuery: () => ({ data: { required: false, scheduleStatus: "scheduled" }, isError: false, isFetching: false, error: null, refetch: vi.fn() }) },
+        confirmLoginScheduleException: { useMutation: mutation },
         logoutPreview: {
           useQuery: () => ({
             data: mockState.previewData,

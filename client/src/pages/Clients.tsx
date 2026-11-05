@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, User, Building2, Phone, Mail, MapPin, ArrowLeft, Save, Trash2, Pencil, Ban } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
+import { normalizeBrazilianDocument, validateOptionalBrazilianDocument } from "@shared/documentValidation";
+import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
 import { deferViewTransition } from "@/lib/deferredViewTransition";
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
 
@@ -115,12 +116,15 @@ export default function Clients() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [partnerFilter, setPartnerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended" | "blocked">("all");
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [editingClient, setEditingClient] = useState<any>(null);
+  const [reuseConfirmedKey, setReuseConfirmedKey] = useState<string | null>(null);
+  const [duplicatePromptPartner, setDuplicatePromptPartner] = useState<any>(null);
   const [loadingCep, setLoadingCep] = useState(false);
 
-  const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(undefined);
+  const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(statusFilter === "all" ? undefined : { monitoringStatus: statusFilter });
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
   const createMutation = trpc.monitoredClient.create.useMutation({
     onSuccess: () => {
@@ -177,6 +181,7 @@ export default function Clients() {
   const numericSearch = search.replace(/\D/g, "");
   const filteredClients = clients.filter((c: any) => {
     if (partnerFilter !== "all" && String(c.partnerCompanyId) !== partnerFilter) return false;
+    if (statusFilter !== "all" && getEffectiveClientMonitoringStatus(c) !== statusFilter) return false;
     if (!normalizedSearch) return true;
     const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood, ...(c.accounts || [])]
       .filter(Boolean)
@@ -187,6 +192,9 @@ export default function Clients() {
       || (numericSearch.length > 0 && String(c.document || "").replace(/\D/g, "").includes(numericSearch));
   });
   const selectedPartner = partners.find((partner: any) => String(partner.id) === partnerFilter);
+  const formDocument = normalizeBrazilianDocument(form.document);
+  const ownPartnerDocument = form.type === "pj" ? partners.find((partner: any) => Number(partner.id) === Number(form.partnerCompanyId) && normalizeBrazilianDocument(partner.cnpj) === formDocument) : null;
+  const ownPartnerDocumentKey = ownPartnerDocument && formDocument ? `${ownPartnerDocument.id}:${formDocument}` : null;
 
   function handleSubmit() {
     if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
@@ -195,6 +203,7 @@ export default function Clients() {
     if (form.monitoringStatus === "suspended" && !form.monitoringStatusUntil) { toast.error("Informe até quando o monitoramento ficará suspenso"); return; }
     const documentCheck = validateOptionalBrazilianDocument(form.document, form.type === "pf" ? "cpf" : "cnpj");
     if (documentCheck.error) { toast.error(documentCheck.error); return; }
+    if (ownPartnerDocument && reuseConfirmedKey !== ownPartnerDocumentKey) { setDuplicatePromptPartner(ownPartnerDocument); return; }
     const values = {
       ...form,
       document: documentCheck.document ?? undefined,
@@ -203,6 +212,7 @@ export default function Clients() {
       zipCode: form.zipCode.replace(/\D/g, ""),
       monitoringStatusReason: form.monitoringStatus === "active" ? null : form.monitoringStatusReason.trim() || null,
       monitoringStatusUntil: form.monitoringStatus === "suspended" && form.monitoringStatusUntil ? new Date(form.monitoringStatusUntil) : null,
+      confirmPartnerDocumentReuse: Boolean(ownPartnerDocumentKey && reuseConfirmedKey === ownPartnerDocumentKey),
     };
     if (editingClient) updateMutation.mutate({ id: editingClient.id, ...values });
     else createMutation.mutate(values);
@@ -211,6 +221,7 @@ export default function Clients() {
   function openClientForm(client?: any) {
     if (client) {
       setEditingClient(client);
+      setReuseConfirmedKey(client.isPartnerHeadquarters && client.document ? `${client.partnerCompanyId}:${normalizeBrazilianDocument(client.document)}` : null);
       setForm({
         partnerCompanyId: client.partnerCompanyId || 0,
         type: client.type || "pj",
@@ -235,6 +246,7 @@ export default function Clients() {
       });
     } else {
       setEditingClient(null);
+      setReuseConfirmedKey(null);
       setForm({ ...INITIAL_FORM });
     }
     deferViewTransition(() => setView("create"));
@@ -268,7 +280,7 @@ export default function Clients() {
                       <Building2 className="h-5 w-5 text-primary" />
                       <h3 className="font-bold text-foreground">Empresa Responsável</h3>
                     </div>
-                    <Select value={form.partnerCompanyId ? String(form.partnerCompanyId) : undefined} onValueChange={(v) => setForm({ ...form, partnerCompanyId: Number(v) })}>
+                    <Select value={form.partnerCompanyId ? String(form.partnerCompanyId) : undefined} onValueChange={(v) => { setReuseConfirmedKey(null); setForm({ ...form, partnerCompanyId: Number(v) }); }}>
                       <SelectTrigger><SelectValue placeholder="Selecione a empresa parceira responsável por este cliente..." /></SelectTrigger>
                       <SelectContent>
                         {partners.map((p: any) => (
@@ -289,7 +301,7 @@ export default function Clients() {
                     <div className="grid grid-cols-6 gap-4">
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Tipo *</Label>
-                        <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "pf" | "pj", document: "" })}>
+                        <Select value={form.type} onValueChange={(v) => { setReuseConfirmedKey(null); setForm({ ...form, type: v as "pf" | "pj", document: "" }); }}>
                           <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="pf">Pessoa Física</SelectItem>
@@ -299,7 +311,7 @@ export default function Clients() {
                       </div>
                       <div className="col-span-2">
                         <Label className="text-sm font-medium">Classificação *</Label>
-                        <Select value={form.propertyType} onValueChange={(propertyType) => setForm({ ...form, propertyType: propertyType as typeof form.propertyType })}>
+                        <Select value={form.propertyType} onValueChange={(propertyType) => { setReuseConfirmedKey(null); setForm({ ...form, propertyType: propertyType as typeof form.propertyType }); }}>
                           <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="residence">Residência</SelectItem>
@@ -314,9 +326,11 @@ export default function Clients() {
                           className="mt-1 font-mono"
                           placeholder={form.type === "pf" ? "000.000.000-00" : "00.000.000/0000-00"}
                           value={form.document}
-                          onChange={(e) => setForm({ ...form, document: maskCpfCnpj(e.target.value, form.type) })}
+                          onChange={(e) => { setReuseConfirmedKey(null); setForm({ ...form, document: maskCpfCnpj(e.target.value, form.type) }); }}
+                          onBlur={() => { if (ownPartnerDocument && reuseConfirmedKey !== ownPartnerDocumentKey) setDuplicatePromptPartner(ownPartnerDocument); }}
                         />
                       </div>
+                      {ownPartnerDocument && <div className="col-span-6 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm"><strong>CNPJ cadastrado na parceira:</strong> {ownPartnerDocument.name} · {ownPartnerDocument.cnpj}. O mesmo documento só será aceito para cadastrar a própria sede desta parceira.</div>}
                       <div className="col-span-3">
                         <Label className="text-sm font-medium">{form.type === "pf" ? "Nome Completo *" : "Razão Social *"}</Label>
                         <Input
@@ -480,6 +494,29 @@ export default function Clients() {
             </div>
           </div>
         </div>
+        {duplicatePromptPartner && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="partner-document-prompt-title">
+          <div className="w-full max-w-md rounded-xl border border-primary/40 bg-card p-5 text-card-foreground shadow-2xl">
+            <h2 id="partner-document-prompt-title" className="text-lg font-semibold">CNPJ CADASTRADO. DESEJA CONTINUAR?</h2>
+            <p className="mt-3 text-sm text-muted-foreground">Este CNPJ já pertence à parceira <strong className="text-foreground">{duplicatePromptPartner.name}</strong>. Se continuar, o PoliceCentral vai cadastrar essa mesma empresa como cliente — somente para monitorar a sede vinculada a essa parceira.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Os dados disponíveis da parceira serão reaproveitados nos campos ainda vazios. Qualquer outro cliente com este documento continuará sendo recusado.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDuplicatePromptPartner(null)}>Não, voltar</Button>
+              <Button onClick={() => {
+                const partner = duplicatePromptPartner;
+                setReuseConfirmedKey(`${partner.id}:${normalizeBrazilianDocument(partner.cnpj)}`);
+                setForm((current) => ({
+                  ...current, type: "pj", propertyType: "company", name: current.name.trim() || partner.name || "",
+                  document: maskCpfCnpj(partner.cnpj || current.document, "pj"), phone: current.phone || maskPhone(partner.phone || ""),
+                  whatsapp: current.whatsapp || maskPhone(partner.whatsapp || ""), email: current.email || partner.email || "",
+                  address: current.address || partner.address || "", city: current.city || partner.city || "", state: current.state || partner.state || "",
+                  zipCode: current.zipCode || maskCep(partner.zipCode || ""),
+                }));
+                setDuplicatePromptPartner(null);
+                toast.success("Dados da parceira carregados. Confira e conclua o cadastro.");
+              }}>Sim, continuar</Button>
+            </div>
+          </div>
+        </div>}
       </DashboardLayout>
     );
   }
@@ -513,6 +550,18 @@ export default function Clients() {
                 {partners.map((partner: any) => (
                   <SelectItem key={partner.id} value={String(partner.id)}>{partner.name}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-full sm:w-52">
+            <Label className="mb-1 block text-xs font-medium text-muted-foreground">Status de monitoramento</Label>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+              <SelectTrigger aria-label="Filtrar por status de monitoramento"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os status</SelectItem>
+                <SelectItem value="active">Ativo</SelectItem>
+                <SelectItem value="suspended">Suspenso</SelectItem>
+                <SelectItem value="blocked">Bloqueado</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -558,8 +607,8 @@ export default function Clients() {
                   {client.whatsapp && <span className="block text-green-400">{client.whatsapp}</span>}
                 </div>
                 <span className="text-xs text-muted-foreground">{client.city ? `${client.city}/${client.state}` : "—"}</span>
-                <Badge variant={client.monitoringStatus === "blocked" || client.monitoringStatus === "suspended" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
-                  {!client.isActive ? "Inativo" : client.monitoringStatus === "blocked" ? "Bloqueado" : client.monitoringStatus === "suspended" ? "Suspenso" : "Ativo"}
+                <Badge variant={getEffectiveClientMonitoringStatus(client) !== "active" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
+                  {!client.isActive ? "Inativo" : getEffectiveClientMonitoringStatus(client) === "blocked" ? "Bloqueado" : getEffectiveClientMonitoringStatus(client) === "suspended" ? "Suspenso" : "Ativo"}
                 </Badge>
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => openClientForm(client)} title="Editar cliente">
