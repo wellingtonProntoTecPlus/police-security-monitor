@@ -24,7 +24,10 @@ describe("indicadores operacionais do Dashboard", () => {
     expect(source).toContain("openStandaloneCommandRequest");
     expect(source).toContain("submitStandaloneCommandRequest");
     expect(source).toContain("Solicitado por");
-    expect(source).toContain("Autorizado por");
+    expect(source).not.toContain("Autorizado por");
+    expect(source).toContain("Operador autenticado: ${user?.name || \"Operador\"}");
+    expect(source).toContain("Solicitado por: ${requester}; Motivo: ${reason}");
+    expect(source).toContain("o operador autenticado, o solicitante e o motivo ficarão no histórico do comando");
     expect(source).toContain("Motivo operacional");
     expect(source).toContain("isStandalonePhysicalCommandSupported");
     expect(source).toContain("ARMAR");

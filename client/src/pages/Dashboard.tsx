@@ -237,7 +237,6 @@ export default function Dashboard() {
   const [scheduleAlertsModal, setScheduleAlertsModal] = useState(false);
   const [standaloneRemoteRequest, setStandaloneRemoteRequest] = useState<(any & { commandType: "arm" | "disarm" }) | null>(null);
   const [standaloneRemoteRequester, setStandaloneRemoteRequester] = useState("");
-  const [standaloneRemoteAuthorizer, setStandaloneRemoteAuthorizer] = useState("");
   const [standaloneRemoteReason, setStandaloneRemoteReason] = useState("");
   const [connectionStatusModal, setConnectionStatusModal] = useState<'online' | 'offline' | null>(null);
   const [blockedClientsModal, setBlockedClientsModal] = useState(false);
@@ -1530,7 +1529,6 @@ export default function Dashboard() {
     }
     setStandaloneRemoteRequest({ ...item, commandType });
     setStandaloneRemoteRequester("");
-    setStandaloneRemoteAuthorizer("");
     setStandaloneRemoteReason("");
   }
 
@@ -1542,7 +1540,6 @@ export default function Dashboard() {
     const actionName = commandType === "arm" ? "Arme" : "Desarme";
     const actionLabel = commandType === "arm" ? "ARMAR físico Compatec" : "DESARMAR físico Compatec";
     const requester = standaloneRemoteRequester.trim();
-    const authorizer = standaloneRemoteAuthorizer.trim();
     const reason = standaloneRemoteReason.trim();
     if (!systemId) {
       toast.error("A central não possui um identificador cadastrado para o comando.");
@@ -1552,28 +1549,23 @@ export default function Dashboard() {
       toast.error(`Informe quem solicitou o ${actionName}.`);
       return;
     }
-    if (!authorizer || authorizer.length < 2) {
-      toast.error(`Informe quem autorizou o ${actionName}.`);
-      return;
-    }
     if (reason.length < 5) {
       toast.error(`Informe o motivo operacional do ${actionName}.`);
       return;
     }
-    const auditReason = `Solicitado por: ${requester}; Autorizado por: ${authorizer}; Motivo: ${reason}`;
+    const auditReason = `Solicitado por: ${requester}; Motivo: ${reason}`;
     if (brand !== "COMPATEC") {
       toast.error("O Arme e o Desarme sem ocorrência estão liberados somente para centrais Compatec homologadas.");
       return;
     }
     if (!window.confirm(
-      `CONFIRMAR ${actionLabel} SEM OCORRÊNCIA?\n\nConta ${standaloneRemoteRequest.account} · ${standaloneRemoteRequest.clientName || "Cliente"}\nCentral ${standaloneRemoteRequest.model || standaloneRemoteRequest.brand || "não informada"}\n\nSolicitado por: ${requester}\nAutorizado por: ${authorizer}\nMotivo: ${reason}\n\nA ação será registrada no histórico de comandos remotos antes do envio.`,
+      `CONFIRMAR ${actionLabel} SEM OCORRÊNCIA?\n\nConta ${standaloneRemoteRequest.account} · ${standaloneRemoteRequest.clientName || "Cliente"}\nCentral ${standaloneRemoteRequest.model || standaloneRemoteRequest.brand || "não informada"}\n\nOperador autenticado: ${user?.name || "Operador"}\nSolicitado por: ${requester}\nMotivo: ${reason}\n\nA ação será registrada no histórico de comandos remotos antes do envio.`,
     )) return;
 
     const onSuccess = (result: any) => {
       setStandaloneRemoteRequest(null);
       setArmDisarmModal(null);
       setStandaloneRemoteRequester("");
-      setStandaloneRemoteAuthorizer("");
       setStandaloneRemoteReason("");
       void utils.dashboard.armDisarmStatus.invalidate();
       void utils.remoteCommand.list.invalidate({ alarmSystemId: systemId, limit: 8 });
@@ -1971,17 +1963,14 @@ export default function Dashboard() {
               <label className="block text-sm font-medium text-foreground">Solicitado por
                 <Input className="mt-1" value={standaloneRemoteRequester} onChange={(event) => setStandaloneRemoteRequester(event.target.value)} placeholder="Nome do cliente ou responsável" autoFocus />
               </label>
-              <label className="block text-sm font-medium text-foreground">Autorizado por
-                <Input className="mt-1" value={standaloneRemoteAuthorizer} onChange={(event) => setStandaloneRemoteAuthorizer(event.target.value)} placeholder="Nome do responsável que autorizou" />
-              </label>
               <label className="block text-sm font-medium text-foreground">Motivo operacional
                 <Textarea className="mt-1 min-h-24" value={standaloneRemoteReason} onChange={(event) => setStandaloneRemoteReason(event.target.value)} placeholder={standaloneRemoteRequest.commandType === "arm" ? "Ex.: empresa encerrada; responsável solicitou o Arme por telefone." : "Ex.: Desarmado para entrada de funcionários."} />
               </label>
-              <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado, o solicitante, o autorizador e o motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente.</div>
+              <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado, o solicitante e o motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente. Os registros anteriores são preservados.</div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setStandaloneRemoteRequest(null)}>Cancelar</Button>
-              <Button className={standaloneRemoteRequest.commandType === "arm" ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-red-600 text-white hover:bg-red-700"} disabled={armCompatecAllMut.isPending || disarmBenchAllMut.isPending || standaloneRemoteRequester.trim().length < 2 || standaloneRemoteAuthorizer.trim().length < 2 || standaloneRemoteReason.trim().length < 5} onClick={submitStandaloneCommandRequest}>
+              <Button className={standaloneRemoteRequest.commandType === "arm" ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-red-600 text-white hover:bg-red-700"} disabled={armCompatecAllMut.isPending || disarmBenchAllMut.isPending || standaloneRemoteRequester.trim().length < 2 || standaloneRemoteReason.trim().length < 5} onClick={submitStandaloneCommandRequest}>
                 {armCompatecAllMut.isPending || disarmBenchAllMut.isPending ? "Enviando..." : `Confirmar ${standaloneRemoteRequest.commandType === "arm" ? "ARMAR" : "DESARMAR"}`}
               </Button>
             </div>
