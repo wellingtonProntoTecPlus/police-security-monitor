@@ -1,7 +1,7 @@
 import { eq, and, or, desc, sql, like, inArray, gte, gt, lte, ne, isNotNull, isNull, notExists } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  InsertUser, users, authSessions, operatorAttendanceRecords,
+  InsertUser, users, authSessions, operatorAttendanceRecords, operatorShiftMessages,
   managingCompanies, InsertManagingCompany,
   partnerCompanies, InsertPartnerCompany,
   registrationDocuments,
@@ -2415,6 +2415,27 @@ export async function assumeObservedIncident(input: { incidentId: number; operat
       statusAfter: "attending",
       note: transferNote,
     });
+    const [activeHandoffMessage] = await tx.select().from(operatorShiftMessages).where(and(
+      eq(operatorShiftMessages.incidentId, parent.id), eq(operatorShiftMessages.isCurrent, true),
+    ))
+      .orderBy(desc(operatorShiftMessages.createdAt), desc(operatorShiftMessages.id)).for("update").limit(1);
+    let forwardedMessage: { id: number; fromOperatorName: string; toUserId: number; toOperatorName: string; incidentId: number; account: string | null } | null = null;
+    if (activeHandoffMessage) {
+      const [recipient] = await tx.select({ name: users.name }).from(users).where(eq(users.id, input.operatorId)).limit(1);
+      const toOperatorName = recipient?.name || operatorName;
+      await tx.update(operatorShiftMessages).set({ isCurrent: false })
+        .where(eq(operatorShiftMessages.id, activeHandoffMessage.id));
+      const inserted = await tx.insert(operatorShiftMessages).values({
+        fromUserId: activeHandoffMessage.fromUserId, fromOperatorName: activeHandoffMessage.fromOperatorName,
+        fromAttendanceId: activeHandoffMessage.fromAttendanceId, toUserId: input.operatorId, toOperatorName,
+        incidentId: parent.id, account: activeHandoffMessage.account, message: activeHandoffMessage.message,
+        isCurrent: true, readAt: null, createdAt: now,
+      });
+      forwardedMessage = {
+        id: Number(inserted[0]?.insertId), fromOperatorName: activeHandoffMessage.fromOperatorName,
+        toUserId: input.operatorId, toOperatorName, incidentId: Number(parent.id), account: activeHandoffMessage.account,
+      };
+    }
     return {
       id: parent.id,
       parentIncidentId: parent.parentIncidentId,
@@ -2428,6 +2449,7 @@ export async function assumeObservedIncident(input: { incidentId: number; operat
       transferred: true as const,
       previousOperatorId: parent.operatorId,
       previousOperatorName,
+      forwardedMessage,
     };
   });
 }

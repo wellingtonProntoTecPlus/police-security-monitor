@@ -310,12 +310,16 @@ export async function endOperatorSessionWithHandoff(input: {
         operatorName: input.operatorName.slice(0, 255), action: "shift_handoff",
         statusBefore, statusAfter: nextStatus, note: stampedNote,
       });
+      await tx.update(operatorShiftMessages).set({ isCurrent: false }).where(and(
+        eq(operatorShiftMessages.incidentId, incidentId), eq(operatorShiftMessages.isCurrent, true),
+      ));
       const inserted = await tx.insert(operatorShiftMessages).values({
         fromUserId: input.userId, fromOperatorName: input.operatorName.slice(0, 255),
         fromAttendanceId: Number(attendance.id), toUserId: handoff.toUserId, toOperatorName: nextName.slice(0, 255),
-        incidentId, account: row.account, message,
+        incidentId, account: row.account, message, isCurrent: true, createdAt: now,
       });
-      messages.push({ id: Number(inserted[0]?.insertId || 0), toUserId: handoff.toUserId, toOperatorName: nextName, fromOperatorName: input.operatorName, incidentId, account: row.account });
+      const messageId = Number(inserted[0]?.insertId || 0);
+      messages.push({ id: messageId, toUserId: handoff.toUserId, toOperatorName: nextName, fromOperatorName: input.operatorName, incidentId, account: row.account });
     }
     const closedAt = now;
     const attendanceUpdate = await tx.update(operatorAttendanceRecords).set({ logoutAt: closedAt, logoutReason: "logout" })
@@ -361,8 +365,17 @@ export async function sendOperatorShiftMessage(input: { userId: number; authSess
 export async function listOperatorShiftInbox(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(operatorShiftMessages).where(and(eq(operatorShiftMessages.toUserId, userId), isNull(operatorShiftMessages.readAt)))
-    .orderBy(desc(operatorShiftMessages.createdAt), desc(operatorShiftMessages.id)).limit(50);
+  const activeIncidentMessages = await db.select({ message: operatorShiftMessages, incidentStatus: incidents.status })
+    .from(operatorShiftMessages).innerJoin(incidents, eq(operatorShiftMessages.incidentId, incidents.id))
+    .where(and(eq(operatorShiftMessages.toUserId, userId), eq(operatorShiftMessages.isCurrent, true), inArray(incidents.status, [...OPEN_STATUSES])))
+    .orderBy(desc(operatorShiftMessages.createdAt), desc(operatorShiftMessages.id));
+  const unreadDirectMessages = await db.select().from(operatorShiftMessages).where(and(
+    eq(operatorShiftMessages.toUserId, userId), isNull(operatorShiftMessages.incidentId), isNull(operatorShiftMessages.readAt),
+  )).orderBy(desc(operatorShiftMessages.createdAt), desc(operatorShiftMessages.id)).limit(50);
+  return [
+    ...activeIncidentMessages.map((row: any) => ({ ...row.message, incidentStatus: row.incidentStatus })),
+    ...unreadDirectMessages.map((message: any) => ({ ...message, incidentStatus: null })),
+  ];
 }
 
 export async function markOperatorShiftMessageRead(input: { messageId: number; userId: number }) {

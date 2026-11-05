@@ -1,0 +1,1 @@
+CREATE INDEX `operator_shift_message_active_incident_idx` ON `operator_shift_messages` (`incidentId`,`isCurrent`,`toUserId`,`createdAt`);

@@ -117,11 +117,13 @@ export const operatorShiftMessages = mysqlTable("operator_shift_messages", {
   incidentId: int("incidentId"),
   account: varchar("account", { length: 20 }),
   message: text("message").notNull(),
+  isCurrent: boolean("isCurrent").default(true).notNull(),
   readAt: timestamp("readAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
   index("operator_shift_message_inbox_idx").on(table.toUserId, table.readAt, table.createdAt),
   index("operator_shift_message_incident_idx").on(table.incidentId, table.createdAt),
+  index("operator_shift_message_active_incident_idx").on(table.incidentId, table.isCurrent, table.toUserId, table.createdAt),
 ]);
 
 // ============================================================

@@ -56,9 +56,10 @@ function releaseSocket(socket: Socket) {
   if (subscribers === 0 && sharedSocket === socket) { socket.disconnect(); sharedSocket = null; }
 }
 
-export function useSocket(options: { operationalNoticesOnly?: boolean; enabled?: boolean } = {}) {
+export function useSocket(options: { operationalNoticesOnly?: boolean; incidentUpdatesOnly?: boolean; enabled?: boolean } = {}) {
   const enabled = options.enabled !== false;
   const noticesOnly = options.operationalNoticesOnly === true;
+  const incidentUpdatesOnly = options.incidentUpdatesOnly === true;
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [realtimeEvents, setRealtimeEvents] = useState<AlarmEvent[]>([]);
@@ -80,13 +81,14 @@ export function useSocket(options: { operationalNoticesOnly?: boolean; enabled?:
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("operator:shift", onNotice);
-    if (!noticesOnly) { socket.on("alarm:event", onAlarm); socket.on("incident:state", onIncident); }
+    if (!noticesOnly) socket.on("alarm:event", onAlarm);
+    if (!noticesOnly || incidentUpdatesOnly) socket.on("incident:state", onIncident);
     return () => {
       socket.off("connect", onConnect); socket.off("disconnect", onDisconnect); socket.off("operator:shift", onNotice);
       socket.off("alarm:event", onAlarm); socket.off("incident:state", onIncident);
       releaseSocket(socket); socketRef.current = null;
     };
-  }, [enabled, noticesOnly]);
+  }, [enabled, noticesOnly, incidentUpdatesOnly]);
 
   const clearEvents = useCallback(() => setRealtimeEvents([]), []);
   return { connected, realtimeEvents, incidentUpdates, operatorNotices, clearEvents };

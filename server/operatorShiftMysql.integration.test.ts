@@ -3,7 +3,7 @@ import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
-import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, getActiveAuthSessionByTokenHash, createClient, createPartnerCompany, updatePartnerCompany } from "./db";
+import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, assumeObservedIncident, getActiveAuthSessionByTokenHash, createClient, createPartnerCompany, updatePartnerCompany } from "./db";
 import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException } from "./operatorShiftDb";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
@@ -19,7 +19,7 @@ let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
 const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents"];
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0045_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0047_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
@@ -60,6 +60,43 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     if (pool) { await pool.query(`DROP DATABASE \`${database}\``); await pool.end(); }
   });
 
+  it("mantém recado lido até finalizar e o encaminha a cada operador que assume ou recebe passagem", async () => {
+    const firstHandoff = await logoff();
+    expect(firstHandoff.messages).toHaveLength(1);
+    let inbox = await listOperatorShiftInbox(2);
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]).toMatchObject({ isCurrent: true, incidentStatus: "observing", fromOperatorName: "Amanda", toOperatorName: "Yasmin" });
+    await markOperatorShiftMessageRead({ messageId: inbox[0].id, userId: 2 });
+    inbox = await listOperatorShiftInbox(2);
+    expect(inbox).toHaveLength(1);
+
+    await orm.insert(authSessions).values({ id: 102, userId: 2, tokenHash: "b".repeat(64), createdAt: now, expiresAt: new Date("2027-01-01T00:00:00Z") });
+    const assumed = await assumeObservedIncident({ incidentId: 401, operatorId: 2, operatorName: "Yasmin", authSessionId: 102 });
+    expect(assumed).toMatchObject({ id: 401, status: "attending", forwardedMessage: { toUserId: 2, toOperatorName: "Yasmin", incidentId: 401 } });
+    inbox = await listOperatorShiftInbox(2);
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]).toMatchObject({ isCurrent: true, readAt: null, fromOperatorName: "Amanda", toOperatorName: "Yasmin" });
+
+    const secondHandoff = await endOperatorSessionWithHandoff({
+      userId: 2, authSessionId: 102, operatorName: "Yasmin",
+      handoffs: [{ incidentId: 401, toUserId: 3, message: "A equipe tática confirmou que o local está normal; manter observação.", observationUntil: until }], now,
+    });
+    expect(secondHandoff.messages[0]).toMatchObject({ toUserId: 3, toOperatorName: "Stephane", incidentId: 401 });
+    expect(await listOperatorShiftInbox(2)).toHaveLength(0);
+    const nextInbox = await listOperatorShiftInbox(3);
+    expect(nextInbox).toHaveLength(1);
+    expect(nextInbox[0]).toMatchObject({ isCurrent: true, incidentStatus: "observing", fromOperatorName: "Yasmin", toOperatorName: "Stephane" });
+
+    await orm.update(incidents).set({ status: "closed" }).where(eq(incidents.id, 401));
+    expect(await listOperatorShiftInbox(3)).toHaveLength(0);
+    const messages = await orm.select().from(operatorShiftMessages).orderBy(operatorShiftMessages.id);
+    expect(messages).toHaveLength(3);
+    expect(messages[0]).toMatchObject({ isCurrent: false, fromOperatorName: "Amanda", toOperatorName: "Yasmin", message: handoff.message });
+    expect(messages[0].readAt).not.toBeNull();
+    expect(messages[1].isCurrent).toBe(false);
+    expect(messages[2]).toMatchObject({ isCurrent: true, fromOperatorName: "Yasmin", toOperatorName: "Stephane" });
+  });
+
   it("grava logoff real, preserva o mesmo incidente e envia a mensagem somente ao destinatário", async () => {
     const result = await logoff();
     expect(result.messages).toHaveLength(1);
@@ -79,6 +116,8 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     await expect(markOperatorShiftMessageRead({ messageId: inbox[0].id, userId: 3 })).rejects.toThrow();
     expect(await listOperatorShiftInbox(2)).toHaveLength(1);
     await markOperatorShiftMessageRead({ messageId: inbox[0].id, userId: 2 });
+    expect(await listOperatorShiftInbox(2)).toHaveLength(1);
+    await orm.update(incidents).set({ status: "closed" }).where(eq(incidents.id, 401));
     expect(await listOperatorShiftInbox(2)).toHaveLength(0);
   });
 
@@ -234,6 +273,27 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(await orm.select().from(operatorShiftMessages)).toHaveLength(1);
     expect((await orm.select().from(operatorAttendanceRecords))[0].logoutReason).toBe("logout");
     expect((await orm.select().from(operatorAttendanceRecords))[0].shiftCode).toBe("commercial");
+  });
+
+  it("migra mensagens antigas preservando a mais recente por atendimento até o fechamento, de modo repetível", async () => {
+    await orm.insert(incidents).values({ id: 402, eventId: 301, status: "closed", closedAt: now, version: 2 });
+    await orm.insert(operatorShiftMessages).values([
+      { id: 501, fromUserId: 1, fromOperatorName: "Amanda", fromAttendanceId: 201, toUserId: 2, toOperatorName: "Yasmin", incidentId: 401, account: "TEST-001", message: "Passagem antiga." },
+      { id: 502, fromUserId: 3, fromOperatorName: "Stephane", fromAttendanceId: 201, toUserId: 2, toOperatorName: "Yasmin", incidentId: 401, account: "TEST-001", message: "Passagem atual." },
+      { id: 503, fromUserId: 1, fromOperatorName: "Amanda", fromAttendanceId: 201, toUserId: 2, toOperatorName: "Yasmin", incidentId: 402, account: "TEST-001", message: "Ocorrência encerrada." },
+      { id: 504, fromUserId: 1, fromOperatorName: "Amanda", fromAttendanceId: 201, toUserId: 2, toOperatorName: "Yasmin", incidentId: null, account: null, message: "Recado avulso." },
+    ]);
+    await pool.query("ALTER TABLE operator_shift_messages DROP INDEX operator_shift_message_active_incident_idx, DROP COLUMN isCurrent");
+    const source = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    const start = source.indexOf("-- Mensagens de passagem associadas a incidente permanecem ativas até o atendimento ser finalizado.");
+    const end = source.indexOf("CREATE TABLE IF NOT EXISTS `operator_shift_reminders`", start);
+    const migration = source.slice(start, end);
+    await pool.query(`SET @schema_name = DATABASE(); ${migration}`);
+    let rows = await orm.select().from(operatorShiftMessages).orderBy(operatorShiftMessages.id);
+    expect(rows.map((row) => [row.id, row.isCurrent])).toEqual([[501, false], [502, true], [503, false], [504, true]]);
+    await pool.query(`SET @schema_name = DATABASE(); ${migration}`);
+    rows = await orm.select().from(operatorShiftMessages).orderBy(operatorShiftMessages.id);
+    expect(rows.map((row) => [row.id, row.isCurrent])).toEqual([[501, false], [502, true], [503, false], [504, true]]);
   });
 
   it("migra índice documental antigo e colunas novas de modo repetível, sem inventar motivos históricos", async () => {

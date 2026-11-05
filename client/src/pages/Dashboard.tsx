@@ -30,6 +30,7 @@ import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStat
 import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
 import { getBulkFinalizationFeedback } from "@shared/incidentBulkFinalization";
 import { isConfirmedBulkSetEligible } from "@shared/bulkIncidentSummary";
+import { useSearch, useLocation } from "wouter";
 
 type QueueStatus = "waiting" | "attending" | "observing" | "tactical" | "maintenance";
 type RemoteCommandType = "arm" | "disarm" | "isolate_zone" | "restore_zone" | "activate_pgm";
@@ -215,6 +216,8 @@ function Timer({ startTime }: { startTime: number }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const search = useSearch();
+  const [, setLocation] = useLocation();
   const [queues, setQueues] = useState<QueueEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<QueueEvent | null>(null);
   const [attendingNotes, setAttendingNotes] = useState("");
@@ -254,6 +257,7 @@ export default function Dashboard() {
   const pendingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pendingPopupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const persistedQueueSignatureRef = useRef("");
+  const lastMessageNavigationIncidentRef = useRef<number | null>(null);
   const processedOperationalRefreshesRef = useRef<Set<string>>(new Set());
   const lastConnectionStatusRefreshAtRef = useRef(0);
   const lastDashboardReconciliationAtRef = useRef(0);
@@ -870,6 +874,32 @@ export default function Dashboard() {
     setLogs([]);
     setActiveTab("cameras");
   }
+
+  useEffect(() => {
+    const rawIncidentId = new URLSearchParams(search).get("incidentId");
+    if (!rawIncidentId) {
+      lastMessageNavigationIncidentRef.current = null;
+      return;
+    }
+    const incidentId = Number(rawIncidentId);
+    if (!Number.isSafeInteger(incidentId) || incidentId <= 0 || lastMessageNavigationIncidentRef.current === incidentId) return;
+    if (isPersistedQueueLoading || !persistedQueueData) return;
+    const target = queues.find((event) => event.incidentId === incidentId);
+    if (!target && persistedQueueData.some((event: any) => Number(event.incidentId) === incidentId)) return;
+    lastMessageNavigationIncidentRef.current = incidentId;
+    if (!target) {
+      toast.error("Esse atendimento já foi finalizado ou não está mais na fila.");
+      setLocation("/dashboard");
+      return;
+    }
+    if (selectedEvent?.incidentId === incidentId) { setLocation("/dashboard"); return; }
+    if (selectedEvent && !window.confirm("Existe um atendimento em andamento. Deseja abrir o atendimento da mensagem sem finalizar o atual?")) {
+      setLocation("/dashboard");
+      return;
+    }
+    setLocation("/dashboard");
+    void handleSelectEvent(target);
+  }, [search, isPersistedQueueLoading, persistedQueueData, queues, setLocation, selectedEvent]);
 
   const isOtherOperatorObservation = Boolean(selectedEvent?.queueStatus === "observing" && selectedEvent.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id);
   const isOtherOperatorAttendance = Boolean(selectedEvent?.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id && selectedEvent.queueStatus !== "observing");

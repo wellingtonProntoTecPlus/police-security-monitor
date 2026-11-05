@@ -812,6 +812,11 @@ export const appRouter = router({
       await assertIncidentPartnerScope(ctx, input.incidentId);
       const result = await db.assumeObservedIncident({ incidentId: input.incidentId, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId });
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "assumed" });
+      if (result.forwardedMessage) emitOperatorShiftNotice({
+        kind: "shift_message", messageId: result.forwardedMessage.id, userId: result.forwardedMessage.toUserId,
+        fromOperatorName: result.forwardedMessage.fromOperatorName, toOperatorName: result.forwardedMessage.toOperatorName,
+        incidentId: result.forwardedMessage.incidentId, account: result.forwardedMessage.account,
+      });
       return result;
     }),
     bulkPreview: operatorProcedure.input(z.object({
@@ -1370,9 +1375,10 @@ export const appRouter = router({
       const { incidentId, ...occurrence } = input;
       const operatorName = ctx.user.name || `Operador ${ctx.user.id}`;
       if (incidentId) await assertIncidentPartnerScope(ctx, incidentId);
-      return incidentId
-        ? db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName, ctx.authSessionId)
-        : db.createOccurrence({ ...occurrence, operatorId: ctx.user.id, operatorName });
+      if (!incidentId) return db.createOccurrence({ ...occurrence, operatorId: ctx.user.id, operatorName });
+      const result = await db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName, ctx.authSessionId);
+      emitIncidentStateChanged({ incidentId, incidentStatus: "closed", operatorId: ctx.user.id, operatorName, action: "status_changed" });
+      return result;
     }),
   }),
   operatorShift: router({
@@ -1393,7 +1399,10 @@ export const appRouter = router({
       emitOperatorShiftNotice({ kind: "shift_message", messageId: result.id, userId: result.toUserId, fromOperatorName: result.fromOperatorName, toOperatorName: result.toOperatorName, incidentId: null, account: null });
       return { success: true, id: result.id };
     }),
-    inbox: operatorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorShiftInbox(ctx.user.id)),
+    inbox: operatorProcedure.query(async ({ ctx }) => {
+      const messages = await operatorShiftDb.listOperatorShiftInbox(ctx.user.id);
+      return messages.map((message) => ({ ...message, notificationSessionId: ctx.authSessionId ?? null }));
+    }),
     markRead: operatorProcedure.input(z.object({ messageId: z.number().int().positive() })).mutation(({ input, ctx }) => operatorShiftDb.markOperatorShiftMessageRead({ messageId: input.messageId, userId: ctx.user.id })),
     pendingReminders: operatorProcedure.query(({ ctx }) => {
       if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });

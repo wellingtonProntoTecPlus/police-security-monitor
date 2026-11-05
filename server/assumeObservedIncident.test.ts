@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { assumeObservedIncident, createOccurrenceAndCloseIncident, setDbForTesting } from "./db";
-import { incidentHistory, incidents, occurrences } from "../drizzle/schema";
+import { incidentHistory, incidents, occurrences, operatorShiftMessages } from "../drizzle/schema";
 
 function makeMockDb(options: { parent?: Record<string, any>; activeChild?: Record<string, any> | null } = {}) {
   const parent = options.parent || {
@@ -25,7 +25,8 @@ function makeMockDb(options: { parent?: Record<string, any>; activeChild?: Recor
       from: vi.fn((table: unknown) => { builder.table = table; return builder; }),
       where: vi.fn(() => builder),
       for: vi.fn(() => builder),
-      limit: vi.fn(async () => rows),
+      orderBy: vi.fn(() => builder),
+      limit: vi.fn(async () => builder.table === operatorShiftMessages ? [] : rows),
     };
     return builder;
   });
@@ -61,7 +62,8 @@ function makeLifecycleDb() {
       }),
       where: vi.fn(() => builder),
       for: vi.fn(() => builder),
-      limit: vi.fn(async () => call === 0 ? [{ id: 13 }] : call === 1 ? [current] : call === 2 ? [] : call === 3 ? [{ name: "Operadora Ana" }] : [current]),
+      orderBy: vi.fn(() => builder),
+      limit: vi.fn(async () => builder.table === operatorShiftMessages ? [] : call === 0 ? [{ id: 13 }] : call === 1 ? [current] : call === 2 ? [] : call === 3 ? [{ name: "Operadora Ana" }] : [current]),
       table: null as unknown,
     };
     return builder;

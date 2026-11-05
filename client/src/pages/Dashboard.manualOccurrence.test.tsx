@@ -139,6 +139,7 @@ vi.mock("sonner", () => ({
 describe("Dashboard — Ocorrência Manual", () => {
   afterEach(() => {
     cleanup();
+    window.history.replaceState({}, "", "/");
     vi.restoreAllMocks();
   });
 
@@ -242,6 +243,13 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByText("Tratamento de ocorrência")).toBeTruthy();
     expect(screen.getByText("Cliente de Teste")).toBeTruthy();
     expect(screen.queryByText("Cliente incorreto")).toBeNull();
+  });
+
+  it("abre o atendimento recebido pelo link da mensagem persistente", async () => {
+    window.history.replaceState({}, "", "/dashboard?incidentId=91");
+    render(<Dashboard />);
+
+    expect(await screen.findByText("Tratamento de ocorrência")).toBeTruthy();
   });
 
   it("exibe a data ao lado do horário recebido no cartão da fila", () => {

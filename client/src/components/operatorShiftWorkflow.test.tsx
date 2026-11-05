@@ -20,6 +20,7 @@ const mockState = vi.hoisted(() => ({
   inboxQueryResults: [] as Array<ReturnType<typeof vi.fn>>,
   remindersQueryResults: [] as Array<ReturnType<typeof vi.fn>>,
   dynamicQueryObjects: false,
+  setLocation: vi.fn(),
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({
@@ -50,7 +51,7 @@ vi.mock("wouter", () => ({
   Link: ({ href, children, ...props }: { href: string; children: ReactNode }) => (
     <a href={href} {...props}>{children}</a>
   ),
-  useLocation: () => ["/dashboard", vi.fn()],
+  useLocation: () => ["/dashboard", mockState.setLocation],
 }));
 
 vi.mock("@/components/WorkspaceScreenMenu", () => ({
@@ -177,6 +178,7 @@ async function fillHandoff(user: ReturnType<typeof userEvent.setup>, message = "
 describe("DashboardLayout — fluxo de passagem no logoff", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     mockState.previewData = previewWithPendingIncident();
     mockState.inboxData = [];
     mockState.remindersData = [];
@@ -184,6 +186,7 @@ describe("DashboardLayout — fluxo de passagem no logoff", () => {
     mockState.inboxQueryResults.length = 0;
     mockState.remindersQueryResults.length = 0;
     mockState.dynamicQueryObjects = false;
+    mockState.setLocation.mockReset();
     mockState.logout.mockResolvedValue(undefined);
     mockState.previewRefetch.mockResolvedValue(undefined);
     mockState.inboxRefetch.mockResolvedValue(undefined);
@@ -252,20 +255,37 @@ describe("DashboardLayout — fluxo de passagem no logoff", () => {
     expect(mockState.previewRefetch).toHaveBeenCalled();
   });
 
-  it("exibe a mensagem de inbox com remetente, destinatário e texto", async () => {
+  it("exibe o recado no login, permite VER AGORA e mantém-no visível até finalizar", async () => {
     mockState.inboxData = [{
       id: 31,
       fromOperatorName: "Amanda",
       toOperatorName: "Yasmin",
       account: "ACCT-31",
       incidentId: 31,
+      incidentStatus: "observing",
       message: "Cliente confirmou o acesso do técnico amanhã cedo.",
       createdAt: "2026-11-04T17:00:00.000Z",
     }];
-    renderLayout();
+    const user = userEvent.setup();
+    const rendered = renderLayout();
 
-    expect(await screen.findByText("Amanda deixou uma mensagem para Yasmin")).toBeTruthy();
+    expect(await screen.findByText("Mensagem de Amanda para Yasmin")).toBeTruthy();
+    expect(screen.getAllByText("Cliente confirmou o acesso do técnico amanhã cedo.")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "VER AGORA" }));
+    await waitFor(() => expect(mockState.setLocation).toHaveBeenCalledWith("/dashboard?incidentId=31"));
+    expect(screen.queryByRole("dialog", { name: /mensagem de passagem/i })).toBeNull();
+    expect(screen.getByRole("region", { name: "Mensagens de atendimentos pendentes" })).toBeTruthy();
     expect(screen.getByText("Cliente confirmou o acesso do técnico amanhã cedo.")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Mensagens de atendimentos pendentes" }).className).not.toContain("fixed");
+    rendered.unmount();
+    renderLayout();
+    expect(screen.queryByRole("dialog", { name: /mensagem de passagem/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Ver mensagens de atendimentos pendentes" })).toBeTruthy();
+    mockState.inboxData = [];
+    // O servidor remove do inbox quando fechado; o componente também remove o acesso.
+    cleanup();
+    renderLayout();
+    expect(screen.queryByRole("region", { name: "Mensagens de atendimentos pendentes" })).toBeNull();
   });
 
   it.each([40, 20])("exibe o texto do reminder de término em %i minutos", async (minutesBefore) => {

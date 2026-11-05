@@ -1183,12 +1183,36 @@ CREATE TABLE IF NOT EXISTS `operator_shift_messages` (
   `incidentId` INT NULL,
   `account` VARCHAR(20) NULL,
   `message` TEXT NOT NULL,
+  `isCurrent` BOOLEAN NOT NULL DEFAULT TRUE,
   `readAt` TIMESTAMP NULL,
   `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `operator_shift_message_inbox_idx` (`toUserId`,`readAt`,`createdAt`),
-  KEY `operator_shift_message_incident_idx` (`incidentId`,`createdAt`)
+  KEY `operator_shift_message_incident_idx` (`incidentId`,`createdAt`),
+  KEY `operator_shift_message_active_incident_idx` (`incidentId`,`isCurrent`,`toUserId`,`createdAt`)
 );
+
+-- Mensagens de passagem associadas a incidente permanecem ativas até o atendimento ser finalizado.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `operator_shift_messages` ADD COLUMN `isCurrent` BOOLEAN NOT NULL DEFAULT TRUE', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_shift_messages' AND COLUMN_NAME='isCurrent'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `operator_shift_messages` ADD INDEX `operator_shift_message_active_incident_idx` (`incidentId`,`isCurrent`,`toUserId`,`createdAt`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_shift_messages' AND INDEX_NAME='operator_shift_message_active_incident_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+UPDATE `operator_shift_messages` SET `isCurrent` = FALSE WHERE `incidentId` IS NOT NULL;
+UPDATE `operator_shift_messages` AS m
+JOIN (
+  SELECT message.`incidentId`, MAX(message.`id`) AS `latestId`
+  FROM `operator_shift_messages` AS message
+  JOIN `incidents` AS i ON i.`id` = message.`incidentId`
+  WHERE i.`status` IN ('waiting','attending','observing','dispatched','maintenance')
+  GROUP BY message.`incidentId`
+) AS latest ON latest.`latestId` = m.`id`
+SET m.`isCurrent` = TRUE;
 
 CREATE TABLE IF NOT EXISTS `operator_shift_reminders` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
