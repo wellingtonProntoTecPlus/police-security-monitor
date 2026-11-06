@@ -12,7 +12,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startReceivers, setEventCallback } from "../receiver/index";
-import { getActiveAuthSessionByTokenHash, normalizeExistingRegistrationText, sweepAlarmScheduleCompliance, sweepKeepAliveDisconnects } from "../db";
+import { expireStaleRemoteCommandDispatches, getActiveAuthSessionByTokenHash, normalizeExistingRegistrationText, sweepAlarmScheduleCompliance, sweepKeepAliveDisconnects } from "../db";
 import { sweepOperatorShiftOperations } from "../operatorShiftDb";
 import { COOKIE_NAME } from "@shared/const";
 import { hashAuthSessionToken } from "./localSession";
@@ -118,6 +118,7 @@ async function startServer() {
     const isLocal = remoteAddress === "127.0.0.1" || remoteAddress === "::1" || remoteAddress === "::ffff:127.0.0.1";
     if (!isLocal) return res.status(403).json({ error: "loopback-only" });
     try {
+      const dispatchesMarkedUnknown = await expireStaleRemoteCommandDispatches(new Date());
       const result = await sweepKeepAliveDisconnects(new Date());
       for (const event of result.opened) {
         io.emit("alarm:event", { ...event, timestamp: event.receivedAt.getTime() });
@@ -142,6 +143,7 @@ async function startServer() {
         scheduleAlertsResolved: scheduleResult.resolved,
         shiftRemindersSent: shiftResult.remindersSent.length,
         expiredOperatorSessionsClosed: shiftResult.sessionsClosed,
+        dispatchesMarkedUnknown,
       });
     } catch (error) {
       console.error("[KEEPALIVE] Falha no sweep de desconexão", error);

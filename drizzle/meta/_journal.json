@@ -337,6 +337,13 @@
       "when": 1793842886675,
       "tag": "0047_volatile_gabe_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "5",
+      "when": 1793924899263,
+      "tag": "0048_friendly_loki",
+      "breakpoints": true
     }
   ]
 }

@@ -591,7 +591,7 @@ export const appRouter = router({
       reason: z.string().trim().max(2000).optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system || !isKnownRemoteCommandBenchSystem(system)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O modo de bancada é exclusivo para as centrais físicas de testes identificadas por MAC" });
       }
@@ -928,7 +928,7 @@ export const appRouter = router({
     }),
     simulate: operatorProcedure.input(remoteCommandSimulationInputSchema).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (system.brand !== "COMPATEC" && system.brand !== "VETTI" && system.brand !== "INTELBRAS") throw new TRPCError({ code: "BAD_REQUEST", message: "Nesta etapa, os comandos remotos em simulação estão disponíveis para centrais Compatec, Vetti e Intelbras" });
       const targetError = system.brand === "VETTI"
@@ -981,7 +981,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (!isConfirmedVettiBenchSystem(system) || system.account !== "0336") {
         throw new TRPCError({ code: "FORBIDDEN", message: "A consulta VSec real está habilitada somente para a central Vetti de testes conta 0336, MAC 2DE4A8 e modo de bancada ativo" });
@@ -1006,7 +1006,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional do Desarme").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (!isConfirmedVettiBenchSystem(system) || system.account !== "0336") {
         throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme VSec físico está habilitado somente para a central Vetti de testes conta 0336, MAC 2DE4A8 e modo de bancada ativo" });
@@ -1033,7 +1033,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (!isConfirmedCompatecBenchSystem(system)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "A consulta MicroBus real está habilitada somente para a central Compatec de bancada identificada pelo MAC C1BDCB" });
@@ -1053,13 +1053,14 @@ export const appRouter = router({
         commandPayload: "MB=AK0\\r\\n",
         responsePayload: "Aguardando a conexão autenticada da central de bancada.",
       });
-      const dispatched = sendCompatecMw1StatusQuery({ alarmSystemId: system.id, commandId: created.id });
-      if (!dispatched.sent) {
-        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
-        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
-      }
-      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK0 enviada; aguardando a resposta da central.", executedAt: new Date() });
-      return { ...created, status: "sent" as const, payload: dispatched.payload };
+      const dispatched = await db.dispatchAlarmRemoteCommand({
+        alarmSystemId: system.id, commandId: created.id,
+        expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
+        sentResponsePayload: "Consulta MB=AK0 enviada; aguardando a resposta da central.",
+        send: () => sendCompatecMw1StatusQuery({ alarmSystemId: system.id, commandId: created.id }),
+      });
+      if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
+      return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
     }),
     queryBenchSectors: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
@@ -1067,7 +1068,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional da consulta").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (!isConfirmedCompatecBenchSystem(system)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "A consulta MicroBus real está habilitada somente para a central Compatec de bancada identificada pelo MAC C1BDCB" });
@@ -1079,13 +1080,14 @@ export const appRouter = router({
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central de bancada.",
       });
-      const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
-      if (!dispatched.sent) {
-        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
-        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
-      }
-      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Consulta MB=AK1 enviada; aguardando a resposta dos setores.", executedAt: new Date() });
-      return { ...created, status: "sent" as const, payload: dispatched.payload };
+      const dispatched = await db.dispatchAlarmRemoteCommand({
+        alarmSystemId: system.id, commandId: created.id,
+        expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
+        sentResponsePayload: "Consulta MB=AK1 enviada; aguardando a resposta dos setores.",
+        send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload }),
+      });
+      if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
+      return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
     }),
     armCompatecAll: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
@@ -1093,7 +1095,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional do Arme").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (system.brand !== "COMPATEC" || system.isActive === false) {
         throw new TRPCError({ code: "FORBIDDEN", message: "O Arme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
@@ -1121,13 +1123,14 @@ export const appRouter = router({
           reason: input.reason,
         }));
       }
-      const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
-      if (!dispatched.sent) {
-        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
-        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
-      }
-      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Arme MB=AK4[4] enviado; aguardando a confirmação da central.", executedAt: new Date() });
-      return { ...created, status: "sent" as const, payload: dispatched.payload };
+      const dispatched = await db.dispatchAlarmRemoteCommand({
+        alarmSystemId: system.id, commandId: created.id,
+        expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
+        sentResponsePayload: "Arme MB=AK4[4] enviado; aguardando a confirmação da central.",
+        send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload }),
+      });
+      if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
+      return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
     }),
     disarmBenchAll: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
@@ -1135,7 +1138,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional do Desarme").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
       if (system.brand !== "COMPATEC" || system.isActive === false) {
         throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
@@ -1163,13 +1166,14 @@ export const appRouter = router({
           reason: input.reason,
         }));
       }
-      const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload });
-      if (!dispatched.sent) {
-        await db.updateAlarmRemoteCommandDelivery(created.id, { status: "waiting_connection", responsePayload: dispatched.message });
-        return { ...created, status: "waiting_connection" as const, message: dispatched.message };
-      }
-      await db.updateAlarmRemoteCommandDelivery(created.id, { status: "sent", responsePayload: "Desarme MB=AK4[12] enviado; aguardando a confirmação da central.", executedAt: new Date() });
-      return { ...created, status: "sent" as const, payload: dispatched.payload };
+      const dispatched = await db.dispatchAlarmRemoteCommand({
+        alarmSystemId: system.id, commandId: created.id,
+        expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
+        sentResponsePayload: "Desarme MB=AK4[12] enviado; aguardando a confirmação da central.",
+        send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload }),
+      });
+      if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
+      return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
     }),
   }),
   alarmPgm: router({
@@ -1251,7 +1255,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5).max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      const system = await db.getAlarmSystem(input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema não encontrado" });
       const requester = input.requester.trim();
       const reason = input.reason.trim();

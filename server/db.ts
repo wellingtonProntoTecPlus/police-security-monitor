@@ -44,6 +44,7 @@ import { formatRegistrationFields, formatRegistrationText, normalizeRegistration
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
+import { notifyAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
@@ -604,40 +605,53 @@ export async function listAlarmSystems(clientId?: number) {
 export async function getAlarmSystemByAccount(account: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(alarmSystems).where(eq(alarmSystems.account, account)).limit(1);
-  return result[0];
+  const result = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(
+      eq(alarmSystems.account, normalizePanelIdentifier(account)),
+      eq(alarmSystems.isActive, true),
+      eq(clients.isActive, true),
+    ))
+    .limit(2);
+  return result.length === 1 ? result[0].system : undefined;
 }
 
 export async function getAlarmSystemByManualAccount(account: string) {
   const db = await getDb();
   if (!db) return undefined;
   const normalizedAccount = normalizePanelIdentifier(account);
-  const systems = await db.select().from(alarmSystems);
-  return systems.find((system) => normalizePanelIdentifier(system.account) === normalizedAccount)
-    || systems.find((system) => {
-      const systemAccount = normalizePanelIdentifier(system.account);
-      return normalizedAccount.length >= 4
-        && systemAccount.length >= 4
-        && normalizedAccount.slice(-4) === systemAccount.slice(-4);
-    });
+  const rows = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(eq(alarmSystems.isActive, true), eq(clients.isActive, true)));
+  const systems = rows.map((row: { system: typeof alarmSystems.$inferSelect }) => row.system);
+  const exact = systems.filter((system: typeof alarmSystems.$inferSelect) => normalizePanelIdentifier(system.account) === normalizedAccount);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1 || normalizedAccount.length < 4) return undefined;
+  const suffixMatches = systems.filter((system: typeof alarmSystems.$inferSelect) => {
+    const systemAccount = normalizePanelIdentifier(system.account);
+    return systemAccount.length >= 4 && systemAccount.slice(-4) === normalizedAccount.slice(-4);
+  });
+  return suffixMatches.length === 1 ? suffixMatches[0] : undefined;
 }
 
 export async function getAlarmSystemByReceivedAccount(account: string, brand?: string, receiverPort?: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db || !receiverPort) return undefined;
   const normalizedAccount = normalizePanelIdentifier(account);
-  const scopedConditions = [eq(alarmSystems.account, normalizedAccount)];
+  const scopedConditions: any[] = [
+    eq(alarmSystems.account, normalizedAccount),
+    eq(alarmSystems.isActive, true),
+    eq(clients.isActive, true),
+  ];
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
-  if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
-  const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(2);
-  // Se o receptor já conhece marca ou porta, o fallback somente pela conta é
-  // inseguro: uma JFL poderia ser vinculada a uma Vetti de mesma conta. Sem
-  // sistema compatível único, o evento seguirá para a Conta do Sistema 0000.
-  // O limite de dois detecta uma conta repetida na mesma marca/porta e impede
-  // que o primeiro cadastro seja escolhido arbitrariamente.
-  const found = scoped.length === 1
-    ? scoped[0]
-    : (!brand && !receiverPort ? await getAlarmSystemByAccount(normalizedAccount) : undefined);
+  scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
+  const scoped = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(...scopedConditions)).limit(2);
+  // Conta só é uma dimensão adicional de roteamento, nunca identidade física.
+  // O limite de dois rejeita duplicidades em vez de escolher outro cliente ou
+  // um cadastro órfão deixado pela exclusão do titular anterior.
+  const found = scoped.length === 1 ? scoped[0].system : undefined;
   if (!found) return undefined;
 
   // Evento Contact ID, por si só, não confirma a supervisão do painel. O status
@@ -687,9 +701,13 @@ export async function listSystemsConnectionStatus(referenceTime = new Date()) {
   // A tela operacional não pode contar cadastros desativados como Online ou
   // Offline. Eles continuam disponíveis nos cadastros e relatórios, mas não
   // fazem parte da supervisão em tempo real.
-  const systems = (await listAlarmSystems()).filter((system) => system.isActive !== false);
   const db = await getDb();
-  if (!db || systems.length === 0) return systems.map((system) => ({ ...system, connectionStatus: "offline" as const, cutoffMs: null }));
+  if (!db) return [];
+  const linkedSystems = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(eq(alarmSystems.isActive, true), eq(clients.isActive, true)));
+  const systems = linkedSystems.map((row: { system: typeof alarmSystems.$inferSelect }) => row.system);
+  if (systems.length === 0) return [];
 
   const intervalsBySystem = new Map<number, Array<number | null>>();
   const systemsNeedingAdaptiveCutoff = systems.filter((system) =>
@@ -726,26 +744,39 @@ export async function listSystemsConnectionStatus(referenceTime = new Date()) {
 export async function recordSystemKeepAlive(systemId: number, receivedAt = new Date()) {
   const db = await getDb();
   if (!db) return undefined;
-  const [system] = await db.select().from(alarmSystems).where(eq(alarmSystems.id, systemId)).limit(1);
-  if (!system) return undefined;
+  return db.transaction(async (tx: any) => {
+    const linked = await tx.select({ system: alarmSystems }).from(alarmSystems)
+      .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+      .where(and(
+        eq(alarmSystems.id, systemId),
+        eq(alarmSystems.isActive, true),
+        eq(clients.isActive, true),
+      ))
+      .for("update")
+      .limit(1);
+    const system = linked[0]?.system;
+    if (!system) return undefined;
+    // Um quadro atrasado nunca pode retroceder o último horário confirmado.
+    if (system.lastKeepAliveAt && receivedAt.getTime() < system.lastKeepAliveAt.getTime()) return undefined;
 
-  // Outros eventos podem atualizar lastCommunication. A frequência de supervisão
-  // deve considerar exclusivamente o sinal Keep Alive anterior da mesma central.
-  const measurement = measureKeepAlive(system.lastKeepAliveAt, receivedAt);
-  await db.update(alarmSystems).set({
-    isOnline: true,
-    lastCommunication: receivedAt,
-    lastKeepAliveAt: receivedAt,
-    lastKeepAliveIntervalMs: measurement.intervalMs,
-  }).where(eq(alarmSystems.id, systemId));
-  await db.insert(systemKeepAliveSamples).values({
-    alarmSystemId: systemId,
-    brand: system.brand,
-    receivedAt,
-    intervalMs: measurement.intervalMs,
+    // Outros eventos podem atualizar lastCommunication. A frequência de supervisão
+    // deve considerar exclusivamente o sinal Keep Alive anterior da mesma central.
+    const measurement = measureKeepAlive(system.lastKeepAliveAt, receivedAt);
+    await tx.update(alarmSystems).set({
+      isOnline: true,
+      lastCommunication: receivedAt,
+      lastKeepAliveAt: receivedAt,
+      lastKeepAliveIntervalMs: measurement.intervalMs,
+    }).where(and(eq(alarmSystems.id, systemId), eq(alarmSystems.isActive, true)));
+    await tx.insert(systemKeepAliveSamples).values({
+      alarmSystemId: systemId,
+      brand: system.brand,
+      receivedAt,
+      intervalMs: measurement.intervalMs,
+    });
+    await markDisconnectAlertsRestored(systemId, receivedAt, tx);
+    return measurement;
   });
-  await markDisconnectAlertsRestored(systemId, receivedAt);
-  return measurement;
 }
 
 export type KeepAliveDisconnectOpening = {
@@ -854,8 +885,8 @@ export async function sweepKeepAliveDisconnects(referenceTime = new Date()) {
 }
 
 /** O retorno do Keep Alive não apaga o histórico: transfere a ocorrência de desconexão para Observação. */
-export async function markDisconnectAlertsRestored(systemId: number, receivedAt = new Date()) {
-  const db = await getDb();
+export async function markDisconnectAlertsRestored(systemId: number, receivedAt = new Date(), executor?: any) {
+  const db = executor || await getDb();
   if (!db) return 0;
   const activeAlerts = await db.select().from(systemDisconnectAlerts).where(and(
     eq(systemDisconnectAlerts.alarmSystemId, systemId),
@@ -945,7 +976,7 @@ export async function generateIsepId() {
 
 export async function getAlarmSystemByPanelIdentifier(identifier: string, identifierType: "isep" | "mac" | "imei" | "serial", brand?: string, receiverPort?: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db || !receiverPort) return undefined;
   const normalized = normalizePanelIdentifier(identifier);
   if (!normalized) return undefined;
   if (identifierType === "isep" && !isValidIsepId(normalized)) return undefined;
@@ -958,22 +989,38 @@ export async function getAlarmSystemByPanelIdentifier(identifier: string, identi
         ? alarmSystems.imeiGprs
         : alarmSystems.serialNumber;
 
-  const scopedConditions = [eq(identifierColumn, normalized)];
+  const scopedConditions: any[] = [
+    eq(identifierColumn, normalized),
+    eq(alarmSystems.isActive, true),
+    eq(clients.isActive, true),
+  ];
   if (identifierType === "isep") scopedConditions.push(eq(alarmSystems.brand, "VIAWEB"));
   if (brand) scopedConditions.push(eq(alarmSystems.brand, brand as any));
-  if (receiverPort) scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
-  const scoped = await db.select().from(alarmSystems).where(and(...scopedConditions)).limit(1);
-  if (scoped[0]) return scoped[0];
-
-  const fallback = await db.select().from(alarmSystems).where(eq(identifierColumn, normalized)).limit(1);
-  return fallback[0];
+  scopedConditions.push(eq(alarmSystems.receiverPort, receiverPort));
+  const matches = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(...scopedConditions))
+    .limit(2);
+  // Mais de um cadastro operacional com a mesma identidade física é ambíguo:
+  // nunca escolher o primeiro nem recorrer a conta/IP ou a cadastro órfão.
+  return matches.length === 1 ? matches[0].system : undefined;
 }
 
 export async function getAlarmSystemByCapturedPanelIdentifier(input: { brand: string; frames: SafeCaptureFrame[] }) {
   const db = await getDb();
   if (!db || input.frames.length === 0) return undefined;
-
-  const systems = await db.select().from(alarmSystems).where(eq(alarmSystems.brand, input.brand as any));
+  const normalizedBrand = input.brand.trim().toUpperCase();
+  const receiverPort = input.frames[0].receiverPort;
+  if (input.frames.some((frame) => frame.brand.trim().toUpperCase() !== normalizedBrand || frame.receiverPort !== receiverPort)) return undefined;
+  const rows = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(
+      eq(alarmSystems.brand, normalizedBrand as any),
+      eq(alarmSystems.isActive, true),
+      eq(clients.isActive, true),
+      eq(alarmSystems.receiverPort, receiverPort),
+    ));
+  const systems = rows.map((row: { system: typeof alarmSystems.$inferSelect }) => row.system);
   const candidates = findCapturedPanelCandidates(input.brand, input.frames, systems);
   const candidate = resolveUniqueCapturedPanelCandidate(candidates);
   if (!candidate) return undefined;
@@ -984,6 +1031,21 @@ export async function getAlarmSystemByCapturedPanelIdentifier(input: { brand: st
   // A identificação de conexão comprova qual é o painel, mas não substitui o
   // Keep Alive real como fonte de verdade para Online/Offline.
   return { ...found, capturedIdentifier: candidate };
+}
+
+/** Sistema ainda ligado a um cliente existente e liberado para operação. */
+export async function getOperationalAlarmSystem(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select({ system: alarmSystems }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(
+      eq(alarmSystems.id, id),
+      eq(alarmSystems.isActive, true),
+      eq(clients.isActive, true),
+    ))
+    .limit(1);
+  return rows[0]?.system;
 }
 
 export async function getAlarmSystem(id: number) {
@@ -1082,7 +1144,7 @@ export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCo
         eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
         eq(alarmRemoteCommands.brand, "VETTI"),
         eq(alarmRemoteCommands.transportMode, "vsec_bench"),
-        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "sent"]),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "dispatching", "dispatch_unknown", "sent"]),
       ))
       .orderBy(alarmRemoteCommands.id)
       .limit(1);
@@ -1108,7 +1170,7 @@ export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRe
         eq(alarmRemoteCommands.brand, "COMPATEC"),
         eq(alarmRemoteCommands.transportMode, "microbus_compatec"),
         inArray(alarmRemoteCommands.commandType, ["arm", "disarm"]),
-        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "sent"]),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "dispatching", "dispatch_unknown", "sent"]),
       ))
       .orderBy(alarmRemoteCommands.id)
       .limit(1);
@@ -1166,7 +1228,7 @@ export async function createExclusiveIntelbrasPhysicalCommand(data: InsertAlarmR
         eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
         eq(alarmRemoteCommands.brand, "INTELBRAS"),
         eq(alarmRemoteCommands.transportMode, "intelbras_amt8000_e7"),
-        inArray(alarmRemoteCommands.status, ["queued", "sent"]),
+        inArray(alarmRemoteCommands.status, ["queued", "dispatching", "dispatch_unknown", "sent"]),
       ))
       .orderBy(alarmRemoteCommands.id)
       .limit(1);
@@ -1203,6 +1265,111 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
     };
     await tx.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
     await syncCompatecRemoteCommandOccurrence(tx, updatedCommand);
+  });
+}
+
+/** Serializa transmissão contra aposentadoria do painel e impede reenvio após falha incerta. */
+export async function dispatchAlarmRemoteCommand(input: {
+  alarmSystemId: number;
+  commandId: number;
+  expectedStatuses: string[];
+  unavailableStatus: string;
+  sentResponsePayload: string;
+  send: () => { sent: boolean; message?: string; payload?: string; account?: string };
+  technicalUserCode?: string | null;
+  panelConfirmedAt?: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+
+  const claim = await db.transaction(async (tx) => {
+    const [systemRef] = await tx.select({ id: alarmSystems.id, clientId: alarmSystems.clientId })
+      .from(alarmSystems).where(eq(alarmSystems.id, input.alarmSystemId)).limit(1);
+    if (!systemRef?.clientId) return { claimed: false as const, status: "cancelled", message: "A central não está vinculada a um cliente ativo." };
+    const [client] = await tx.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, systemRef.clientId), eq(clients.isActive, true))).for("update").limit(1);
+    const [system] = client ? await tx.select({ id: alarmSystems.id }).from(alarmSystems)
+      .where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id), eq(alarmSystems.isActive, true)))
+      .for("update").limit(1) : [];
+    const [command] = await tx.select().from(alarmRemoteCommands)
+      .where(and(eq(alarmRemoteCommands.id, input.commandId), eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId)))
+      .for("update").limit(1);
+    if (!command) return { claimed: false as const, status: "cancelled", message: "Comando não encontrado para esta central." };
+    if (!client || !system) {
+      if (input.expectedStatuses.includes(command.status)) {
+        const responsePayload = "Comando cancelado antes da transmissão: central ou cliente não está ativo.";
+        await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+      }
+      return { claimed: false as const, status: command.status, message: "Central ou cliente inativo; o quadro não foi transmitido." };
+    }
+    if (!input.expectedStatuses.includes(command.status)) {
+      return { claimed: false as const, status: command.status, message: `O comando já mudou de estado (${command.status}); não será transmitido novamente.` };
+    }
+    const responsePayload = "Despacho reservado; aguardando confirmação de escrita do socket.";
+    await tx.update(alarmRemoteCommands).set({ status: "dispatching", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+    await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "dispatching", responsePayload });
+    return { claimed: true as const };
+  });
+  if (!claim.claimed) return { sent: false as const, status: claim.status, message: claim.message };
+
+  return db.transaction(async (tx) => {
+    const [systemRef] = await tx.select({ id: alarmSystems.id, clientId: alarmSystems.clientId })
+      .from(alarmSystems).where(eq(alarmSystems.id, input.alarmSystemId)).limit(1);
+    const [client] = systemRef?.clientId ? await tx.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, systemRef.clientId), eq(clients.isActive, true))).for("update").limit(1) : [];
+    const [system] = client ? await tx.select({ id: alarmSystems.id }).from(alarmSystems)
+      .where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id), eq(alarmSystems.isActive, true)))
+      .for("update").limit(1) : [];
+    const [command] = await tx.select().from(alarmRemoteCommands)
+      .where(and(eq(alarmRemoteCommands.id, input.commandId), eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId)))
+      .for("update").limit(1);
+    if (!command || command.status !== "dispatching") {
+      return { sent: false as const, status: command?.status || "cancelled", message: "O comando deixou de estar reservado para transmissão." };
+    }
+    if (!client || !system) {
+      const responsePayload = "Comando cancelado antes da escrita: a central ou o cliente foi desativado.";
+      await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+      return { sent: false as const, status: "cancelled", message: responsePayload };
+    }
+
+    let result: ReturnType<typeof input.send>;
+    try {
+      result = input.send();
+    } catch (error) {
+      const responsePayload = `Resultado indeterminado durante o despacho; o quadro pode ter sido transmitido. Não reenviar automaticamente. ${error instanceof Error ? error.message : "Erro de socket."}`;
+      await tx.update(alarmRemoteCommands).set({ status: "dispatch_unknown", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "dispatch_unknown", responsePayload });
+      return { sent: false as const, status: "dispatch_unknown", message: responsePayload };
+    }
+    const status = result.sent ? "sent" : input.unavailableStatus;
+    const responsePayload = result.sent ? input.sentResponsePayload : (result.message || "O socket autenticado não está disponível; o quadro não foi escrito.");
+    const updates: Record<string, unknown> = { status, responsePayload, executedAt: result.sent ? new Date() : command.executedAt };
+    if (input.technicalUserCode !== undefined) updates.technicalUserCode = input.technicalUserCode;
+    if (input.panelConfirmedAt !== undefined) updates.panelConfirmedAt = input.panelConfirmedAt;
+    await tx.update(alarmRemoteCommands).set(updates).where(eq(alarmRemoteCommands.id, command.id));
+    await syncCompatecRemoteCommandOccurrence(tx, { ...command, ...updates, status, responsePayload });
+    return { ...result, status };
+  });
+}
+
+/** Marca como indeterminado um despacho interrompido; nunca o devolve à fila física. */
+export async function expireStaleRemoteCommandDispatches(referenceTime = new Date()) {
+  const db = await getDb();
+  if (!db) return 0;
+  const cutoff = new Date(referenceTime.getTime() - 2 * 60_000);
+  return db.transaction(async (tx) => {
+    const stale = await tx.select().from(alarmRemoteCommands).where(and(
+      eq(alarmRemoteCommands.status, "dispatching"),
+      lte(alarmRemoteCommands.updatedAt, cutoff),
+    )).for("update");
+    for (const command of stale) {
+      const responsePayload = "Resultado indeterminado após interrupção durante o despacho; a transmissão pode ter ocorrido. Conferir a central e não reenviar automaticamente.";
+      await tx.update(alarmRemoteCommands).set({ status: "dispatch_unknown", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "dispatch_unknown", responsePayload });
+    }
+    return stale.length;
   });
 }
 
@@ -3331,13 +3498,62 @@ export async function deletePartnerCompany(id: number) {
 
 export async function deleteClient(id: number) {
   const db = await getDb(); if (!db) return;
-  await db.delete(registrationDocuments).where(and(eq(registrationDocuments.ownerType, "client"), eq(registrationDocuments.ownerId, id)));
-  await db.delete(clients).where(eq(clients.id, id));
+  const retiredIds = await db.transaction(async (tx: any) => {
+    const [client] = await tx.select().from(clients).where(eq(clients.id, id)).for("update").limit(1);
+    if (!client) return [];
+    const systems = await tx.select().from(alarmSystems).where(eq(alarmSystems.clientId, id)).for("update");
+    const systemIds = systems.map((system: typeof alarmSystems.$inferSelect) => system.id);
+    if (systemIds.length > 0) {
+      const pendingCommands = await tx.select().from(alarmRemoteCommands).where(and(
+        inArray(alarmRemoteCommands.alarmSystemId, systemIds),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection"]),
+      )).for("update");
+      for (const command of pendingCommands) {
+        const responsePayload = "Comando cancelado: o cliente foi removido e a central foi inativada antes da transmissão.";
+        await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+      }
+      // Preserva eventos/relatórios antigos, mas a central não pode permanecer
+      // Online, receber eventos ou aceitar comandos após excluir seu cliente.
+      await tx.update(alarmSystems).set({ isActive: false, isOnline: false, remoteCommandLabEnabled: false })
+        .where(inArray(alarmSystems.id, systemIds));
+      await tx.update(alarmSystems).set({
+        retiredSerialNumber: sql`COALESCE(${alarmSystems.retiredSerialNumber}, ${alarmSystems.serialNumber})`,
+        serialNumber: null,
+      }).where(and(inArray(alarmSystems.id, systemIds), isNotNull(alarmSystems.serialNumber)));
+      await tx.delete(alarmRemoteCredentials).where(inArray(alarmRemoteCredentials.alarmSystemId, systemIds));
+    }
+    await tx.delete(registrationDocuments).where(and(eq(registrationDocuments.ownerType, "client"), eq(registrationDocuments.ownerId, id)));
+    await tx.delete(clients).where(eq(clients.id, id));
+    return systemIds;
+  });
+  notifyAlarmSystemsRetired(retiredIds);
 }
 
 export async function deleteAlarmSystem(id: number) {
   const db = await getDb(); if (!db) return;
-  await db.delete(alarmSystems).where(eq(alarmSystems.id, id));
+  await db.transaction(async (tx) => {
+    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, id)).for("update").limit(1);
+    if (!system) return;
+    const pendingCommands = await tx.select().from(alarmRemoteCommands).where(and(
+      eq(alarmRemoteCommands.alarmSystemId, id),
+      inArray(alarmRemoteCommands.status, ["queued", "waiting_connection"]),
+    )).for("update");
+    for (const command of pendingCommands) {
+      const responsePayload = "Comando cancelado: a central foi aposentada antes da transmissão.";
+      await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+    }
+    await tx.update(alarmSystems).set({
+      isActive: false,
+      isOnline: false,
+      remoteCommandLabEnabled: false,
+      retiredSerialNumber: system.retiredSerialNumber || system.serialNumber,
+      serialNumber: null,
+    }).where(eq(alarmSystems.id, id));
+    await tx.delete(alarmRemoteCredentials).where(eq(alarmRemoteCredentials.alarmSystemId, id));
+  });
+  notifyAlarmSystemsRetired([id]);
 }
 
 export function getAlarmSystemDeletionConfirmation(system: { account: string; brand: string; model?: string | null; macAddress?: string | null; serialNumber?: string | null; isepId?: string | null }) {
@@ -3501,8 +3717,8 @@ export async function getArmDisarmStatus() {
     clientName: clients.name,
     clientFantasyName: clients.fantasyName,
   }).from(alarmSystems)
-    .leftJoin(clients, eq(alarmSystems.clientId, clients.id))
-    .where(eq(alarmSystems.isActive, true));
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(eq(alarmSystems.isActive, true), eq(clients.isActive, true)));
   const activeSystemIds = systems.map((system: any) => system.id);
   if (activeSystemIds.length === 0) return { armed: [], disarmed: [] };
   
@@ -3581,7 +3797,9 @@ export async function listRecentAutoFinalizedArmDisarmConfirmations(limit = 4) {
   if (!db) return [];
 
   const armDisarmCodes = [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"];
-  const activeSystems = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.isActive, true));
+  const activeSystems = await db.select({ id: alarmSystems.id }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(eq(alarmSystems.isActive, true), eq(clients.isActive, true)));
   const activeSystemIds = activeSystems.map((system) => system.id);
   if (activeSystemIds.length === 0) return [];
   const rows = await db.select({

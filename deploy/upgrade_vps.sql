@@ -1269,3 +1269,31 @@ SET @statement = (
   FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='operator_attendance_records' AND COLUMN_NAME='outOfScheduleDecisionAt'
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+
+-- Cadastros órfãos não podem representar cliente novo nem receber tráfego.
+-- Preserva as linhas e eventos históricos; o cancelamento cobre somente comandos
+-- que ainda não foram transmitidos. Exclusões futuras fazem a mesma limpeza no app.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `alarm_systems` ADD COLUMN `retiredSerialNumber` VARCHAR(10) NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_systems' AND COLUMN_NAME='retiredSerialNumber'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+UPDATE alarm_systems AS s
+LEFT JOIN clients AS c ON c.id = s.clientId
+SET s.isActive = 0,
+    s.isOnline = 0,
+    s.remoteCommandLabEnabled = 0,
+    s.retiredSerialNumber = COALESCE(s.retiredSerialNumber, s.serialNumber),
+    s.serialNumber = NULL
+WHERE (c.id IS NULL OR c.isActive = 0)
+  AND (s.isActive <> 0 OR s.isOnline <> 0 OR s.remoteCommandLabEnabled <> 0 OR s.serialNumber IS NOT NULL);
+
+UPDATE alarm_remote_commands AS rc
+INNER JOIN alarm_systems AS s ON s.id = rc.alarmSystemId
+LEFT JOIN clients AS c ON c.id = s.clientId
+SET rc.status = 'cancelled',
+    rc.responsePayload = CONCAT_WS('\n', NULLIF(rc.responsePayload, ''), 'Comando cancelado: sistema sem cliente vinculado foi inativado antes da transmissão.')
+WHERE (c.id IS NULL OR c.isActive = 0)
+  AND rc.status IN ('queued', 'waiting_connection');

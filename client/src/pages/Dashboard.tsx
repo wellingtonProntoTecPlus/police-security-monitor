@@ -53,6 +53,8 @@ const REMOTE_COMMAND_STATUS_LABELS: Record<string, string> = {
   simulated: "Simulado",
   queued: "Reservado",
   waiting_connection: "Aguardando conexão",
+  dispatching: "Despacho em andamento",
+  dispatch_unknown: "Resultado indeterminado · conferir central",
   sent: "Enviado · aguardando central",
   responded: "Confirmado pela central",
   authorized: "Autorizado · sem transmissão",

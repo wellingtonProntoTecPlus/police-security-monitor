@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearConfirmedJflEndpointsForTesting,
+  forgetConfirmedJflEndpoint,
   getConfirmedJflEndpoint,
   rememberConfirmedJflEndpoint,
   refreshConfirmedJflEndpoint,
@@ -29,5 +30,13 @@ describe("continuidade segura do Keep Alive JFL", () => {
 
     expect(refreshConfirmedJflEndpoint("37.25.88.1", 9061, 10 * 60 * 1000)).toMatchObject({ id: 27, account: "0071" });
     expect(getConfirmedJflEndpoint("37.25.88.1", 9061, 24 * 60 * 1000)).toMatchObject({ id: 27, account: "0071" });
+  });
+
+  it("esquece a identidade antiga somente se o ID armazenado ainda corresponder", () => {
+    rememberConfirmedJflEndpoint("37.25.88.1", 9061, { id: 27, account: "0071", brand: "JFL" }, 1_000);
+    forgetConfirmedJflEndpoint("37.25.88.1", 9061, 99);
+    expect(getConfirmedJflEndpoint("37.25.88.1", 9061, 1_001)).toMatchObject({ id: 27 });
+    forgetConfirmedJflEndpoint("37.25.88.1", 9061, 27);
+    expect(getConfirmedJflEndpoint("37.25.88.1", 9061, 1_002)).toBeUndefined();
   });
 });

@@ -28,6 +28,10 @@ export function getRemoteCommandOutcomeLabel(status: string) {
       return "Solicitado; aguardando envio à central.";
     case "waiting_connection":
       return "Ainda não enviado; aguardando conexão autenticada da central.";
+    case "dispatching":
+      return "Despacho reservado; aguardando confirmação da transmissão.";
+    case "dispatch_unknown":
+      return "Resultado indeterminado; conferir a central antes de qualquer novo comando.";
     case "sent":
       return "Enviado à central; aguardando confirmação.";
     case "responded":

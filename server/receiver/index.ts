@@ -4,13 +4,13 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClientOperationalProfile, getContactIdDescription, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClientOperationalProfile, getContactIdDescription, getOperationalAlarmSystem, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
-import { getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
+import { forgetConfirmedJflEndpoint, getConfirmedJflEndpoint, refreshConfirmedJflEndpoint, rememberConfirmedJflEndpoint } from './jflKeepAliveContinuation';
 import { buildJflActive8wConnectionAcknowledgement, buildJflStatusRequest, isJflActive8wV8Connection, isJflActive8wV8StatusReply } from './jflActive8wProtocol';
-import { getConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
+import { forgetConfirmedIntelbrasEndpoint, rememberConfirmedIntelbrasEndpoint } from './intelbrasIsecnetContinuation';
 import { clearIntelbrasSession, consumeIntelbrasPhysicalResponse, rememberActiveIntelbrasSession, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 import { isVettiKeepAliveFrame, parseVettiLoginIdentity, resolveVettiEventAccount, type VettiLoginIdentity } from './vettiProtocol';
 import { getOperationalDeliveryPlan, resolveSystemAccount } from './systemAccount';
@@ -27,6 +27,8 @@ import { startViawebEventIntegration } from './viawebIntegration';
 import { getRadioengeKeepAliveObservationUntil, isRadioengeKeepAliveFailure, isRadioengeKeepAliveRestoration } from './radioengeKeepAlivePolicy';
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule, getAlarmScheduleEventAction } from '../alarmSchedulePolicy';
 import { getEffectiveClientMonitoringStatus } from '@shared/clientMonitoringStatus';
+import { dispatchAlarmRemoteCommand } from '../db';
+import { onAlarmSystemsRetired } from '../_core/alarmSystemRuntime';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -48,12 +50,26 @@ export { sendVettiBenchStatusQuery } from './vettiBenchTransport';
 export { isIntelbrasSessionActive, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 
 let eventCallback: EventCallback | null = null;
-const identifiedSystemBySocket = new WeakMap<object, { id: number; account: string; brand: string }>();
+const identifiedSystemBySocket = new Map<net.Socket, { id: number; account: string; brand: string }>();
 const compatecPendingBytesBySocket = new WeakMap<object, Buffer>();
 const intelbrasPendingBytesBySocket = new WeakMap<object, Buffer>();
 const compatecAccountBySocket = new WeakMap<object, string>();
 const compatecRecentEventsBySocket = new WeakMap<object, Map<string, number>>();
 const radioengeObservationTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+onAlarmSystemsRetired((systemIds) => {
+  const retired = new Set(systemIds);
+  for (const [socket, known] of Array.from(identifiedSystemBySocket.entries())) {
+    if (!retired.has(known.id)) continue;
+    identifiedSystemBySocket.delete(socket);
+    compatecPendingBytesBySocket.delete(socket);
+    intelbrasPendingBytesBySocket.delete(socket);
+    compatecAccountBySocket.delete(socket);
+    clearIntelbrasSession(socket);
+    const timers = vettiCommandTimeoutsBySocket.get(socket);
+    if (timers) for (const commandId of Array.from(timers.keys())) clearVettiCommandTimeout(socket, commandId);
+  }
+});
 
 export function setEventCallback(cb: EventCallback) {
   eventCallback = cb;
@@ -96,10 +112,23 @@ function scheduleRadioengeObservationEscalation(input: { incidentId: number; obs
 
 function rememberSystem(socket: net.Socket, system: any, receiverPort?: number) {
   if (!system?.id) return;
+  const previous = identifiedSystemBySocket.get(socket);
+  if (previous && previous.id !== system.id) {
+    if (previous.brand?.trim().toUpperCase() === "JFL" && receiverPort) {
+      forgetConfirmedJflEndpoint(socket.remoteAddress || "", receiverPort, previous.id);
+    }
+    if (previous.brand?.trim().toUpperCase() === "INTELBRAS" && receiverPort) {
+      forgetConfirmedIntelbrasEndpoint(socket.remoteAddress || "", receiverPort, previous.account, previous.id);
+      clearIntelbrasSession(socket);
+    }
+  }
   const known = { id: system.id, account: system.account, brand: system.brand };
   identifiedSystemBySocket.set(socket, known);
   if (receiverPort && system.brand?.trim().toUpperCase() === "JFL") {
     rememberConfirmedJflEndpoint(socket.remoteAddress || "", receiverPort, known);
+  }
+  if (receiverPort && system.brand?.trim().toUpperCase() === "INTELBRAS") {
+    rememberConfirmedIntelbrasEndpoint(socket.remoteAddress || "", receiverPort, known);
   }
   if (isConfirmedVettiBenchSystem(system)) rememberActiveVettiBenchSession(socket, system);
 }
@@ -113,11 +142,24 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
       console.log(`[RECIP] JFL Keep Alive 0x40 associado à identidade JFL confirmada recentemente | Conta ${known.account}`);
     }
   }
+  let measurement = known ? await recordSystemKeepAlive(known.id) : undefined;
+  if (known && !measurement) {
+    // Cache de endpoint/sessão nunca sobrevive como autoridade quando o cadastro
+    // desapareceu, foi inativado ou perdeu o vínculo com um cliente ativo.
+    identifiedSystemBySocket.delete(socket);
+    if (known.brand?.trim().toUpperCase() === "JFL") forgetConfirmedJflEndpoint(socket.remoteAddress || "", port, known.id);
+    if (known.brand?.trim().toUpperCase() === "INTELBRAS") {
+      forgetConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, known.account, known.id);
+      clearIntelbrasSession(socket);
+    }
+    known = undefined;
+  }
   if (!known && isSafeCaptureEnabled(brand)) {
     const system = await getAlarmSystemByCapturedPanelIdentifier({ brand, frames: getSafeCaptureFrames(socket) });
     if (system) {
       rememberSystem(socket, system, port);
       known = identifiedSystemBySocket.get(socket);
+      measurement = known ? await recordSystemKeepAlive(known.id) : undefined;
     }
   }
   if (!known) {
@@ -125,7 +167,6 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
     return;
   }
   if (brand === "JFL") refreshConfirmedJflEndpoint(socket.remoteAddress || "", port);
-  const measurement = await recordSystemKeepAlive(known.id);
   if (measurement) {
     console.log(`[KEEPALIVE] ${brand} | Conta ${known.account} | ${signal} | ${formatKeepAliveInterval(measurement.intervalMs)}`);
     // Atualização de supervisão somente informativa. O Dashboard usa este
@@ -139,6 +180,47 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
     });
   }
 }
+
+async function refreshIntelbrasSocketIdentity(socket: net.Socket, port: number, account?: string) {
+  let previous = identifiedSystemBySocket.get(socket);
+  if (previous?.brand?.trim().toUpperCase() === "INTELBRAS") {
+    const current = await getOperationalAlarmSystem(previous.id);
+    if (current && current.brand?.trim().toUpperCase() === "INTELBRAS" && current.receiverPort === port && current.account === previous.account && (!account || account === current.account)) {
+      return previous;
+    }
+    identifiedSystemBySocket.delete(socket);
+    forgetConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, previous.account, previous.id);
+    clearIntelbrasSession(socket);
+    previous = undefined;
+  }
+
+  // A identidade Intelbras nunca atravessa sockets TCP. Um evento em nova
+  // conexão só pode ser associado depois do 0x94/MAC físico nesta conexão;
+  // conta, IP, porta e cache de outra conexão não são prova de identidade.
+  for (const frame of getSafeCaptureFrames(socket)) {
+    if (frame.brand.trim().toUpperCase() !== "INTELBRAS" || frame.receiverPort !== port) continue;
+    const identification = parseIntelbrasIsecnetIdentification(Buffer.from(frame.payloadHex, "hex"));
+    if (!identification || (account && account !== identification.account)) continue;
+    const system = await getAlarmSystemByPanelIdentifier(identification.macSuffix, "mac", "INTELBRAS", port);
+    if (!system || system.account !== identification.account || (account && account !== system.account)) continue;
+    await rememberConfirmedIntelbrasSystem(socket, system, port);
+    return identifiedSystemBySocket.get(socket);
+  }
+  return undefined;
+}
+
+async function rememberConfirmedIntelbrasSystem(socket: net.Socket, system: any, port: number) {
+  rememberSystem(socket, system, port);
+  rememberActiveIntelbrasSession(socket, { id: system.id, account: system.account, brand: system.brand });
+}
+
+// Hooks de regressão: não abrem sockets e não são expostos por nenhuma rota API.
+export const receiverIdentityTestHooks = {
+  rememberIntelbras: rememberConfirmedIntelbrasSystem,
+  refreshIntelbras: refreshIntelbrasSocketIdentity,
+  getKnownSystem: (socket: net.Socket) => identifiedSystemBySocket.get(socket),
+  forgetSocket: (socket: net.Socket) => identifiedSystemBySocket.delete(socket),
+};
 
 function calcularChecksum(buffer: Buffer<ArrayBuffer>): Buffer<ArrayBuffer> {
   let xor = 0;
@@ -265,7 +347,7 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
   if (await consumeIntelbrasPhysicalResponse(socket, data)) return;
 
   if (isIntelbrasIsecnetHeartbeat(data)) {
-    const known = identifiedSystemBySocket.get(socket);
+    const known = await refreshIntelbrasSocketIdentity(socket, port);
     if (known) {
       await recordKeepAlive(socket, "INTELBRAS", port, "ISECnet 0xF7");
       console.log(`[RECIP] INTELBRAS ISECnet 0xF7 confirmado | Conta ${known.account}`);
@@ -283,9 +365,7 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
     // como defesa adicional e nunca é usada como fallback de identificação.
     const system = await getAlarmSystemByPanelIdentifier(identification.macSuffix, "mac", "INTELBRAS", port);
     if (system && system.account === identification.account) {
-      rememberSystem(socket, system, port);
-      rememberConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, { id: system.id, account: system.account, brand: system.brand });
-      rememberActiveIntelbrasSession(socket, { id: system.id, account: system.account, brand: system.brand });
+      await rememberConfirmedIntelbrasSystem(socket, system, port);
       await recordKeepAlive(socket, "INTELBRAS", port, `ISECnet 0x94 (${identification.channel})`);
       console.log(`[RECIP] INTELBRAS ISECnet 0x94 identificado por MAC ${identification.macSuffix} | Conta ${system.account}`);
     } else if (system) {
@@ -322,15 +402,7 @@ async function handleIntelbrasFrame(socket: net.Socket, data: Buffer, port: numb
 
   const isecnetEvent = parseIntelbrasIsecnetEvent(data);
   if (isecnetEvent) {
-    let known = identifiedSystemBySocket.get(socket);
-    if (!known) {
-      const continued = getConfirmedIntelbrasEndpoint(socket.remoteAddress || "", port, isecnetEvent.account);
-      if (continued) {
-        known = continued;
-        identifiedSystemBySocket.set(socket, continued);
-        console.log(`[RECIP] INTELBRAS ${isecnetEvent.command} associado à identificação ISECnet confirmada recentemente | Conta ${continued.account}`);
-      }
-    }
+    const known = await refreshIntelbrasSocketIdentity(socket, port, isecnetEvent.account);
     if (!known || known.brand !== "INTELBRAS" || known.account !== isecnetEvent.account) {
       console.warn(`[RECIP] INTELBRAS ${isecnetEvent.command} descartado: evento da conta ${isecnetEvent.account} sem identidade física confirmada nesta conexão.`);
       socket.write(Buffer.from([0xfe]));
@@ -432,37 +504,18 @@ async function deliverPendingVettiBenchStatusQuery(system: { id: number; account
     console.warn(`[VSEC] VETTI consulta bloqueada sem credencial de acesso externo | comando ${pendingQuery.id} | Conta ${system.account}`);
     return;
   }
-  let dispatched;
-  try {
-    dispatched = sendVettiBenchRemoteLogin({
-      alarmSystemId: system.id,
-      commandId: pendingQuery.id,
-      externalAccessPassword,
-      flow: pendingQuery.commandType === "disarm" ? "disarm" : "status",
-    });
-  } catch (error) {
-    await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
-      status: "failed",
-      responsePayload: `Consulta VSec bloqueada: ${error instanceof Error ? error.message : "senha de acesso externo inválida"}`,
-      executedAt: new Date(),
-    });
-    return;
-  }
-  if (!dispatched.sent) {
-    await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
-      status: "failed",
-      responsePayload: dispatched.message,
-      executedAt: new Date(),
-    });
-    return;
-  }
-  await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
-    status: "sent",
-    responsePayload: pendingQuery.commandType === "disarm"
+  const dispatched = await dispatchAlarmRemoteCommand({
+    alarmSystemId: system.id, commandId: pendingQuery.id,
+    expectedStatuses: ["queued", "waiting_connection"], unavailableStatus: "failed",
+    sentResponsePayload: pendingQuery.commandType === "disarm"
       ? "Login remoto VSec 0x11 enviado; aguardando confirmação 0x91 antes da consulta prévia 0x14 e do Desarme 0x43."
       : "Login remoto VSec 0x11 enviado após o ACK da central; aguardando confirmação 0x91 antes da consulta 0x14.",
-    executedAt: new Date(),
+    send: () => sendVettiBenchRemoteLogin({
+      alarmSystemId: system.id, commandId: pendingQuery.id, externalAccessPassword,
+      flow: pendingQuery.commandType === "disarm" ? "disarm" : "status",
+    }),
   });
+  if (!dispatched.sent) return;
   scheduleVettiCommandTimeout(socket, pendingQuery.id, "a confirmação do login remoto 0x91");
   console.log(`[VSEC] VETTI login remoto enviado após ACK da central | comando ${pendingQuery.id} | Conta ${system.account}`);
 }
@@ -494,7 +547,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
     // A sessão guarda somente identidade mínima para o receptor. Releia o
     // sistema antes do 0x14 para preservar MAC e modo de bancada na decisão
     // crítica, inclusive se a bancada tiver sido desativada durante o login.
-    const currentSystem = await getAlarmSystem(knownSystem.id);
+    const currentSystem = await getOperationalAlarmSystem(knownSystem.id);
     if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem)) {
       await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
         status: "failed",
@@ -503,27 +556,19 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
       });
       return;
     }
-    const dispatchedStatus = sendVettiBenchStatusQuery({
-      alarmSystemId: currentSystem.id,
-      commandId: completedRemoteLogin.commandId,
-      flow: completedRemoteLogin.flow,
-      stage: completedRemoteLogin.flow === "disarm" ? "pre_disarm" : "standalone",
-    });
-    if (!dispatchedStatus.sent) {
-      await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
-        status: "failed",
-        responsePayload: dispatchedStatus.message,
-        executedAt: new Date(),
-      });
-      return;
-    }
-    await updateAlarmRemoteCommandDelivery(completedRemoteLogin.commandId, {
-      status: "sent",
-      responsePayload: completedRemoteLogin.flow === "disarm"
+    const dispatchedStatus = await dispatchAlarmRemoteCommand({
+      alarmSystemId: currentSystem.id, commandId: completedRemoteLogin.commandId,
+      expectedStatuses: ["sent"], unavailableStatus: "failed",
+      sentResponsePayload: completedRemoteLogin.flow === "disarm"
         ? "Login remoto VSec 0x11 confirmado (0x91); consulta prévia 0x14 enviada para validar o Desarme 0x43."
         : "Login remoto VSec 0x11 confirmado (0x91); consulta 0x14 enviada e aguardando resposta 0x94.",
-      executedAt: new Date(),
+      send: () => sendVettiBenchStatusQuery({
+        alarmSystemId: currentSystem.id, commandId: completedRemoteLogin.commandId,
+        flow: completedRemoteLogin.flow,
+        stage: completedRemoteLogin.flow === "disarm" ? "pre_disarm" : "standalone",
+      }),
     });
+    if (!dispatchedStatus.sent) return;
     scheduleVettiCommandTimeout(socket, completedRemoteLogin.commandId, "a resposta de status 0x94");
     console.log(`[VSEC] VETTI login remoto confirmado; consulta 0x14 enviada | comando ${completedRemoteLogin.commandId} | Conta ${currentSystem.account}`);
     return;
@@ -534,7 +579,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
     const accepted = completedStatusQuery.errorCode === 0x80;
     if (accepted && completedStatusQuery.flow === "disarm" && completedStatusQuery.stage === "pre_disarm") {
       const knownSystem = identifiedSystemBySocket.get(socket);
-      const currentSystem = knownSystem ? await getAlarmSystem(knownSystem.id) : undefined;
+      const currentSystem = knownSystem ? await getOperationalAlarmSystem(knownSystem.id) : undefined;
       const state = parseVerifiedVettiStatusResponse(completedStatusQuery.response);
       if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem) || !state || (state.centralStatus & 0x01) === 0 || state.partitionMask === 0) {
         await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
@@ -555,37 +600,20 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
         return;
       }
       const technicalUserCode = await getAlarmRemoteCredentialTechnicalUserCode(currentSystem.id, "vetti_command_user");
-      try {
-        const dispatchedDisarm = sendVettiBenchDisarm({
-          alarmSystemId: currentSystem.id,
-          commandId: completedStatusQuery.commandId,
-          partitionMask: state.partitionMask,
-          commandPassword,
+      const dispatchedDisarm = await dispatchAlarmRemoteCommand({
+        alarmSystemId: currentSystem.id, commandId: completedStatusQuery.commandId,
+        expectedStatuses: ["sent"], unavailableStatus: "failed",
+        technicalUserCode: technicalUserCode || null,
+        sentResponsePayload: `Consulta prévia 0x14 confirmou central armada (partições 0x${state.partitionMask.toString(16).toUpperCase().padStart(2, "0")}); Desarme VSec 0x43 enviado e aguardando confirmação 0xC3.`,
+        send: () => sendVettiBenchDisarm({
+          alarmSystemId: currentSystem.id, commandId: completedStatusQuery.commandId,
+          partitionMask: state.partitionMask, commandPassword,
           preStatusResponse: completedStatusQuery.response,
-        });
-        if (!dispatchedDisarm.sent) {
-          await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
-            status: "failed",
-            responsePayload: dispatchedDisarm.message,
-            executedAt: new Date(),
-          });
-          return;
-        }
-        await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
-          status: "sent",
-          technicalUserCode: technicalUserCode || null,
-          responsePayload: `Consulta prévia 0x14 confirmou central armada (partições 0x${state.partitionMask.toString(16).toUpperCase().padStart(2, "0")}); Desarme VSec 0x43 enviado e aguardando confirmação 0xC3.`,
-          executedAt: new Date(),
-        });
-        scheduleVettiCommandTimeout(socket, completedStatusQuery.commandId, "a confirmação do Desarme 0xC3");
-        console.log(`[VSEC] VETTI Desarme 0x43 enviado após status prévio | comando ${completedStatusQuery.commandId} | Conta ${currentSystem.account}`);
-      } catch (error) {
-        await updateAlarmRemoteCommandDelivery(completedStatusQuery.commandId, {
-          status: "failed",
-          responsePayload: `Desarme VSec bloqueado: ${error instanceof Error ? error.message : "senha de comando inválida"}`,
-          executedAt: new Date(),
-        });
-      }
+        }),
+      });
+      if (!dispatchedDisarm.sent) return;
+      scheduleVettiCommandTimeout(socket, completedStatusQuery.commandId, "a confirmação do Desarme 0xC3");
+      console.log(`[VSEC] VETTI Desarme 0x43 enviado após status prévio | comando ${completedStatusQuery.commandId} | Conta ${currentSystem.account}`);
       return;
     }
     const isDisarmPostCheck = completedStatusQuery.flow === "disarm" && completedStatusQuery.stage === "post_disarm";
@@ -619,7 +647,7 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
       return;
     }
     const knownSystem = identifiedSystemBySocket.get(socket);
-    const currentSystem = knownSystem ? await getAlarmSystem(knownSystem.id) : undefined;
+      const currentSystem = knownSystem ? await getOperationalAlarmSystem(knownSystem.id) : undefined;
     if (!currentSystem || !isConfirmedVettiBenchSystem(currentSystem)) {
       await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
         status: "failed",
@@ -628,28 +656,17 @@ async function handleVettiFrame(socket: net.Socket, data: Buffer, port: number) 
       });
       return;
     }
-    const dispatchedStatus = sendVettiBenchStatusQuery({
-      alarmSystemId: currentSystem.id,
-      commandId: completedDisarm.commandId,
-      flow: "disarm",
-      stage: "post_disarm",
-      preStatusResponse: completedDisarm.preStatusResponse,
-      disarmResponse: completedDisarm.response,
+    const dispatchedStatus = await dispatchAlarmRemoteCommand({
+      alarmSystemId: currentSystem.id, commandId: completedDisarm.commandId,
+      expectedStatuses: ["sent"], unavailableStatus: "failed", panelConfirmedAt: new Date(),
+      sentResponsePayload: "Desarme VSec 0x43 confirmado (0xC3); consulta posterior 0x14 enviada para validar o novo estado.",
+      send: () => sendVettiBenchStatusQuery({
+        alarmSystemId: currentSystem.id, commandId: completedDisarm.commandId,
+        flow: "disarm", stage: "post_disarm",
+        preStatusResponse: completedDisarm.preStatusResponse, disarmResponse: completedDisarm.response,
+      }),
     });
-    if (!dispatchedStatus.sent) {
-      await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
-        status: "failed",
-        responsePayload: dispatchedStatus.message,
-        executedAt: new Date(),
-      });
-      return;
-    }
-    await updateAlarmRemoteCommandDelivery(completedDisarm.commandId, {
-      status: "sent",
-      panelConfirmedAt: new Date(),
-      responsePayload: "Desarme VSec 0x43 confirmado (0xC3); consulta posterior 0x14 enviada para validar o novo estado.",
-      executedAt: new Date(),
-    });
+    if (!dispatchedStatus.sent) return;
     scheduleVettiCommandTimeout(socket, completedDisarm.commandId, "a consulta posterior de status 0x94");
     console.log(`[VSEC] VETTI Desarme 0x43 confirmado; consulta posterior enviada | comando ${completedDisarm.commandId} | Conta ${currentSystem.account}`);
     return;
@@ -796,13 +813,13 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
         rememberActiveCompatecSession(socket, system);
         const pendingQuery = await getPendingCompatecBenchQuery(system.id);
         if (pendingQuery) {
-          const dispatched = sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload });
+          const dispatched = await dispatchAlarmRemoteCommand({
+            alarmSystemId: system.id, commandId: pendingQuery.id,
+            expectedStatuses: ["waiting_connection"], unavailableStatus: "waiting_connection",
+            sentResponsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima conexão autenticada da central; aguardando resposta.`,
+            send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload }),
+          });
           if (dispatched.sent) {
-            await updateAlarmRemoteCommandDelivery(pendingQuery.id, {
-              status: "sent",
-              responsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima conexão autenticada da central; aguardando resposta.`,
-              executedAt: new Date(),
-            });
             console.log(`[MICROBUS] COMPATEC comando pendente enviado no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
           }
         }
@@ -903,7 +920,7 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
         ? evento.confirmedIntelbrasSystemId
         : undefined;
       if (confirmedIntelbrasSystemId) {
-        const continuedSystem = await getAlarmSystem(confirmedIntelbrasSystemId);
+        const continuedSystem = await getOperationalAlarmSystem(confirmedIntelbrasSystemId);
         if (
           continuedSystem
           && continuedSystem.brand?.trim().toUpperCase() === "INTELBRAS"
@@ -918,7 +935,7 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
         ? evento.confirmedViawebSystemId
         : undefined;
       if (!system && confirmedViawebSystemId) {
-        const continuedSystem = await getAlarmSystem(confirmedViawebSystemId);
+        const continuedSystem = await getOperationalAlarmSystem(confirmedViawebSystemId);
         if (
           continuedSystem
           && continuedSystem.brand?.trim().toUpperCase() === "VIAWEB"
@@ -1358,6 +1375,7 @@ export function startReceivers() {
         });
 
         socket.on('close', () => {
+          identifiedSystemBySocket.delete(socket);
           if (brand === 'INTELBRAS') clearIntelbrasSession(socket);
           console.log(`[RECIP] Conexão encerrada ${brand} porta ${port}`);
         });
@@ -1382,7 +1400,7 @@ export function startReceivers() {
   startViawebEventIntegration({
     onClientStatus: async (status) => {
       if (!status.online) return;
-      const system = await getAlarmSystemByPanelIdentifier(status.isep, "isep", "VIAWEB");
+      const system = await getAlarmSystemByPanelIdentifier(status.isep, "isep", "VIAWEB", 9111);
       if (!system) {
         console.warn(`[VIAWEB] Status On Line recebido para ISEP ${status.isep} não cadastrado; supervisão ignorada.`);
         return;
@@ -1391,7 +1409,7 @@ export function startReceivers() {
       console.log(`[KEEPALIVE] VIAWEB | Conta ${system.account} | ISEP ${status.isep} autenticado On Line${measurement ? ` | ${formatKeepAliveInterval(measurement.intervalMs)}` : ""}`);
     },
     onEvent: async (viawebEvent) => {
-      const system = await getAlarmSystemByPanelIdentifier(viawebEvent.isep, "isep", "VIAWEB");
+      const system = await getAlarmSystemByPanelIdentifier(viawebEvent.isep, "isep", "VIAWEB", 9111);
       if (!system) console.warn(`[VIAWEB] ISEP ${viawebEvent.isep} não cadastrado; o evento será preservado na Conta do Sistema.`);
       const persisted = await processEvent({
         brand: "VIAWEB",

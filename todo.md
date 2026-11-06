@@ -34,6 +34,12 @@
 - [ ] Validar por consulta somente leitura que o cliente ID 54 foi restaurado com os dados informados e a parceira Police Electronics LTDA
 - [ ] Confirmar que o cliente restaurado exibe o sistema 0029, os 3 contatos, as 5 zonas e os 4 usuários sem recriação indevida
 - [ ] Exigir confirmação forte antes de excluir clientes que possuam sistemas, contatos ou outros dados vinculados
+- [x] Diagnosticar conta 0021 Intelbras: identidade física MAC 37C6B0/porta 9271 e conta 0021 continuaram vinculadas ao sistema órfão id 77, enquanto o novo id 80 permaneceu Offline
+- [x] Impedir que sistemas órfãos recebam Keep Alive ou selecionem eventos; resolver candidato único por identidade física, cliente ativo, marca e porta, e revalidar sessões Intelbras pelo cadastro operacional
+- [x] Ao excluir cliente, inativar/ficar offline suas centrais, cancelar somente comandos ainda não transmitidos e preservar eventos/histórico; acrescentar backfill VPS idempotente para órfãos já existentes
+- [x] Aposentar central individual preservando eventos/serial histórico, removendo credenciais do vínculo e invalidando caches físicos somente após commit; Intelbras não herda identidade entre sockets por IP/porta/conta
+- [x] Serializar despacho Compatec/Vetti com exclusão sob locks e manter interrupções como resultado indeterminado sem reenvio automático; testar corrida, reuso de serial e porta exata em MariaDB privado e sockets fictícios
+- [ ] Aplicar a migration do upgrade na VPS e confirmar que o painel 0021 fica Online pelo MAC 37C6B0 após o próximo Keep Alive físico, sem comando Arme/Desarme
 - [x] Simplificar o fluxo de cadastro de sistemas a partir da dificuldade registrada em vídeo, preservando validações de identidade
 - [x] Ajustar o modal de cadastro de sistemas para caber em telas menores, com rolagem interna e ações sempre visíveis sem zoom
 - [ ] Corrigir a associação dos eventos JFL Active 8W da conta 0029 que chegam na conta técnica 0000 apesar de a central estar Online

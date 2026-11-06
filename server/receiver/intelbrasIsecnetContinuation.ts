@@ -1,3 +1,5 @@
+import { onAlarmSystemsRetired } from "../_core/alarmSystemRuntime";
+
 export type ConfirmedIntelbrasSystem = {
   id: number;
   account: string;
@@ -10,6 +12,18 @@ type Continuation =
 
 const CONTINUATION_TTL_MS = 5 * 60 * 1000;
 const continuationsByEndpoint = new Map<string, Map<string, Continuation>>();
+
+onAlarmSystemsRetired((systemIds) => {
+  const retiredIds = new Set(systemIds);
+  for (const [endpoint, continuations] of Array.from(continuationsByEndpoint.entries())) {
+    for (const [account, continuation] of Array.from(continuations.entries())) {
+      if (continuation.kind === "confirmed" && retiredIds.has(continuation.system.id)) {
+        continuations.delete(account);
+      }
+    }
+    if (continuations.size === 0) continuationsByEndpoint.delete(endpoint);
+  }
+});
 
 function normalizeRemoteIp(remoteIp: string) {
   return remoteIp.trim().replace("::ffff:", "");
@@ -49,6 +63,16 @@ export function getConfirmedIntelbrasEndpoint(remoteIp: string, receiverPort: nu
     return undefined;
   }
   return current.kind === "confirmed" ? current.system : undefined;
+}
+
+export function forgetConfirmedIntelbrasEndpoint(remoteIp: string, receiverPort: number, account: string, systemId: number) {
+  const key = endpointKey(remoteIp, receiverPort);
+  const continuations = continuationsByEndpoint.get(key);
+  const current = continuations?.get(account);
+  if (current?.kind === "confirmed" && current.system.id === systemId) {
+    continuations?.delete(account);
+    if (continuations?.size === 0) continuationsByEndpoint.delete(key);
+  }
 }
 
 export function matchesConfirmedIntelbrasEventSystem(system: ConfirmedIntelbrasSystem | undefined, account: string) {

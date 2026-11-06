@@ -1,5 +1,6 @@
 import net from "net";
 import { calculateVettiCrc } from "../vettiCommandSimulation";
+import { onAlarmSystemsRetired } from "../_core/alarmSystemRuntime";
 
 export const VETTI_BENCH_STATUS_QUERY = Buffer.from([0x02, 0x05, 0xAF, 0x14, 0xFF, 0xB1]);
 
@@ -22,6 +23,17 @@ const pendingStatusQueryBySocket = new WeakMap<object, {
 }>();
 const pendingRemoteLoginBySocket = new WeakMap<object, { commandId: number; flow: VettiBenchFlow }>();
 const pendingDisarmBySocket = new WeakMap<object, { commandId: number; partitionMask: number; commandPasswordBytes: number[]; preStatusResponse: string }>();
+
+onAlarmSystemsRetired((systemIds) => {
+  for (const systemId of systemIds) {
+    const session = activeSessionBySystemId.get(systemId);
+    if (!session) continue;
+    activeSessionBySystemId.delete(systemId);
+    pendingStatusQueryBySocket.delete(session.socket);
+    pendingRemoteLoginBySocket.delete(session.socket);
+    pendingDisarmBySocket.delete(session.socket);
+  }
+});
 
 function getActiveSession(alarmSystemId: number) {
   const session = activeSessionBySystemId.get(alarmSystemId);

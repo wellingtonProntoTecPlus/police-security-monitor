@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS alarm_systems (
   simCardNumber VARCHAR(50),
   simPhoneNumber VARCHAR(30),
   serialNumber VARCHAR(10),
+  retiredSerialNumber VARCHAR(10),
   isepId VARCHAR(4),
   viawebCode VARCHAR(10),
   partitions INT DEFAULT 1,

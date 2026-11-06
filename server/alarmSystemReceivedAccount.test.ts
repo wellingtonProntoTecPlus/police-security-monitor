@@ -5,23 +5,25 @@ import { resolveSystemAccount } from "./receiver/systemAccount";
 describe("resolução do sistema pelo evento recebido", () => {
   afterEach(() => setDbForTesting(null));
 
-  it("envia à Conta do Sistema quando JFL e porta 9061 não correspondem ao painel Vetti de mesma conta", async () => {
-    let selectCalls = 0;
-    const updates: unknown[] = [];
+  function installFakeDb(rows: any[]) {
     const fakeDb: any = {
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => {
-        selectCalls += 1;
-        return selectCalls === 1 ? [] : [{ id: 6, account: "0001", brand: "VETTI", receiverPort: 9161 }];
-      } }) }) }),
-      update: () => ({ set: (values: unknown) => ({ where: async () => updates.push(values) }) }),
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => ({ limit: async (limit: number) => rows.slice(0, limit).map((system) => ({ system })) }),
+          }),
+        }),
+      }),
     };
     setDbForTesting(fakeDb);
+  }
+
+  it("não associa uma JFL a uma Vetti de mesma conta em outra porta", async () => {
+    installFakeDb([]);
 
     const system = await getAlarmSystemByReceivedAccount("0001", "JFL", 9061);
 
     expect(system).toBeUndefined();
-    expect(selectCalls).toBe(1);
-    expect(updates).toHaveLength(0);
     expect(resolveSystemAccount("0001", system)).toEqual({
       account: "0000",
       receivedAccount: "0001",
@@ -29,42 +31,27 @@ describe("resolução do sistema pelo evento recebido", () => {
     });
   });
 
-  it("mantém o fallback legado apenas quando o receptor não informou marca nem porta", async () => {
-    let selectCalls = 0;
-    const fakeDb: any = {
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => {
-        selectCalls += 1;
-        return selectCalls === 1 ? [] : [{ id: 6, account: "0001", brand: "VETTI", receiverPort: 9161 }];
-      } }) }) }),
-      update: () => ({ set: () => ({ where: async () => undefined }) }),
-    };
-    setDbForTesting(fakeDb);
+  it("não usa registro órfão/inativo nem escolhe arbitrariamente dois sistemas com a mesma conta", async () => {
+    installFakeDb([
+      { id: 11, account: "0021", brand: "INTELBRAS", receiverPort: 9271 },
+      { id: 12, account: "0021", brand: "INTELBRAS", receiverPort: 9271 },
+    ]);
 
-    const system = await getAlarmSystemByReceivedAccount("0001");
-
-    expect(system).toMatchObject({ id: 6, account: "0001", brand: "VETTI" });
-    expect(selectCalls).toBe(2);
-  });
-
-  it("não escolhe arbitrariamente uma JFL quando a mesma conta e porta pertencem a sistemas diferentes", async () => {
-    const updates: unknown[] = [];
-    const fakeDb: any = {
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => [
-        { id: 11, account: "0044", brand: "JFL", receiverPort: 9061 },
-        { id: 12, account: "0044", brand: "JFL", receiverPort: 9061 },
-      ] }) }) }),
-      update: () => ({ set: (values: unknown) => ({ where: async () => updates.push(values) }) }),
-    };
-    setDbForTesting(fakeDb);
-
-    const system = await getAlarmSystemByReceivedAccount("0044", "JFL", 9061);
+    const system = await getAlarmSystemByReceivedAccount("0021", "INTELBRAS", 9271);
 
     expect(system).toBeUndefined();
-    expect(updates).toHaveLength(0);
-    expect(resolveSystemAccount("0044", system)).toMatchObject({
+    expect(resolveSystemAccount("0021", system)).toMatchObject({
       account: "0000",
-      receivedAccount: "0044",
+      receivedAccount: "0021",
       isSystemAccount: true,
     });
+  });
+
+  it("retorna o único painel ativo e vinculado que bate marca, porta e conta", async () => {
+    installFakeDb([{ id: 80, account: "0021", brand: "INTELBRAS", receiverPort: 9271, isActive: true, clientId: 76 }]);
+
+    const system = await getAlarmSystemByReceivedAccount("0021", "INTELBRAS", 9271);
+
+    expect(system).toMatchObject({ id: 80, account: "0021", brand: "INTELBRAS", clientId: 76 });
   });
 });

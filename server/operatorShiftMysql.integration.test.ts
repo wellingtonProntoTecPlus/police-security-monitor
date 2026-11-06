@@ -1,13 +1,14 @@
+import { onAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
-import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, assumeObservedIncident, getActiveAuthSessionByTokenHash, createClient, createPartnerCompany, updatePartnerCompany } from "./db";
+import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, assumeObservedIncident, getActiveAuthSessionByTokenHash, createClient, createPartnerCompany, updatePartnerCompany, getAlarmSystemByPanelIdentifier, getOperationalAlarmSystem, recordSystemKeepAlive, listSystemsConnectionStatus, deleteClient, deleteAlarmSystem, createAlarmSystem, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches } from "./db";
 import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException } from "./operatorShiftDb";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
-import { authSessions, incidents, incidentHistory, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, clients, partnerCompanies, registrationDocuments } from "../drizzle/schema";
+import { authSessions, incidents, incidentHistory, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, clients, partnerCompanies, registrationDocuments, alarmSystems, alarmEvents, alarmRemoteCommands, systemKeepAliveSamples } from "../drizzle/schema";
 
 // Explicit opt-in, Unix socket only. Never reads DATABASE_URL or connects to a VPS.
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
@@ -17,9 +18,9 @@ const until = new Date("2026-11-04T16:30:00Z");
 let pool: mysql.Pool;
 let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
-const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents"];
+const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts"];
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0047_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0048_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
@@ -311,5 +312,119 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(await orm.select().from(registrationDocuments)).toHaveLength(2);
     expect((await orm.select().from(operatorAttendanceRecords))[0]).toMatchObject({ outOfScheduleReason: "double_shift" });
     expect((await orm.select().from(clients))[0].isPartnerHeadquarters).toBe(true);
+  });
+
+  it("reassocia o MAC 37C6B0 à conta 0021 nova, ignora cadastro órfão e preserva eventos ao excluir o cliente", async () => {
+    await orm.insert(clients).values({ id: 76, partnerCompanyId: 1, type: "pj", name: "Teto Locadora", fantasyName: "Teto Locadora", isActive: true });
+    await orm.insert(alarmSystems).values([
+      { id: 77, clientId: 999, account: "0021", brand: "INTELBRAS", model: "MT8000 antigo", macAddress: "37C6B0", receiverPort: 9271, isActive: true, isOnline: true, lastCommunication: now, lastKeepAliveAt: now },
+      { id: 80, clientId: 76, account: "0021", brand: "INTELBRAS", model: "AMT 8000 Lite", macAddress: "37C6B0", receiverPort: 9271, isActive: true, isOnline: false, lastKeepAliveAt: null },
+    ]);
+    await orm.insert(alarmEvents).values({ id: 78103, alarmSystemId: 77, account: "0021", brand: "INTELBRAS", qualifier: "R", eventCode: "570", description: "Evento histórico do cadastro anterior" });
+    await orm.insert(alarmEvents).values({ id: 78104, alarmSystemId: 80, account: "0021", brand: "INTELBRAS", qualifier: "E", eventCode: "401", description: "Evento de teste da nova conta" });
+    await orm.insert(alarmRemoteCommands).values([
+      { id: 880, alarmSystemId: 77, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "isecnet", status: "waiting_connection", reason: "Comando fictício aguardando no cadastro órfão", commandPayload: "QUADRO_FICTICIO" },
+      { id: 881, alarmSystemId: 77, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "isecnet", status: "sent", reason: "Comando fictício já transmitido no cadastro órfão", commandPayload: "QUADRO_FICTICIO" },
+    ]);
+
+    const matched = await getAlarmSystemByPanelIdentifier("37C6B0", "mac", "INTELBRAS", 9271);
+    expect(matched).toMatchObject({ id: 80, clientId: 76, account: "0021", macAddress: "37C6B0" });
+    expect(await getOperationalAlarmSystem(77)).toBeUndefined();
+    expect(await recordSystemKeepAlive(77, new Date("2026-11-04T16:00:00Z"))).toBeUndefined();
+    expect(await orm.select().from(systemKeepAliveSamples)).toHaveLength(0);
+    expect((await listSystemsConnectionStatus(new Date("2026-11-04T16:00:00Z"))).map((system) => system.id)).toEqual([80]);
+
+    const upgrade = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    const orphanMigration = upgrade.slice(upgrade.indexOf("-- Cadastros órfãos não podem representar cliente novo"));
+    await pool.query(`SET @schema_name = DATABASE(); ${orphanMigration}`);
+    expect((await orm.select().from(alarmSystems).where(eq(alarmSystems.id, 77)))[0]).toMatchObject({ isActive: false, isOnline: false });
+    expect((await orm.select().from(alarmSystems).where(eq(alarmSystems.id, 80)))[0].isActive).toBe(true);
+    expect((await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.alarmSystemId, 77)).orderBy(alarmRemoteCommands.id)).map((command) => command.status)).toEqual(["cancelled", "sent"]);
+    await pool.query(`SET @schema_name = DATABASE(); ${orphanMigration}`);
+    expect(await orm.select().from(alarmEvents).where(eq(alarmEvents.account, "0021"))).toHaveLength(2);
+    expect((await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.alarmSystemId, 77)).orderBy(alarmRemoteCommands.id)).map((command) => command.status)).toEqual(["cancelled", "sent"]);
+
+    const measurement = await recordSystemKeepAlive(80, new Date("2026-11-04T16:01:00Z"));
+    expect(measurement).toMatchObject({ intervalMs: null });
+    expect((await getOperationalAlarmSystem(80))?.isOnline).toBe(true);
+    expect(await orm.select().from(systemKeepAliveSamples)).toHaveLength(1);
+
+    await orm.insert(alarmRemoteCommands).values([
+      { id: 901, alarmSystemId: 80, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "isecnet", status: "waiting_connection", reason: "Teste de comando ainda aguardando", commandPayload: "QUADRO_FICTICIO" },
+      { id: 902, alarmSystemId: 80, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "isecnet", status: "sent", reason: "Teste de comando já enviado", commandPayload: "QUADRO_FICTICIO" },
+    ]);
+
+    await deleteClient(76);
+    expect(await getOperationalAlarmSystem(80)).toBeUndefined();
+    const storedSystem = (await orm.select().from(alarmSystems).where(eq(alarmSystems.id, 80)))[0];
+    expect(storedSystem).toMatchObject({ isActive: false, isOnline: false, remoteCommandLabEnabled: false });
+    expect(await orm.select().from(alarmEvents).where(eq(alarmEvents.account, "0021"))).toHaveLength(2);
+    const commands = await orm.select().from(alarmRemoteCommands).orderBy(alarmRemoteCommands.id);
+    expect(commands.map((command) => command.status)).toEqual(["cancelled", "sent", "cancelled", "sent"]);
+  });
+
+  it("exige porta exata, rejeita MAC duplicado entre ativos e ignora cliente inativo", async () => {
+    await orm.insert(clients).values([{ id: 76, partnerCompanyId: 1, type: "pj", name: "Ativo", isActive: true }, { id: 79, partnerCompanyId: 1, type: "pj", name: "Inativo", isActive: false }]);
+    await orm.insert(alarmSystems).values([
+      { id: 80, clientId: 76, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", receiverPort: 9271 },
+      { id: 81, clientId: 79, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", receiverPort: 9271 },
+      { id: 82, clientId: 76, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", receiverPort: null },
+    ]);
+    expect((await getAlarmSystemByPanelIdentifier("37C6B0", "mac", "INTELBRAS", 9271))?.id).toBe(80);
+    expect(await getAlarmSystemByPanelIdentifier("37C6B0", "mac", "INTELBRAS", 9071)).toBeUndefined();
+    expect(await getAlarmSystemByPanelIdentifier("37C6B0", "mac", "INTELBRAS")).toBeUndefined();
+    expect(await getOperationalAlarmSystem(81)).toBeUndefined();
+    await orm.insert(alarmSystems).values({ id: 83, clientId: 76, account: "0999", brand: "INTELBRAS", macAddress: "37C6B0", receiverPort: 9271 });
+    expect(await getAlarmSystemByPanelIdentifier("37C6B0", "mac", "INTELBRAS", 9271)).toBeUndefined();
+  });
+
+  it("aposenta central sem apagar eventos, preserva serial histórico e permite recadastro", async () => {
+    await orm.insert(clients).values({ id: 76, partnerCompanyId: 1, type: "pj", name: "Cliente ativo" });
+    await orm.insert(alarmSystems).values({ id: 80, clientId: 76, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", serialNumber: "1234567890", receiverPort: 9271 });
+    await orm.insert(alarmEvents).values({ alarmSystemId: 80, account: "0021", brand: "INTELBRAS", qualifier: "E", eventCode: "401", description: "Histórico preservado" });
+    await pool.query("INSERT INTO alarm_remote_credentials (alarmSystemId,credentialKind,encryptedSecret,updatedBy) VALUES (80,'intelbras_master','SEGREDO_FICTICIO',1)");
+    await deleteAlarmSystem(80);
+    expect((await orm.select().from(alarmSystems).where(eq(alarmSystems.id, 80)))[0]).toMatchObject({ isActive: false, isOnline: false, serialNumber: null, retiredSerialNumber: "1234567890" });
+    expect((await pool.query("SELECT * FROM alarm_remote_credentials"))[0]).toHaveLength(0);
+    const recreated = await createAlarmSystem({ clientId: 76, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", serialNumber: "1234567890", receiverPort: 9271 });
+    expect((await getAlarmSystemByPanelIdentifier("37C6B0", "mac", "INTELBRAS", 9271))?.id).toBe(recreated.id);
+    expect(await orm.select().from(alarmEvents).where(eq(alarmEvents.alarmSystemId, 80))).toHaveLength(1);
+  });
+
+  it("serializa despacho simulado contra exclusão e não escreve depois da aposentadoria", async () => {
+    await orm.insert(clients).values({ id: 76, partnerCompanyId: 1, type: "pj", name: "Cliente de corrida" });
+    await orm.insert(alarmSystems).values({ id: 80, clientId: 76, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", receiverPort: 9271 });
+    await orm.insert(alarmRemoteCommands).values({ id: 901, alarmSystemId: 80, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "TEST_ONLY", status: "queued", reason: "Teste de lock", commandPayload: "SEM_QUADRO_FISICO" });
+    const timeline: string[] = [];
+    const cleanup = onAlarmSystemsRetired((ids) => { if (ids.includes(80)) timeline.push("retired"); });
+    try {
+      await Promise.all([
+        dispatchAlarmRemoteCommand({ alarmSystemId: 80, commandId: 901, expectedStatuses: ["queued"], unavailableStatus: "failed", sentResponsePayload: "Escrita apenas simulada", send: () => { timeline.push("send"); return { sent: true }; } }),
+        deleteAlarmSystem(80),
+      ]);
+      expect(timeline).not.toEqual(["retired", "send"]);
+      expect(timeline.filter((item) => item === "send").length).toBeLessThanOrEqual(1);
+      let writes = 0;
+      const retry = await dispatchAlarmRemoteCommand({ alarmSystemId: 80, commandId: 901, expectedStatuses: ["queued"], unavailableStatus: "failed", sentResponsePayload: "Não executar", send: () => { writes++; return { sent: true }; } });
+      expect(retry.sent).toBe(false);
+      expect(writes).toBe(0);
+    } finally { cleanup(); }
+  });
+
+  it("não repete despacho incerto e recupera interrupção como resultado indeterminado", async () => {
+    await orm.insert(clients).values({ id: 76, partnerCompanyId: 1, type: "pj", name: "Cliente de despacho" });
+    await orm.insert(alarmSystems).values({ id: 80, clientId: 76, account: "0021", brand: "INTELBRAS", macAddress: "37C6B0", receiverPort: 9271 });
+    await orm.insert(alarmRemoteCommands).values([
+      { id: 901, alarmSystemId: 80, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "TEST_ONLY", status: "queued", reason: "Teste simulado", commandPayload: "SEM_QUADRO_FISICO" },
+      { id: 902, alarmSystemId: 80, operatorId: 1, brand: "INTELBRAS", commandType: "arm", transportMode: "TEST_ONLY", status: "dispatching", updatedAt: new Date("2026-11-04T10:00:00Z"), reason: "Interrupção simulada", commandPayload: "SEM_QUADRO_FISICO" },
+    ]);
+    let writes = 0;
+    const request = { alarmSystemId: 80, commandId: 901, expectedStatuses: ["queued"], unavailableStatus: "failed", sentResponsePayload: "Não confirmado", send: () => { writes++; throw new Error("Interrupção simulada"); } };
+    expect((await dispatchAlarmRemoteCommand(request)).status).toBe("dispatch_unknown");
+    expect((await dispatchAlarmRemoteCommand(request)).sent).toBe(false);
+    expect(writes).toBe(1);
+    expect(await expireStaleRemoteCommandDispatches(new Date("2026-11-04T10:03:00Z"))).toBe(1);
+    expect(await expireStaleRemoteCommandDispatches(new Date("2026-11-04T10:04:00Z"))).toBe(0);
+    expect((await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, 902)))[0].status).toBe("dispatch_unknown");
   });
 });

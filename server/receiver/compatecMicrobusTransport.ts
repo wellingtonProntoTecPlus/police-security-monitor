@@ -1,4 +1,5 @@
 import type net from "net";
+import { onAlarmSystemsRetired } from "../_core/alarmSystemRuntime";
 
 export const COMPATEC_MW1_STATUS_QUERY = "MB=AK0\r\n";
 export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
@@ -19,6 +20,15 @@ type ActiveCompatecSession = {
 
 const activeSessionBySystemId = new Map<number, ActiveCompatecSession>();
 const pendingStatusCommandBySocket = new WeakMap<object, { commandId: number; payload: string }>();
+
+onAlarmSystemsRetired((systemIds) => {
+  for (const systemId of systemIds) {
+    const session = activeSessionBySystemId.get(systemId);
+    if (!session) continue;
+    activeSessionBySystemId.delete(systemId);
+    pendingStatusCommandBySocket.delete(session.socket);
+  }
+});
 
 /** Mantém somente a sessão TCP ativa que a própria central abriu para a VPS. */
 export function rememberActiveCompatecSession(socket: net.Socket, system: { id: number; account: string }) {

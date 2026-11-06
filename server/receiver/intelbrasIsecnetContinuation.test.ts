@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { clearConfirmedIntelbrasEndpointsForTesting, getConfirmedIntelbrasEndpoint, matchesConfirmedIntelbrasEventSystem, rememberConfirmedIntelbrasEndpoint } from "./intelbrasIsecnetContinuation";
+import { clearConfirmedIntelbrasEndpointsForTesting, forgetConfirmedIntelbrasEndpoint, getConfirmedIntelbrasEndpoint, matchesConfirmedIntelbrasEventSystem, rememberConfirmedIntelbrasEndpoint } from "./intelbrasIsecnetContinuation";
 
 const panel0049 = { id: 49, account: "0049", brand: "INTELBRAS" };
 
@@ -27,5 +27,16 @@ describe("continuidade ISECnet Intelbras entre conexões curtas", () => {
     expect(matchesConfirmedIntelbrasEventSystem(panel0049, "0049")).toBe(true);
     expect(matchesConfirmedIntelbrasEventSystem(panel0049, "0050")).toBe(false);
     expect(matchesConfirmedIntelbrasEventSystem({ ...panel0049, brand: "JFL" }, "0049")).toBe(false);
+  });
+
+  it("remove somente a continuação do ID antigo e aceita nova identificação MAC depois da remoção", () => {
+    rememberConfirmedIntelbrasEndpoint("177.191.113.171", 9271, panel0049, 1_000);
+    forgetConfirmedIntelbrasEndpoint("177.191.113.171", 9271, panel0049.account, panel0049.id);
+    expect(getConfirmedIntelbrasEndpoint("177.191.113.171", 9271, "0049", 1_001)).toBeUndefined();
+
+    const replacement = { id: 80, account: "0049", brand: "INTELBRAS" };
+    rememberConfirmedIntelbrasEndpoint("177.191.113.171", 9271, replacement, 1_002);
+    forgetConfirmedIntelbrasEndpoint("177.191.113.171", 9271, panel0049.account, panel0049.id);
+    expect(getConfirmedIntelbrasEndpoint("177.191.113.171", 9271, "0049", 1_003)).toEqual(replacement);
   });
 });

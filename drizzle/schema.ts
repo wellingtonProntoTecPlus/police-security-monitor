@@ -280,6 +280,7 @@ export const alarmSystems = mysqlTable("alarm_systems", {
   simCardNumber: varchar("simCardNumber", { length: 50 }),
   simPhoneNumber: varchar("simPhoneNumber", { length: 30 }),
   serialNumber: varchar("serialNumber", { length: 10 }).unique(), // Serial de 10 dígitos para modelos que o exigem
+  retiredSerialNumber: varchar("retiredSerialNumber", { length: 10 }), // Identificador preservado quando sistema é aposentado
   isepId: varchar("isepId", { length: 4 }), // Identificador ISEP gerado pelo sistema
   viawebCode: varchar("viawebCode", { length: 4 }), // Código ViaWeb 4 dígitos
   partitions: int("partitions").default(1).notNull(), // Até 8

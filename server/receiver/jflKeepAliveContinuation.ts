@@ -1,3 +1,5 @@
+import { onAlarmSystemsRetired } from "../_core/alarmSystemRuntime";
+
 export type ConfirmedJflSystem = {
   id: number;
   account: string;
@@ -6,6 +8,13 @@ export type ConfirmedJflSystem = {
 
 const CONTINUATION_TTL_MS = 15 * 60 * 1000;
 const confirmedJflSystemsByEndpoint = new Map<string, ConfirmedJflSystem & { confirmedAt: number }>();
+
+onAlarmSystemsRetired((systemIds) => {
+  const retiredIds = new Set(systemIds);
+  for (const [endpoint, confirmed] of Array.from(confirmedJflSystemsByEndpoint.entries())) {
+    if (retiredIds.has(confirmed.id)) confirmedJflSystemsByEndpoint.delete(endpoint);
+  }
+});
 
 function normalizeRemoteIp(remoteIp: string) {
   return remoteIp.trim().replace("::ffff:", "");
@@ -41,6 +50,12 @@ export function refreshConfirmedJflEndpoint(remoteIp: string, receiverPort: numb
   if (!confirmed) return undefined;
   confirmedJflSystemsByEndpoint.set(endpointKey(remoteIp, receiverPort), { ...confirmed, confirmedAt: now });
   return confirmed;
+}
+
+export function forgetConfirmedJflEndpoint(remoteIp: string, receiverPort: number, systemId: number) {
+  const key = endpointKey(remoteIp, receiverPort);
+  const current = confirmedJflSystemsByEndpoint.get(key);
+  if (current?.id === systemId) confirmedJflSystemsByEndpoint.delete(key);
 }
 
 export function clearConfirmedJflEndpointsForTesting() {

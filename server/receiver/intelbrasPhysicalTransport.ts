@@ -1,7 +1,8 @@
 import net from "node:net";
+import { onAlarmSystemsRetired } from "../_core/alarmSystemRuntime";
 import {
   getAlarmRemoteCredentialForTransport,
-  getAlarmSystem,
+  getOperationalAlarmSystem,
   getLatestArmDisarmStatusForSystem,
   getPendingIntelbrasPhysicalCommand,
   recordRemoteCommandConfirmation,
@@ -46,6 +47,13 @@ const pendingBySocket = new WeakMap<object, PendingPhysicalCommand>();
 const timeoutBySocket = new WeakMap<object, ReturnType<typeof setTimeout>>();
 const keepAliveTimerBySocket = new WeakMap<object, ReturnType<typeof setTimeout>>();
 const cleanupBoundSockets = new WeakSet<object>();
+
+onAlarmSystemsRetired((systemIds) => {
+  for (const systemId of systemIds) {
+    const session = sessionsBySystemId.get(systemId);
+    if (session) clearIntelbrasSession(session.socket);
+  }
+});
 
 function clearCommandTimeout(socket: net.Socket) {
   const timer = timeoutBySocket.get(socket);
@@ -165,7 +173,7 @@ export async function deliverPendingIntelbrasPhysicalCommand(system: { id: numbe
   const pending = await getPendingIntelbrasPhysicalCommand(system.id);
   if (!pending) return { sent: false as const, message: "Nenhum comando Intelbras disponível para transmissão imediata." };
 
-  const currentSystem = await getAlarmSystem(system.id);
+  const currentSystem = await getOperationalAlarmSystem(system.id);
   if (!currentSystem || !isPhysicalIntelbrasSystem(currentSystem) || !currentSystem.remoteCommandLabEnabled) {
     await updateAlarmRemoteCommandDelivery(pending.id, {
       status: "failed",
@@ -273,7 +281,7 @@ export async function consumeIntelbrasPhysicalResponse(socket: net.Socket, frame
 
     clearCommandTimeout(socket);
     const session = sessionBySocket.get(socket);
-    const currentSystem = session ? await getAlarmSystem(session.alarmSystemId) : undefined;
+    const currentSystem = session ? await getOperationalAlarmSystem(session.alarmSystemId) : undefined;
     const currentState = session ? await getLatestArmDisarmStatusForSystem(session.alarmSystemId) : undefined;
     if (
       !session
