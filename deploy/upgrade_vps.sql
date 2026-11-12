@@ -1297,3 +1297,19 @@ SET rc.status = 'cancelled',
     rc.responsePayload = CONCAT_WS('\n', NULLIF(rc.responsePayload, ''), 'Comando cancelado: sistema sem cliente vinculado foi inativado antes da transmissão.')
 WHERE (c.id IS NULL OR c.isActive = 0)
   AND rc.status IN ('queued', 'waiting_connection');
+
+-- Intenção de inibir no próximo Arme Compatec, válida por 60s; não contém credenciais.
+-- Não cria fila física nem modifica zonas do painel ao expirar.
+CREATE TABLE IF NOT EXISTS compatec_zone_arm_selections (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  alarmSystemId INT NOT NULL,
+  zoneNumber INT NOT NULL,
+  operatorId INT NOT NULL,
+  expiresAt TIMESTAMP NOT NULL,
+  armCommandId INT NULL,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY compatec_zone_arm_selection_system_zone_unique (alarmSystemId, zoneNumber),
+  KEY compatec_zone_arm_selection_expiry_idx (alarmSystemId, expiresAt),
+  KEY compatec_zone_arm_selection_command_idx (armCommandId)
+);

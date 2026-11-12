@@ -344,6 +344,13 @@
       "when": 1793924899263,
       "tag": "0048_friendly_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "5",
+      "when": 1794524109345,
+      "tag": "0049_complex_dragon_man",
+      "breakpoints": true
     }
   ]
 }

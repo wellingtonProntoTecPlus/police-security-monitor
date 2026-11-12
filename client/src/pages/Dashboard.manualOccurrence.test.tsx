@@ -77,6 +77,8 @@ vi.mock("@/lib/trpc", () => ({
       list: { useQuery: () => ({ data: [] }) },
       simulate: { useMutation: () => standardMutation },
       compatecZonePhysical: { useMutation: () => standardMutation },
+      compatecZoneSelections: { useQuery: () => ({ data: [] }) },
+      selectCompatecZoneForArm: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
       queryVettiBenchStatus: { useMutation: () => standardMutation },
       disarmVettiBench: { useMutation: () => standardMutation },
@@ -102,7 +104,7 @@ vi.mock("@/lib/trpc", () => ({
       incident: { openQueue: { invalidate: invalidateOpenQueue }, history: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       occurrence: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
-      remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) }, compatecZoneSelections: { invalidate: vi.fn().mockResolvedValue(undefined), fetch: vi.fn().mockResolvedValue([]) } },
       dashboard: {
         connectionStatus: { invalidate: invalidateConnectionStatus },
         armDisarmStatus: { invalidate: invalidateArmDisarmStatus },

@@ -36,11 +36,13 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain("item.alarmSystemId === systemId || item.systemId === systemId");
   });
 
-  it("confirma o Arme rápido sem abrir o modal de comandos", () => {
+  it("usa formulário operacional de Arme com confirmação e chaves sem exigir tela técnica", () => {
     expect(dashboardSource).toContain("submitCompatecArmQuick");
-    expect(dashboardSource).toContain("CONFIRMAR ARME FÍSICO?");
+    expect(dashboardSource).toContain("CONFIRMAR ARME FÍSICO DA CENTRAL COMPATEC?");
     expect(dashboardSource).toContain("armCompatecAllMut.mutate");
-    expect(dashboardSource).toContain("Arme físico MicroBus confirmado pelo operador.");
+    expect(dashboardSource).toContain("openStandaloneCommandRequest({ ...selectedSystem");
+    expect(dashboardSource).toContain("selectionIds: selections.map((item) => item.id)");
+    expect(dashboardSource).toContain("CompatecZoneArmControls");
   });
 
   it("mantém o quadro oficial AK4[4] no fluxo técnico de compatibilidade", () => {
@@ -50,8 +52,8 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain('selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false');
   });
 
-  it("mantém Toggle, partições, setores e PGM fora do fluxo físico", () => {
-    expect(dashboardSource).toContain("O Toggle, partições, setores e PGM não serão usados");
+  it("inibe somente no Arme e mantém Toggle, partições e PGM bloqueados", () => {
+    expect(dashboardSource).toContain("A inibição AK2→AK1 será enviada antes de AK4[4]");
     expect(dashboardSource).toContain("Inibir/Restaurar Zona transmite AK2→AK1");
     expect(dashboardSource).toContain("Arme Stay/partição continua bloqueado até homologação Compatec");
     expect(dashboardSource).toContain("AK4[9–11] são toggle; não serão enviados");

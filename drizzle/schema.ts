@@ -384,6 +384,24 @@ export const alarmZones = mysqlTable("alarm_zones", {
 export type AlarmZone = typeof alarmZones.$inferSelect;
 export type InsertAlarmZone = typeof alarmZones.$inferInsert;
 
+// Seleção temporária da zona a inibir no próximo Arme Compatec.
+// A seleção expira em 60 segundos e não transmite nada por si só.
+export const compatecZoneArmSelections = mysqlTable("compatec_zone_arm_selections", {
+  id: int("id").autoincrement().primaryKey(),
+  alarmSystemId: int("alarmSystemId").notNull(),
+  zoneNumber: int("zoneNumber").notNull(),
+  operatorId: int("operatorId").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  armCommandId: int("armCommandId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("compatec_zone_arm_selection_system_zone_unique").on(table.alarmSystemId, table.zoneNumber),
+  index("compatec_zone_arm_selection_expiry_idx").on(table.alarmSystemId, table.expiresAt),
+  index("compatec_zone_arm_selection_command_idx").on(table.armCommandId),
+]);
+export type CompatecZoneArmSelection = typeof compatecZoneArmSelections.$inferSelect;
+
 // ============================================================
 // USUÁRIOS DO SISTEMA DE ALARME
 // ============================================================

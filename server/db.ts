@@ -10,6 +10,7 @@ import {
   clientContacts, InsertClientContact,
   alarmSystems, InsertAlarmSystem,
   alarmZones, InsertAlarmZone,
+  compatecZoneArmSelections,
   alarmUsers, InsertAlarmUser,
   cameras, InsertCamera,
   alarmEvents, InsertAlarmEvent,
@@ -48,6 +49,7 @@ import { notifyAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
+import { buildCompatecPhysicalArmWithZonesPayload } from "./remoteCommandContract";
 import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
@@ -1072,6 +1074,9 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     || command.transportMode !== "microbus_compatec"
     || !["arm", "disarm", "isolate_zone", "restore_zone"].includes(command.commandType)
   ) return null;
+  if (["failed", "cancelled", "expired"].includes(command.status) && !command.executedAt && command.commandPayload.includes('"physical_arm_with_zones"')) {
+    await tx.delete(compatecZoneArmSelections).where(eq(compatecZoneArmSelections.armCommandId, command.id));
+  }
 
   const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1);
   const [client] = system?.clientId
@@ -1088,6 +1093,14 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
   } catch {
     // Payloads legados podem ser quadros crus; mantêm o registro sem metadados adicionais.
   }
+  let zoneAudit = "";
+  try {
+    const payload = JSON.parse(command.commandPayload);
+    if (payload.mode === "physical_arm_with_zones") {
+      zoneAudit = `\nZonas selecionadas para inibir no Arme: ${payload.zoneNumbers.join(", ")}.\nKA1 indica somente recebimento; o estado final do bypass não foi confirmado individualmente.`;
+      if (Array.isArray(payload.selectedBy)) zoneAudit += payload.selectedBy.map((item: any) => `\nSeleção zona ${item.zoneNumber}: operador ${item.operatorName || item.operatorId}`).join("");
+    }
+  } catch { /* Quadros legados não têm metadados de seleção. */ }
   const marker = `[COMANDO REMOTO #${command.id}]`;
   const text = buildRemoteCommandOccurrenceText({
     commandId: command.id,
@@ -1116,7 +1129,7 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     operatorId: command.operatorId,
     operatorName,
     status: "finalized" as const,
-    observations: `${text.observations}\n${marker}`,
+    observations: `${text.observations}${zoneAudit}\n${marker}`,
     logs: JSON.stringify([`[${occurredAt.toLocaleTimeString("pt-BR")}] ${text.description}`]),
     attendingTimeMs: 0,
     sendEmail: false,
@@ -1166,7 +1179,47 @@ export async function createExclusiveVettiBenchCommand(data: InsertAlarmRemoteCo
 }
 
 /** Reserva uma única ação física MicroBus na central Compatec identificada. */
-export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRemoteCommand) {
+export async function listCompatecZoneArmSelections(alarmSystemId: number, operatorId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const now = new Date();
+  return db.select({ id: compatecZoneArmSelections.id, zoneNumber: compatecZoneArmSelections.zoneNumber,
+    expiresAt: compatecZoneArmSelections.expiresAt, armCommandId: compatecZoneArmSelections.armCommandId })
+    .from(compatecZoneArmSelections).where(and(eq(compatecZoneArmSelections.alarmSystemId, alarmSystemId),
+      eq(compatecZoneArmSelections.operatorId, operatorId), or(gt(compatecZoneArmSelections.expiresAt, now), isNotNull(compatecZoneArmSelections.armCommandId))));
+}
+
+/** Marca somente a intenção: não cria comando físico, Contact ID ou atendimento. */
+export async function setCompatecZoneArmSelection(input: { alarmSystemId: number; operatorId: number; zoneNumber: number; selected: boolean }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    const [system] = await tx.select().from(alarmSystems).where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.isActive, true))).for("update").limit(1);
+    if (!system || system.brand !== "COMPATEC") throw new Error("Seleção disponível somente para Compatec ativa");
+    const [zone] = await tx.select().from(alarmZones).where(and(eq(alarmZones.alarmSystemId, input.alarmSystemId), eq(alarmZones.zoneNumber, input.zoneNumber), eq(alarmZones.isActive, true))).for("update").limit(1);
+    if (!zone || input.zoneNumber < 1 || input.zoneNumber > 23) throw new Error("Zona não cadastrada como ativa nesta central");
+    const now = new Date();
+    const [existing] = await tx.select().from(compatecZoneArmSelections).where(and(eq(compatecZoneArmSelections.alarmSystemId, input.alarmSystemId), eq(compatecZoneArmSelections.zoneNumber, input.zoneNumber))).for("update").limit(1);
+    if (existing?.armCommandId) throw new Error("Zona vinculada a um Arme; aguarde o Desarme confirmado ou confira o resultado indeterminado");
+    if (existing && existing.expiresAt > now && existing.operatorId !== input.operatorId) throw new Error("Outro operador está preparando esta zona; aguarde a expiração");
+    if (!input.selected) {
+      if (existing && existing.operatorId === input.operatorId) await tx.delete(compatecZoneArmSelections).where(eq(compatecZoneArmSelections.id, existing.id));
+      return { selected: false as const };
+    }
+    const currentEvents = await tx.select().from(alarmEvents).where(and(eq(alarmEvents.alarmSystemId, input.alarmSystemId), inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701"]))).orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id)).limit(20);
+    const currentState = currentEvents.find((event) => isArmDisarmStatusEvent(event));
+    if (!currentState || classifyContactIdOperationalEvent(currentState).state !== "disarmed") throw new Error("A seleção exige último estado DESARMADO confirmado");
+    const values = { alarmSystemId: input.alarmSystemId, zoneNumber: input.zoneNumber, operatorId: input.operatorId,
+      expiresAt: new Date(now.getTime() + 60_000), armCommandId: null, updatedAt: now };
+    if (existing) await tx.update(compatecZoneArmSelections).set(values).where(eq(compatecZoneArmSelections.id, existing.id));
+    else await tx.insert(compatecZoneArmSelections).values(values);
+    const [saved] = await tx.select().from(compatecZoneArmSelections).where(and(eq(compatecZoneArmSelections.alarmSystemId, input.alarmSystemId), eq(compatecZoneArmSelections.zoneNumber, input.zoneNumber))).limit(1);
+    return { selected: true as const, id: saved.id, expiresAt: saved.expiresAt };
+  });
+}
+
+/** Reserva uma única ação física MicroBus; seleções são consumidas sob o mesmo lock do Arme. */
+export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRemoteCommand, selectionIds?: number[], requestedBy?: string) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
@@ -1186,17 +1239,70 @@ export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRe
       .orderBy(alarmRemoteCommands.id)
       .limit(1);
     if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
-    const result = await tx.insert(alarmRemoteCommands).values(data);
+    if (data.commandType === "arm") {
+      const [consumed] = await tx.select({ id: compatecZoneArmSelections.id }).from(compatecZoneArmSelections).where(and(eq(compatecZoneArmSelections.alarmSystemId, data.alarmSystemId), isNotNull(compatecZoneArmSelections.armCommandId))).limit(1);
+      if (consumed) throw new Error("Existe seleção vinculada ao Arme anterior; aguarde Desarme confirmado antes de um novo Arme");
+    }
+    let selected: typeof compatecZoneArmSelections.$inferSelect[] = [];
+    let commandData = data;
+    if (selectionIds?.length) {
+      if (data.commandType !== "arm") throw new Error("Seleções de zona só podem ser consumidas pelo Arme");
+      selected = await tx.select().from(compatecZoneArmSelections).where(and(
+        eq(compatecZoneArmSelections.alarmSystemId, data.alarmSystemId), eq(compatecZoneArmSelections.operatorId, data.operatorId),
+        inArray(compatecZoneArmSelections.id, selectionIds), isNull(compatecZoneArmSelections.armCommandId), gt(compatecZoneArmSelections.expiresAt, new Date()),
+      )).for("update");
+      if (selected.length !== new Set(selectionIds).size) throw new Error("A seleção de zona expirou ou mudou. Confira as chaves e confirme o Arme novamente");
+      for (const item of selected) {
+        const [zone] = await tx.select().from(alarmZones).where(and(eq(alarmZones.alarmSystemId, data.alarmSystemId), eq(alarmZones.zoneNumber, item.zoneNumber), eq(alarmZones.isActive, true))).for("update").limit(1);
+        if (!zone) throw new Error("Uma zona selecionada não está mais cadastrada como ativa");
+      }
+      const events = await tx.select().from(alarmEvents).where(and(eq(alarmEvents.alarmSystemId, data.alarmSystemId), inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701"]))).orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id)).limit(20);
+      const state = events.find((event) => isArmDisarmStatusEvent(event));
+      if (!state || classifyContactIdOperationalEvent(state).state !== "disarmed") throw new Error("Arme com zonas exige DESARMADO confirmado");
+      const [operator] = await tx.select({ name: users.name }).from(users).where(eq(users.id, data.operatorId)).limit(1);
+      commandData = { ...data, commandPayload: buildCompatecPhysicalArmWithZonesPayload({ zoneNumbers: selected.map((item) => item.zoneNumber),
+        sourceStateEventId: state.id,
+        requestedBy,
+        selectedBy: selected.map((item) => ({ zoneNumber: item.zoneNumber, operatorId: item.operatorId, operatorName: operator?.name || null })),
+      }) };
+    }
+    const result = await tx.insert(alarmRemoteCommands).values(commandData);
     const id = Number(result[0].insertId);
+    if (selected.length) await tx.update(compatecZoneArmSelections).set({ armCommandId: id }).where(inArray(compatecZoneArmSelections.id, selected.map((item) => item.id)));
     const [command] = await tx.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, id)).limit(1);
     if (!command) throw new Error("Não foi possível reler o comando Compatec reservado");
     await syncCompatecRemoteCommandOccurrence(tx, command);
-    return { created: true as const, id };
+    return { created: true as const, id, commandPayload: command.commandPayload, zoneNumbers: selected.map((item) => item.zoneNumber) };
   });
 }
 
 /** Compatibilidade para chamadas antigas que ainda usam o nome de bancada. */
 export const createExclusiveCompatecBenchCommand = createExclusiveCompatecPhysicalCommand;
+
+/** O painel Compatec restaura seus setores no Desarme. A UI só volta ao normal após evento real persistido da mesma central. */
+export async function resetCompatecZoneSelectionsOnDisarm(alarmSystemId: number, eventId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.transaction(async (tx) => {
+    await tx.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.id, alarmSystemId)).for("update").limit(1);
+    const [event] = await tx.select().from(alarmEvents).where(and(eq(alarmEvents.id, eventId), eq(alarmEvents.alarmSystemId, alarmSystemId))).limit(1);
+    if (!event || event.brand !== "COMPATEC" || classifyContactIdOperationalEvent(event).kind !== "disarm") return;
+    const selected = await tx.select().from(compatecZoneArmSelections).where(and(eq(compatecZoneArmSelections.alarmSystemId, alarmSystemId), isNotNull(compatecZoneArmSelections.armCommandId))).for("update");
+    for (const item of selected) {
+      const [command] = await tx.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, item.armCommandId!)).limit(1);
+      let sourceStateEventId = Number.MAX_SAFE_INTEGER;
+      try { sourceStateEventId = JSON.parse(command?.commandPayload || "{}").sourceStateEventId ?? Number.MAX_SAFE_INTEGER; } catch { /* não liberar sem vínculo verificável */ }
+      if (command && event.id > sourceStateEventId) {
+        if (["queued", "dispatching", "sent", "waiting_connection", "dispatch_unknown"].includes(command.status)) {
+          const responsePayload = `${command.responsePayload || ""}\nDesarme real recebido depois da solicitação; sequência encerrada sem continuação automática do Arme.`;
+          await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+          await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+        }
+        await tx.delete(compatecZoneArmSelections).where(eq(compatecZoneArmSelections.id, item.id));
+      }
+    }
+  });
+}
 
 /**
  * Reserva uma única ação física AMT-8000 por central. O lock do cadastro do
@@ -1283,6 +1389,7 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
 export async function dispatchAlarmRemoteCommand(input: {
   alarmSystemId: number;
   commandId: number;
+  requiredZoneNumbers?: number[];
   requiredZoneNumber?: number;
   expectedStatuses: string[];
   unavailableStatus: string;
@@ -1307,6 +1414,15 @@ export async function dispatchAlarmRemoteCommand(input: {
       .where(and(eq(alarmRemoteCommands.id, input.commandId), eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId)))
       .for("update").limit(1);
     if (!command) return { claimed: false as const, status: "cancelled", message: "Comando não encontrado para esta central." };
+    for (const zoneNumber of input.requiredZoneNumbers || []) {
+      const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(eq(alarmZones.alarmSystemId, input.alarmSystemId), eq(alarmZones.zoneNumber, zoneNumber), eq(alarmZones.isActive, true))).for("update").limit(1);
+      if (!zone) {
+        const responsePayload = `Arme composto cancelado: zona ${zoneNumber} não está ativa. Nenhum quadro foi transmitido.`;
+        await tx.update(alarmRemoteCommands).set({ status: "failed", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "failed", responsePayload });
+        return { claimed: false as const, status: "failed", message: responsePayload };
+      }
+    }
     if (input.requiredZoneNumber !== undefined) {
       const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(
         eq(alarmZones.alarmSystemId, input.alarmSystemId),
@@ -1354,6 +1470,16 @@ export async function dispatchAlarmRemoteCommand(input: {
     if (!command || command.status !== "dispatching") {
       return { sent: false as const, status: command?.status || "cancelled", message: "O comando deixou de estar reservado para transmissão." };
     }
+    for (const zoneNumber of input.requiredZoneNumbers || []) {
+      const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(eq(alarmZones.alarmSystemId, input.alarmSystemId), eq(alarmZones.zoneNumber, zoneNumber), eq(alarmZones.isActive, true))).for("update").limit(1);
+      if (!zone) {
+        const responsePayload = `Arme composto interrompido: zona ${zoneNumber} foi desativada. Confira a central; não reenviar automaticamente.`;
+        const status = command.executedAt ? "dispatch_unknown" : "failed";
+        await tx.update(alarmRemoteCommands).set({ status, responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status, responsePayload });
+        return { sent: false as const, status, message: responsePayload };
+      }
+    }
     if (input.requiredZoneNumber !== undefined) {
       const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(
         eq(alarmZones.alarmSystemId, input.alarmSystemId),
@@ -1372,6 +1498,24 @@ export async function dispatchAlarmRemoteCommand(input: {
       await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
       await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
       return { sent: false as const, status: "cancelled", message: responsePayload };
+    }
+
+    if (command.commandPayload.includes('"physical_arm_with_zones"')) {
+      const payload = JSON.parse(command.commandPayload);
+      // SELECT FOR UPDATE é leitura atual, não o snapshot criado antes de obter o lock da central.
+      const stateEvents = await tx.select().from(alarmEvents).where(and(eq(alarmEvents.alarmSystemId, command.alarmSystemId),
+        inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701"])))
+        .orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id)).limit(20).for("update");
+      const latest = stateEvents.find((event) => isArmDisarmStatusEvent(event));
+      if (!latest || latest.id !== payload.sourceStateEventId || classifyContactIdOperationalEvent(latest).state !== "disarmed") {
+        const isRealDisarm = latest?.brand === "COMPATEC" && classifyContactIdOperationalEvent(latest).kind === "disarm";
+        const status = command.executedAt && !isRealDisarm ? "dispatch_unknown" : "cancelled";
+        const responsePayload = "Sequência interrompida antes da próxima escrita: o estado real da central mudou depois da seleção. Não continuar nem reenviar automaticamente.";
+        await tx.update(alarmRemoteCommands).set({ status, responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status, responsePayload });
+        if (isRealDisarm) await tx.delete(compatecZoneArmSelections).where(eq(compatecZoneArmSelections.armCommandId, command.id));
+        return { sent: false as const, status, message: responsePayload };
+      }
     }
 
     let result: ReturnType<typeof input.send>;
@@ -1400,9 +1544,11 @@ export async function expireStaleRemoteCommandDispatches(referenceTime = new Dat
   if (!db) return 0;
   const cutoff = new Date(referenceTime.getTime() - 2 * 60_000);
   return db.transaction(async (tx) => {
-    const stale = await tx.select().from(alarmRemoteCommands).where(and(
-      eq(alarmRemoteCommands.status, "dispatching"),
-      lte(alarmRemoteCommands.updatedAt, cutoff),
+    const stale = await tx.select().from(alarmRemoteCommands).where(or(
+      and(eq(alarmRemoteCommands.status, "dispatching"), lte(alarmRemoteCommands.updatedAt, cutoff)),
+      and(eq(alarmRemoteCommands.status, "sent"), eq(alarmRemoteCommands.brand, "COMPATEC"), eq(alarmRemoteCommands.commandType, "arm"),
+        like(alarmRemoteCommands.commandPayload, '%"mode":"physical_arm_with_zones"%'),
+        lte(alarmRemoteCommands.updatedAt, new Date(referenceTime.getTime() - 30_000))),
     )).for("update");
     for (const command of stale) {
       const responsePayload = "Resultado indeterminado após interrupção durante o despacho; a transmissão pode ter ocorrido. Conferir a central e não reenviar automaticamente.";
@@ -1447,18 +1593,19 @@ export async function recordRemoteCommandConfirmation(input: {
       .for("update");
     if (!command) return { recorded: false as const };
 
+    if (["failed", "cancelled", "expired"].includes(command.status)) return { recorded: false as const };
     const isZoneBypassCommand = command.commandType === "isolate_zone" || command.commandType === "restore_zone";
     const updatedCommand = {
       ...command,
       status: "responded",
-      responsePayload: input.responsePayload,
+      responsePayload: command.commandPayload.includes('"physical_arm_with_zones"') ? `${command.responsePayload || ""}\n${input.responsePayload}` : input.responsePayload,
       panelConfirmedAt: isZoneBypassCommand ? command.panelConfirmedAt : confirmedAt,
       executedAt: confirmedAt,
       updatedAt: confirmedAt,
     };
     await tx.update(alarmRemoteCommands).set({
       status: "responded",
-      responsePayload: input.responsePayload,
+      responsePayload: updatedCommand.responsePayload,
       ...(isZoneBypassCommand ? {} : { panelConfirmedAt: confirmedAt }),
       executedAt: confirmedAt,
     }).where(eq(alarmRemoteCommands.id, command.id));

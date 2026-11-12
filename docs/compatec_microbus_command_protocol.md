@@ -178,3 +178,21 @@ A resposta `MB=KA1` é registrada como **resposta/recebimento do comando**, não
 ### Arme Stay / partições — preparado, mas bloqueado
 
 Embora o fabricante tenha informado que `AK4[9]`, `AK4[10]` e `AK4[11]` alternam as partições 1, 2 e 3, a Compatec ainda não fornece ao PoliceCentral o estado individual de cada partição: a resposta atual só indica que a central está armada quando qualquer partição está armada. Como esses comandos são *toggle*, não é seguro inferir se a próxima ação armará ou desarmará. A seleção visual de partição pode ficar preparada, mas nenhuma rota ou envio físico por partição/Stay deve ser habilitado até a Compatec homologar a leitura inequívoca do estado individual.
+
+## Chave de zona antes do Arme — regra operacional de 12/11/2026
+
+A chave **Inibir**, ao lado de cada zona ativa cadastrada (1–23), é uma seleção temporária persistida por central, zona e operador. **A chave sozinha não transmite nenhum quadro.** Se o operador não iniciar o Arme em até 60 segundos, ela volta ao normal silenciosamente. Outro operador não pode aproveitar a seleção alheia.
+
+Ao confirmar ARMAR, o servidor revalida os IDs selecionados, prazo, operador, central desarmada e todas as zonas ativas. O consentimento mostra cliente/conta, solicitante, motivo e zonas. A sequência composta exige uma sessão Compatec já identificada por cadastro físico/porta e não fica aguardando reconexão para execução tardia.
+
+A transmissão escreve uma única máscara dos setores selecionados em AK2→AK1. Somente após receber KA1 na mesma sessão o receptor revalida cadastro/zonas e escreve AK4[4]. KA1 é recebimento, nunca confirmação do estado individual do bypass. O relatório guarda o ACK dos setores e a resposta do Arme separadamente, além de operador, solicitante, motivo, zonas e operadores que as selecionaram. A rota antiga recusa inibição avulsa.
+
+A chave consumida descreve **“Solicitada no Arme #…”**, não “bypass confirmado”. Ela só é normalizada por Desarme Contact ID real da mesma central, incluindo E701 por aplicativo e E401 por usuário. O evento deve ter ID posterior ao evento de estado usado na solicitação; ACK ou evento antigo não libera a seleção. Conforme comportamento informado e testado pelo usuário no aplicativo, a central restaura as zonas ao desarmar. O PoliceCentral não envia restauração automática.
+
+Falha comprovada sem escrita cancela o comando e libera a seleção. Interrupção/exceção durante escrita ou ausência de resposta na sequência é indeterminada e não provoca reenvio automático; a indicação fica retida até Desarme real. O sweep operacional existente reconhece sequências enviadas sem resposta por 30 segundos. O timer da interface só altera a apresentação.
+
+Toda auditoria continua em ocorrência informativa idempotente, sem Contact ID artificial, novo incidente ou cartão. Stay/partições continuam bloqueados. A nova tabela tem migração Drizzle aditiva e criação idempotente no upgrade VPS; não altera ViaWeb.
+
+**Teste físico no PoliceCentral ainda pendente, após atualização da VPS e autorização específica de bancada.** Testes com mocks/banco privado não equivalem à confirmação física do bypass.
+
+A revisão de segurança acrescentou leitura atual do último evento de estado sob lock imediatamente antes de cada escrita do comando composto. Um Desarme concorrente encerra também o estágio `dispatching`, impedindo que um ACK tardio continue o Arme. A confirmação de comando aceita exclusivamente `KA4[4]` para Arme e `KA4[12]` para Desarme; resposta de outra ação é incompatível, nunca sucesso.

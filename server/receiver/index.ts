@@ -19,7 +19,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractIntelbrasIsecnetFrames, isIntelbrasIsecnetHeartbeat, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
-import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLineForSocket, isCompatecArmDisarmConfirmation, isCompatecPhysicalZoneCommand, isCompatecPhysicalZoneConfirmation, rememberActiveCompatecSession, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLineForSocket, isCompatecArmDisarmConfirmation, isCompatecArmWithZonesCommand, isCompatecPhysicalZoneCommand, isCompatecPhysicalZoneConfirmation, rememberActiveCompatecSession, sendCompatecMw1ArmAfterZones, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
@@ -28,6 +28,7 @@ import { getRadioengeKeepAliveObservationUntil, isRadioengeKeepAliveFailure, isR
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule, getAlarmScheduleEventAction } from '../alarmSchedulePolicy';
 import { getEffectiveClientMonitoringStatus } from '@shared/clientMonitoringStatus';
 import { dispatchAlarmRemoteCommand } from '../db';
+import { resetCompatecZoneSelectionsOnDisarm } from '../db';
 import { onAlarmSystemsRetired } from '../_core/alarmSystemRuntime';
 
 // Configuração dos receptores por marca/porta
@@ -45,7 +46,7 @@ const RECEIVERS_CONFIG = [
 
 type EventCallback = (event: any) => void;
 
-export { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+export { isCompatecSessionActive, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 export { sendVettiBenchStatusQuery } from './vettiBenchTransport';
 export { isIntelbrasSessionActive, sendIntelbrasPhysicalCommand } from './intelbrasPhysicalTransport';
 
@@ -763,11 +764,22 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
   if (microbusResponse) {
     const completed = consumeCompatecMw1StatusResponse(socket, microbusResponse);
     if (completed) {
-      const isArmDisarmAction = completed.payload === COMPATEC_MW1_ARM_ALL || completed.payload === COMPATEC_MW1_DISARM_ALL;
+      const isComposite = isCompatecArmWithZonesCommand(completed.payload);
+      if ("intermediateZoneAck" in completed && completed.intermediateZoneAck) {
+        const payload = JSON.parse(completed.payload);
+        await dispatchAlarmRemoteCommand({
+          alarmSystemId: identifiedSystemBySocket.get(socket)?.id || 0,
+          commandId: completed.commandId, requiredZoneNumbers: payload.zoneNumbers,
+          expectedStatuses: ["sent"], unavailableStatus: "dispatch_unknown",
+          sentResponsePayload: `${microbusResponse.trim()} recebido para AK2→AK1 (somente recebimento do bypass); AK4[4] enviado em seguida; aguardando resposta de Arme.`,
+          send: () => sendCompatecMw1ArmAfterZones({ alarmSystemId: identifiedSystemBySocket.get(socket)?.id || 0, commandId: completed.commandId }),
+        });
+      } else {
+      const isArmDisarmAction = completed.payload === COMPATEC_MW1_ARM_ALL || completed.payload === COMPATEC_MW1_DISARM_ALL || isComposite;
       const isPhysicalZoneAction = isCompatecPhysicalZoneCommand(completed.payload);
       const isPhysicalAction = isArmDisarmAction || isPhysicalZoneAction;
       const isPhysicalConfirmation = isArmDisarmAction
-        ? isCompatecArmDisarmConfirmation(completed.payload, microbusResponse)
+        ? (!isComposite || completed.stage === "arm_ack") && isCompatecArmDisarmConfirmation(completed.payload, microbusResponse)
         : isPhysicalZoneAction && isCompatecPhysicalZoneConfirmation(completed.payload, microbusResponse);
       if (isPhysicalAction && isPhysicalConfirmation) {
         const confirmation = await recordRemoteCommandConfirmation({
@@ -800,6 +812,7 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
       } else {
         await updateAlarmRemoteCommandDelivery(completed.commandId, { status: "responded", responsePayload: microbusResponse, executedAt: new Date() });
         console.log(`[MICROBUS] COMPATEC consulta confirmada pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+      }
       }
     }
   }
@@ -1167,6 +1180,10 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
       return false;
     }
 
+    if (system?.id && evento.brand === "COMPATEC" && operationalClassification.kind === "disarm") {
+      try { await resetCompatecZoneSelectionsOnDisarm(system.id, savedEvent.id); }
+      catch (error) { console.error("[COMPATEC] Falha ao normalizar chaves após Desarme confirmado", error); }
+    }
     if (system?.id && scheduleRelevantState && !clientMonitoringBlocked) {
       try {
         if (scheduleContext?.schedule?.isActive && scheduleViolation && scheduleDecision) {

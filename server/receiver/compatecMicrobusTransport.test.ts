@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_TOGGLE_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, getCompatecMw1StatusResponseLineForSocket, isCompatecArmDisarmConfirmation, isCompatecPhysicalZoneCommand, isCompatecPhysicalZoneConfirmation, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
-import { buildCompatecPhysicalZonePayload } from "../remoteCommandContract";
+import { buildCompatecPhysicalArmWithZonesPayload, buildCompatecPhysicalZonePayload } from "../remoteCommandContract";
+import { isCompatecArmWithZonesCommand, sendCompatecMw1ArmAfterZones } from "./compatecMicrobusTransport";
 
 function fakeSocket() {
   const writes: string[] = [];
@@ -79,6 +80,9 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4[12]\r\n")).toBe(true);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA0[03FF]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_STATUS_QUERY, "MB=KA4[4]\r\n")).toBe(false);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[12]\r\n")).toBe(false);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4[4]\r\n")).toBe(false);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[]\r\n")).toBe(false);
   });
 
   it("envia isolamento físico AK2→AK1 e só considera KA1 resposta compatível", () => {
@@ -113,6 +117,46 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("0008", "latin1"))).toBeUndefined();
     expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("]\r\n", "latin1"))).toBe("MB=KA1[0008]\r\n");
     expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("MB=KA1", "latin1"))).toBe("MB=KA1");
+  });
+
+  it("envia bypass somente no fluxo do Arme e aguarda KA1 antes de escrever AK4[4]", () => {
+    const socket = fakeSocket();
+    rememberActiveCompatecSession(socket, { id: 9401, account: "0401" });
+    const payload = buildCompatecPhysicalArmWithZonesPayload({ zoneNumbers: [3, 5], requestedBy: "Cliente" });
+    expect(isCompatecArmWithZonesCommand(payload)).toBe(true);
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9401, commandId: 401, payload }).sent).toBe(true);
+    expect(socket.writes).toHaveLength(2);
+    expect(socket.writes[0]).toMatch(/^MB=AK2\[/);
+    expect(socket.writes[1]).toMatch(/^MB=AK1\[/);
+    expect(socket.writes.join("")).not.toContain("MB=AK4[4]");
+    expect(sendCompatecMw1ArmAfterZones({ alarmSystemId: 9401, commandId: 401 }).sent).toBe(false);
+    expect(consumeCompatecMw1StatusResponse(socket, "MB=KA1")).toMatchObject({ commandId: 401, intermediateZoneAck: true });
+    expect(sendCompatecMw1ArmAfterZones({ alarmSystemId: 9401, commandId: 401 }).sent).toBe(true);
+    expect(socket.writes[2]).toBe(COMPATEC_MW1_ARM_ALL);
+    expect(sendCompatecMw1ArmAfterZones({ alarmSystemId: 9401, commandId: 401 }).sent).toBe(false);
+    expect(consumeCompatecMw1StatusResponse(socket, "MB=KA4[4]\r\n")).toMatchObject({ stage: "arm_ack", commandId: 401 });
+    expect(isCompatecArmDisarmConfirmation(payload, "MB=KA4[4]\r\n")).toBe(true);
+    expect(isCompatecArmDisarmConfirmation(payload, "MB=KA1\r\n")).toBe(false);
+    expect(socket.writes.join("")).not.toContain('"mode"');
+    expect(isCompatecArmDisarmConfirmation(payload, "MB=KA4[12]\r\n")).toBe(false);
+    expect(isCompatecArmDisarmConfirmation(payload, "MB=KA4[9]\r\n")).toBe(false);
+  });
+
+  it("não continua o Arme em novo socket e rejeita quadros/zonas adulterados", () => {
+    const oldSocket = fakeSocket();
+    rememberActiveCompatecSession(oldSocket, { id: 9402, account: "0402" });
+    const payload = buildCompatecPhysicalArmWithZonesPayload({ zoneNumbers: [3] });
+    const bad = JSON.stringify({ ...JSON.parse(payload), frames: ["MB=AK4[0]\r\n"] });
+    expect(isCompatecArmWithZonesCommand(bad)).toBe(false);
+    expect(sendCompatecMw1BenchQuery({ alarmSystemId: 9402, commandId: 402, payload: bad }).sent).toBe(false);
+    expect(oldSocket.writes).toHaveLength(0);
+    sendCompatecMw1BenchQuery({ alarmSystemId: 9402, commandId: 402, payload });
+    consumeCompatecMw1StatusResponse(oldSocket, "MB=KA1\r\n");
+    const newSocket = fakeSocket();
+    rememberActiveCompatecSession(newSocket, { id: 9402, account: "0402" });
+    expect(sendCompatecMw1ArmAfterZones({ alarmSystemId: 9402, commandId: 402 }).sent).toBe(false);
+    expect(newSocket.writes).toHaveLength(0);
+    expect(oldSocket.writes).toHaveLength(2);
   });
 
 });

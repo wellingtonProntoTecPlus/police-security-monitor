@@ -203,6 +203,48 @@ export function buildCompatecPhysicalZoneFrames(input: {
   ];
 }
 
+/** Gera um único AK2→AK1 com a máscara dos setores selecionados, seguido pelo Arme total oficial. */
+export function buildCompatecPhysicalArmWithZonesFrames(zoneNumbers: number[]) {
+  const normalized = Array.from(new Set(zoneNumbers)).sort((left, right) => left - right);
+  if (normalized.length > COMPATEC_PHYSICAL_ZONE_LIMIT || normalized.some((zone) => !Number.isInteger(zone) || zone < 1 || zone > COMPATEC_PHYSICAL_ZONE_LIMIT)) {
+    throw new Error(`Selecione zonas Compatec inteiras entre 1 e ${COMPATEC_PHYSICAL_ZONE_LIMIT}`);
+  }
+  if (normalized.length === 0) return ["MB=AK4[4]\r\n"];
+
+  const bypassMask = Array.from({ length: COMPATEC_PHYSICAL_ZONE_LIMIT }, (_, index) =>
+    normalized.includes(index + 1) ? "0008" : "0000",
+  ).join(",");
+  return [
+    `MB=AK2[${bypassMask}]\r\n`,
+    `MB=AK1[${bypassMask}]\r\n`,
+    "MB=AK4[4]\r\n",
+  ];
+}
+
+/** Somente o servidor deve formar o payload depois de ler as seleções válidas no banco. */
+export function buildCompatecPhysicalArmWithZonesPayload(input: {
+  zoneNumbers: number[];
+  requestedBy?: string | null;
+  sourceStateEventId?: number;
+  selectedBy?: Array<{ zoneNumber: number; operatorId: number; operatorName: string | null }>;
+}) {
+  const zoneNumbers = Array.from(new Set(input.zoneNumbers)).sort((left, right) => left - right);
+  const frames = buildCompatecPhysicalArmWithZonesFrames(zoneNumbers);
+  return JSON.stringify({
+    protocol: "Compatec MicroBus",
+    mode: "physical_arm_with_zones",
+    commandType: "arm",
+    zoneNumbers,
+    sourceStateEventId: input.sourceStateEventId,
+    requestedBy: input.requestedBy?.trim() || null,
+    selectedBy: input.selectedBy || [],
+    frames,
+    note: zoneNumbers.length
+      ? "Sequência física AK2→AK1 dos setores selecionados e depois AK4[4]. KA1 é somente recebimento; KA4[4] é a resposta do Arme."
+      : "Arme total físico oficial AK4[4].",
+  });
+}
+
 /** Armazena os quadros físicos de zona em formato estruturado e auditável. */
 export function buildCompatecPhysicalZonePayload(input: {
   commandType: CompatecPhysicalZoneCommandType;

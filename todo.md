@@ -772,7 +772,10 @@
 - [x] Implementar Inibir/Restaurar Zona Compatec com máscara AK2 seguida de valor AK1 para zona ativa cadastrada 1–23, solicitante/motivo/confirmação e auditoria em relatório sem Contact ID ou novo atendimento
 - [x] Tratar KA1 de zona como recebimento, sem confirmar estado final do bypass nem preencher panelConfirmedAt; bloquear concorrência entre consultas e ações MicroBus
 - [x] Preparar seleção visual das partições 1/2/3 com botão desabilitado; não transmitir Stay/AK4[9–11] até homologação do estado individual pela Compatec
-- [ ] Após atualização da VPS, homologar Inibir/Restaurar Zona em uma zona expressamente autorizada, conferindo resposta, estado físico e ausência de novo cartão de fila
+- [x] Simplificar inibição com chave por zona: seleção por operador/central expira silenciosamente em 60s sem transmissão; o Arme confirmado consome apenas IDs válidos, envia AK2→AK1 e aguarda KA1 antes de AK4[4], sem fila para reconexão tardia
+- [x] Conservar indicação da zona selecionada no Arme até Desarme real posterior da mesma central; não transmitir restauração automática nem tratar KA1 como confirmação do bypass
+- [x] Validar migração aditiva, interface renderizada, banco MariaDB privado e regressões completas do fluxo de seleção
+- [ ] Após atualização da VPS, homologar o fluxo Inibir no Arme em zona expressamente autorizada, conferindo resposta, estado físico, restauração no Desarme e ausência de novo cartão de fila
 - [x] Implementar um único candidato experimental `MB=AK4[0,0000]` de Arme, isolado por MAC C1BDCB, modo de bancada, motivo e confirmação explícita
 - [ ] Registrar o resultado físico do candidato experimental 0000 com consulta de setores antes/depois e confirmação independente no aplicativo
 - [x] Substituir a trava de bancada do Arme pelo quadro oficial `MB=AK4[4]`, mantendo a transmissão restrita à sessão autenticada da própria central Compatec

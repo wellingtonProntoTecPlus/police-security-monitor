@@ -73,7 +73,8 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
     expect(reservation).toContain('"arm", "disarm", "isolate_zone", "restore_zone"');
     expect(reservation).toContain("await syncCompatecRemoteCommandOccurrence(tx, command)");
     expect(dispatch.match(/if \(input\.requiredZoneNumber !== undefined\)/g)).toHaveLength(2);
-    expect(dispatch.match(/eq\(alarmZones\.isActive, true\)/g)).toHaveLength(2);
+    expect(dispatch.match(/eq\(alarmZones\.isActive, true\)/g)).toHaveLength(4);
+    expect(dispatch.match(/input\.requiredZoneNumbers \|\| \[\]/g)).toHaveLength(2);
     expect(dispatch).toContain("foi desativada antes da escrita do socket");
     expect(pending).toContain('"isolate_zone", "restore_zone"');
     expect(pending).toContain("zoneNumber: alarmRemoteCommands.zoneNumber");

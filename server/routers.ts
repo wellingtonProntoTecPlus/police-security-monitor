@@ -12,7 +12,7 @@ import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, remoteCommandCredentialKin
 import { buildCompatecPhysicalZonePayload, buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateCompatecPhysicalZoneTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
-import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from "./receiver";
+import { isCompatecSessionActive, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from "./receiver";
 import { uploadCompanyLogo } from "./companyLogo";
 import { buildIntelbrasSimulationPayload, validateIntelbrasSimulationTarget } from "./intelbrasCommandSimulation";
 import { buildRemoteCommandRequestNote } from "./remoteCommandEventCorrelation";
@@ -1101,6 +1101,8 @@ export const appRouter = router({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
       reason: z.string().trim().min(5, "Informe o motivo operacional do Arme").max(2000),
+      selectionIds: z.array(z.number().int().positive()).max(23).optional(),
+      requestedBy: z.string().trim().min(2).max(255).optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
@@ -1113,12 +1115,14 @@ export const appRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o último estado confirmado da central não é DESARMADO" });
       }
       const payload = "MB=AK4[4]\r\n";
+      if (input.selectionIds?.length && !input.requestedBy) throw new TRPCError({ code: "BAD_REQUEST", message: "Identifique quem solicitou o Arme com zonas selecionadas" });
+      if (input.selectionIds?.length && !isCompatecSessionActive(system.id)) throw new TRPCError({ code: "CONFLICT", message: "Arme com zonas exige conexão Compatec ativa; a seleção expira sem transmissão e não será executada após reconexão tardia" });
       const reservation = await db.createExclusiveCompatecPhysicalCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "COMPATEC", commandType: "arm", transportMode: "microbus_compatec", status: "queued",
         partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
-      });
+      }, input.selectionIds, input.requestedBy);
       if (!reservation.created) {
         throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
       }
@@ -1133,9 +1137,10 @@ export const appRouter = router({
       }
       const dispatched = await db.dispatchAlarmRemoteCommand({
         alarmSystemId: system.id, commandId: created.id,
-        expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
-        sentResponsePayload: "Arme MB=AK4[4] enviado; aguardando a confirmação da central.",
-        send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload }),
+        expectedStatuses: ["queued"], unavailableStatus: reservation.zoneNumbers.length ? "failed" : "waiting_connection",
+        sentResponsePayload: reservation.zoneNumbers.length ? "AK2→AK1 enviados para as zonas selecionadas; aguardando KA1 antes de transmitir AK4[4]." : "Arme MB=AK4[4] enviado; aguardando a confirmação da central.",
+        requiredZoneNumbers: reservation.zoneNumbers,
+        send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload: reservation.commandPayload }),
       });
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
       return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
@@ -1183,6 +1188,18 @@ export const appRouter = router({
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
       return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
     }),
+    compatecZoneSelections: protectedProcedure.input(z.object({ alarmSystemId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      return db.listCompatecZoneArmSelections(input.alarmSystemId, ctx.user.id);
+    }),
+    selectCompatecZoneForArm: operatorProcedure.input(z.object({
+      alarmSystemId: z.number().int().positive(), zoneNumber: z.number().int().min(1).max(23), selected: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
+      if (!system || system.brand !== "COMPATEC") throw new TRPCError({ code: "FORBIDDEN", message: "Seleção disponível somente para uma Compatec ativa identificada" });
+      return db.setCompatecZoneArmSelection({ ...input, operatorId: ctx.user.id });
+    }),
     compatecZonePhysical: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
@@ -1192,6 +1209,7 @@ export const appRouter = router({
       reason: z.string().trim().min(5, "Informe o motivo operacional").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      if (input.commandType === "isolate_zone") throw new TRPCError({ code: "BAD_REQUEST", message: "Inibição avulsa desabilitada. Marque a chave da zona e inicie o Arme em até 1 minuto; a chave sozinha não transmite" });
       const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
       if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado ou sem cliente ativo vinculado" });
       if (system.brand !== "COMPATEC") {
