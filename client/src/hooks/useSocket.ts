@@ -16,7 +16,7 @@ export interface AlarmEvent {
   timestamp: string;
   clientId?: number;
   alarmSystemId?: number;
-  kind?: "restoration_closed" | "keepalive" | "arm_disarm_confirmation" | "remote_command_confirmation" | "radioenge_observation_escalated" | "alarm_schedule_alert";
+  kind?: "restoration_closed" | "keepalive" | "arm_disarm_confirmation" | "remote_command_confirmation" | "remote_command_ack" | "radioenge_observation_escalated" | "alarm_schedule_alert";
   originalEventId?: number;
   incidentId?: number;
   commandId?: number;

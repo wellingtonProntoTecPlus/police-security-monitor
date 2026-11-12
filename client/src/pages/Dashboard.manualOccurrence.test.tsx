@@ -76,6 +76,7 @@ vi.mock("@/lib/trpc", () => ({
     remoteCommand: {
       list: { useQuery: () => ({ data: [] }) },
       simulate: { useMutation: () => standardMutation },
+      compatecZonePhysical: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
       queryVettiBenchStatus: { useMutation: () => standardMutation },
       disarmVettiBench: { useMutation: () => standardMutation },

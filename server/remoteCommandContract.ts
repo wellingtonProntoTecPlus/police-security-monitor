@@ -4,6 +4,7 @@ export const remoteCommandTypes = ["arm", "disarm", "isolate_zone", "restore_zon
 export type RemoteCommandType = typeof remoteCommandTypes[number];
 export const COMPATEC_BENCH_MAC_SUFFIX = "C1BDCB";
 export const VETTI_BENCH_MAC_SUFFIX = "2DE4A8";
+export const COMPATEC_PHYSICAL_ZONE_LIMIT = 23;
 
 export const remoteCommandSimulationInputSchema = z.object({
   alarmSystemId: z.number(),
@@ -179,4 +180,57 @@ export function buildCompatecSimulationFrames(input: {
     buildCompatecCommand("2", sectorArgs),
     buildCompatecCommand("1", sectorArgs),
   ];
+}
+
+export type CompatecPhysicalZoneCommandType = "isolate_zone" | "restore_zone";
+
+/** Quadros oficiais AK2→AK1 para alterar exclusivamente o bypass de uma zona. */
+export function buildCompatecPhysicalZoneFrames(input: {
+  commandType: CompatecPhysicalZoneCommandType;
+  zoneNumber: number;
+}) {
+  if (!Number.isInteger(input.zoneNumber) || input.zoneNumber < 1 || input.zoneNumber > COMPATEC_PHYSICAL_ZONE_LIMIT) {
+    throw new Error(`Zona Compatec fora do intervalo documentado de 1 a ${COMPATEC_PHYSICAL_ZONE_LIMIT}`);
+  }
+
+  const maskWord = "0008";
+  const valueWord = input.commandType === "isolate_zone" ? "0008" : "0000";
+  const maskArgs = buildSectorWordArgs(input.zoneNumber, maskWord, COMPATEC_PHYSICAL_ZONE_LIMIT);
+  const valueArgs = buildSectorWordArgs(input.zoneNumber, valueWord, COMPATEC_PHYSICAL_ZONE_LIMIT);
+  return [
+    `MB=AK2[${maskArgs}]${COMPATEC_LINE_END}`,
+    `MB=AK1[${valueArgs}]${COMPATEC_LINE_END}`,
+  ];
+}
+
+/** Armazena os quadros físicos de zona em formato estruturado e auditável. */
+export function buildCompatecPhysicalZonePayload(input: {
+  commandType: CompatecPhysicalZoneCommandType;
+  zoneNumber: number;
+  requestedBy?: string;
+}) {
+  const frames = buildCompatecPhysicalZoneFrames(input);
+  return JSON.stringify({
+    protocol: "Compatec MicroBus",
+    mode: "physical",
+    commandType: input.commandType,
+    partition: null,
+    zoneNumber: input.zoneNumber,
+    requestedBy: input.requestedBy?.trim() || null,
+    frames,
+    note: "Sequência física AK2→AK1; resposta KA1 confirma recebimento, não o estado final do bypass.",
+  });
+}
+
+export function validateCompatecPhysicalZoneTarget(input: {
+  commandType: string;
+  zoneNumber?: number | null;
+}) {
+  if (input.commandType !== "isolate_zone" && input.commandType !== "restore_zone") {
+    return "A ação Compatec física aceita somente isolamento ou restauração de zona";
+  }
+  if (!Number.isInteger(input.zoneNumber) || Number(input.zoneNumber) < 1 || Number(input.zoneNumber) > COMPATEC_PHYSICAL_ZONE_LIMIT) {
+    return `Selecione uma zona Compatec configurada entre 1 e ${COMPATEC_PHYSICAL_ZONE_LIMIT}`;
+  }
+  return undefined;
 }

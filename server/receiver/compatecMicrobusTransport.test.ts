@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_TOGGLE_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, isCompatecArmDisarmConfirmation, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
+import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_TOGGLE_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, getCompatecMw1StatusResponseLineForSocket, isCompatecArmDisarmConfirmation, isCompatecPhysicalZoneCommand, isCompatecPhysicalZoneConfirmation, rememberActiveCompatecSession, sendCompatecMw1BenchQuery, sendCompatecMw1StatusQuery } from "./compatecMicrobusTransport";
+import { buildCompatecPhysicalZonePayload } from "../remoteCommandContract";
 
 function fakeSocket() {
   const writes: string[] = [];
@@ -78,6 +79,39 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4[12]\r\n")).toBe(true);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA0[03FF]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_STATUS_QUERY, "MB=KA4[4]\r\n")).toBe(false);
+  });
+
+  it("envia isolamento físico AK2→AK1 e só considera KA1 resposta compatível", () => {
+    const socket = fakeSocket();
+    rememberActiveCompatecSession(socket, { id: 9340, account: "0340" });
+    const payload = buildCompatecPhysicalZonePayload({ commandType: "isolate_zone", zoneNumber: 3, requestedBy: "Cliente" });
+    expect(isCompatecPhysicalZoneCommand(payload)).toBe(true);
+    const dispatched = sendCompatecMw1BenchQuery({ alarmSystemId: 9340, commandId: 89, payload });
+    expect(dispatched.sent).toBe(true);
+    expect(socket.writes).toEqual([
+      "MB=AK2[0000,0000,0008,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000]\r\n",
+      "MB=AK1[0000,0000,0008,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000]\r\n",
+    ]);
+    expect(isCompatecPhysicalZoneConfirmation(payload, "MB=KA1\r\n")).toBe(true);
+    expect(isCompatecPhysicalZoneConfirmation(payload, "MB=KA1[0008]\r\n")).toBe(true);
+    expect(isCompatecPhysicalZoneConfirmation(payload, "MB=KA4[4]\r\n")).toBe(false);
+    expect(isCompatecPhysicalZoneCommand(JSON.stringify({ ...JSON.parse(payload), frames: ["MB=AK4[0]\r\n"] }))).toBe(false);
+  });
+
+  it("recompõe uma resposta KA1 fragmentada no mesmo socket, sem misturar sockets", () => {
+    const firstSocket = fakeSocket();
+    const otherSocket = fakeSocket();
+    expect(getCompatecMw1StatusResponseLineForSocket(firstSocket, Buffer.from("bytes MB=K", "latin1"))).toBeUndefined();
+    expect(getCompatecMw1StatusResponseLineForSocket(otherSocket, Buffer.from("A0[0001]\r\n", "latin1"))).toBeUndefined();
+    expect(getCompatecMw1StatusResponseLineForSocket(firstSocket, Buffer.from("A1[0008]\r\n", "latin1"))).toBe("MB=KA1[0008]\r\n");
+    expect(getCompatecMw1StatusResponseLineForSocket(otherSocket, Buffer.from("MB=KA0[0001]\r\n", "latin1"))).toBe("MB=KA0[0001]\r\n");
+  });
+
+  it("não classifica uma resposta KA1 truncada como recebida antes do delimitador", () => {
+    const socket = fakeSocket();
+    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("MB=KA1[", "latin1"))).toBeUndefined();
+    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("0008]", "latin1"))).toBeUndefined();
+    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("\r\n", "latin1"))).toBe("MB=KA1[0008]\r\n");
   });
 
 });

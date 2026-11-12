@@ -23,7 +23,7 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
     const updateDelivery = sourceBetween(
       dbSource,
       "export async function updateAlarmRemoteCommandDelivery",
-      "/** Anexa a solicitação do comando",
+      "/** Anexa nota somente ao atendimento",
     );
     const confirm = sourceBetween(
       dbSource,
@@ -47,8 +47,48 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
     expect(sync).toContain("[COMANDO REMOTO #${command.id}]");
     expect(sync).toContain("tx.insert(occurrences)");
     expect(sync).toContain("tx.update(occurrences)");
+    expect(sync).toContain('"isolate_zone", "restore_zone"');
+    expect(sync).toContain("payload.requestedBy");
+    expect(sync).toContain("payload.zoneNumber");
     expect(sync).not.toContain("alarmEvents");
     expect(sync).not.toContain("tx.insert(incidents)");
+  });
+
+  it("reserva zona Compatec exclusivamente e revalida cadastro ativo antes de cada envio", () => {
+    const reservation = sourceBetween(
+      dbSource,
+      "export async function createExclusiveCompatecPhysicalCommand",
+      "/** Compatibilidade para chamadas antigas",
+    );
+    const dispatch = sourceBetween(
+      dbSource,
+      "export async function dispatchAlarmRemoteCommand",
+      "/** Marca como indeterminado um despacho interrompido",
+    );
+    const pending = sourceBetween(
+      dbSource,
+      "export async function getPendingCompatecCommand",
+      "/** Compatibilidade com o nome histórico usado pelo receptor MicroBus",
+    );
+    expect(reservation).toContain('"arm", "disarm", "isolate_zone", "restore_zone"');
+    expect(reservation).toContain("await syncCompatecRemoteCommandOccurrence(tx, command)");
+    expect(dispatch.match(/if \(input\.requiredZoneNumber !== undefined\)/g)).toHaveLength(2);
+    expect(dispatch.match(/eq\(alarmZones\.isActive, true\)/g)).toHaveLength(2);
+    expect(dispatch).toContain("foi desativada antes da escrita do socket");
+    expect(pending).toContain('"isolate_zone", "restore_zone"');
+    expect(pending).toContain("zoneNumber: alarmRemoteCommands.zoneNumber");
+  });
+
+  it("registra resposta de zona como ACK KA1 sem definir panelConfirmedAt", () => {
+    const confirmation = sourceBetween(
+      dbSource,
+      "export async function recordRemoteCommandConfirmation",
+      "/**\n * Um evento Vetti",
+    );
+    expect(confirmation).toContain('command.commandType === "isolate_zone" || command.commandType === "restore_zone"');
+    expect(confirmation).toContain('"RESPOSTA KA1 RECEBIDA" : "CONFIRMADO"');
+    expect(confirmation).toContain("...(isZoneBypassCommand ? {} : { panelConfirmedAt: confirmedAt })");
+    expect(confirmation).toContain("syncCompatecRemoteCommandOccurrence(tx, updatedCommand)");
   });
 
   it("inclui comandos antigos na migração VPS de forma idempotente e vinculados ao cliente correto", () => {

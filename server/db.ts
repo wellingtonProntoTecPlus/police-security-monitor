@@ -1070,7 +1070,7 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
   if (
     command.brand !== "COMPATEC"
     || command.transportMode !== "microbus_compatec"
-    || !["arm", "disarm"].includes(command.commandType)
+    || !["arm", "disarm", "isolate_zone", "restore_zone"].includes(command.commandType)
   ) return null;
 
   const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1);
@@ -1079,6 +1079,15 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     : [];
   const [operator] = await tx.select({ name: users.name }).from(users).where(eq(users.id, command.operatorId)).limit(1);
   const operatorName = operator?.name || "Operador autenticado";
+  let requesterName: string | null = null;
+  let zoneNumber = command.zoneNumber;
+  try {
+    const payload = JSON.parse(command.commandPayload);
+    if (typeof payload.requestedBy === "string") requesterName = payload.requestedBy;
+    if (Number.isInteger(payload.zoneNumber)) zoneNumber = payload.zoneNumber;
+  } catch {
+    // Payloads legados podem ser quadros crus; mantêm o registro sem metadados adicionais.
+  }
   const marker = `[COMANDO REMOTO #${command.id}]`;
   const text = buildRemoteCommandOccurrenceText({
     commandId: command.id,
@@ -1087,6 +1096,8 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     reason: command.reason,
     status: command.status,
     response: command.responsePayload,
+    requestedBy: requesterName,
+    zoneNumber,
   });
   const occurredAt = command.panelConfirmedAt || command.executedAt || command.updatedAt || command.createdAt;
   const values = {
@@ -1168,8 +1179,8 @@ export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRe
       .where(and(
         eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
         eq(alarmRemoteCommands.brand, "COMPATEC"),
-        eq(alarmRemoteCommands.transportMode, "microbus_compatec"),
-        inArray(alarmRemoteCommands.commandType, ["arm", "disarm"]),
+        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
+        inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone"]),
         inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "dispatching", "dispatch_unknown", "sent"]),
       ))
       .orderBy(alarmRemoteCommands.id)
@@ -1272,6 +1283,7 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
 export async function dispatchAlarmRemoteCommand(input: {
   alarmSystemId: number;
   commandId: number;
+  requiredZoneNumber?: number;
   expectedStatuses: string[];
   unavailableStatus: string;
   sentResponsePayload: string;
@@ -1295,6 +1307,21 @@ export async function dispatchAlarmRemoteCommand(input: {
       .where(and(eq(alarmRemoteCommands.id, input.commandId), eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId)))
       .for("update").limit(1);
     if (!command) return { claimed: false as const, status: "cancelled", message: "Comando não encontrado para esta central." };
+    if (input.requiredZoneNumber !== undefined) {
+      const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(
+        eq(alarmZones.alarmSystemId, input.alarmSystemId),
+        eq(alarmZones.zoneNumber, input.requiredZoneNumber),
+        eq(alarmZones.isActive, true),
+      )).for("update").limit(1);
+      if (!zone) {
+        if (input.expectedStatuses.includes(command.status)) {
+          const responsePayload = `Comando cancelado sem transmissão: zona ${input.requiredZoneNumber} não está mais cadastrada como ativa.`;
+          await tx.update(alarmRemoteCommands).set({ status: "failed", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+          await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "failed", responsePayload });
+        }
+        return { claimed: false as const, status: "failed", message: `A zona ${input.requiredZoneNumber} não está mais cadastrada como ativa; nenhum quadro foi transmitido.` };
+      }
+    }
     if (!client || !system) {
       if (input.expectedStatuses.includes(command.status)) {
         const responsePayload = "Comando cancelado antes da transmissão: central ou cliente não está ativo.";
@@ -1326,6 +1353,19 @@ export async function dispatchAlarmRemoteCommand(input: {
       .for("update").limit(1);
     if (!command || command.status !== "dispatching") {
       return { sent: false as const, status: command?.status || "cancelled", message: "O comando deixou de estar reservado para transmissão." };
+    }
+    if (input.requiredZoneNumber !== undefined) {
+      const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(
+        eq(alarmZones.alarmSystemId, input.alarmSystemId),
+        eq(alarmZones.zoneNumber, input.requiredZoneNumber),
+        eq(alarmZones.isActive, true),
+      )).for("update").limit(1);
+      if (!zone) {
+        const responsePayload = `Comando cancelado sem transmissão: zona ${input.requiredZoneNumber} foi desativada antes da escrita do socket.`;
+        await tx.update(alarmRemoteCommands).set({ status: "failed", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "failed", responsePayload });
+        return { sent: false as const, status: "failed", message: `A zona ${input.requiredZoneNumber} foi desativada; nenhum quadro foi transmitido.` };
+      }
     }
     if (!client || !system) {
       const responsePayload = "Comando cancelado antes da escrita: a central ou o cliente foi desativado.";
@@ -1373,13 +1413,17 @@ export async function expireStaleRemoteCommandDispatches(referenceTime = new Dat
   });
 }
 
-/** Anexa a solicitação do comando à ocorrência já aberta, sem criar um evento falso. */
-export async function appendIncidentNote(incidentId: number, note: string) {
+/** Anexa nota somente ao atendimento aberto da mesma central, sem criar evento falso. */
+export async function appendIncidentNote(incidentId: number, alarmSystemId: number, note: string) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   await db.update(incidents).set({
     notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${note}`})`,
-  }).where(and(eq(incidents.id, incidentId), ne(incidents.status, "closed")));
+  }).where(and(
+    eq(incidents.id, incidentId),
+    eq(incidents.alarmSystemId, alarmSystemId),
+    ne(incidents.status, "closed"),
+  ));
 }
 
 /**
@@ -1403,18 +1447,19 @@ export async function recordRemoteCommandConfirmation(input: {
       .for("update");
     if (!command) return { recorded: false as const };
 
+    const isZoneBypassCommand = command.commandType === "isolate_zone" || command.commandType === "restore_zone";
     const updatedCommand = {
       ...command,
       status: "responded",
       responsePayload: input.responsePayload,
-      panelConfirmedAt: confirmedAt,
+      panelConfirmedAt: isZoneBypassCommand ? command.panelConfirmedAt : confirmedAt,
       executedAt: confirmedAt,
       updatedAt: confirmedAt,
     };
     await tx.update(alarmRemoteCommands).set({
       status: "responded",
       responsePayload: input.responsePayload,
-      panelConfirmedAt: confirmedAt,
+      ...(isZoneBypassCommand ? {} : { panelConfirmedAt: confirmedAt }),
       executedAt: confirmedAt,
     }).where(eq(alarmRemoteCommands.id, command.id));
 
@@ -1423,25 +1468,33 @@ export async function recordRemoteCommandConfirmation(input: {
     const actionLabel = getRemoteCommandActionLabel(command.commandType);
     const isCompatecPhysicalAction = command.brand === "COMPATEC"
       && command.transportMode === "microbus_compatec"
-      && ["arm", "disarm"].includes(command.commandType);
+      && ["arm", "disarm", "isolate_zone", "restore_zone"].includes(command.commandType);
     const occurrenceId = isCompatecPhysicalAction
       ? await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)
       : null;
+    let requesterName: string | null = null;
+    try {
+      const payload = JSON.parse(command.commandPayload);
+      if (typeof payload.requestedBy === "string") requesterName = payload.requestedBy;
+    } catch { /* Comandos legados não incluem solicitante separado. */ }
     const incidentNote = buildRemoteCommandIncidentNotes({
       commandId: command.id,
       commandLabel: actionLabel,
       requestedBy: operatorName,
+      requesterName,
+      zoneNumber: command.zoneNumber,
       reason: command.reason,
       response: input.responsePayload,
+      commandType: command.commandType,
     });
 
     if (command.incidentId) {
-      const [incident] = await tx.select({ id: incidents.id, status: incidents.status, notes: incidents.notes })
+      const [incident] = await tx.select({ id: incidents.id, alarmSystemId: incidents.alarmSystemId, status: incidents.status, notes: incidents.notes })
         .from(incidents)
-        .where(eq(incidents.id, command.incidentId))
+        .where(and(eq(incidents.id, command.incidentId), eq(incidents.alarmSystemId, command.alarmSystemId)))
         .limit(1);
       if (incident && incident.status !== "closed") {
-        const marker = `[COMANDO REMOTO #${command.id} CONFIRMADO]`;
+        const marker = `[COMANDO REMOTO #${command.id} ${isZoneBypassCommand ? "RESPOSTA KA1 RECEBIDA" : "CONFIRMADO"}]`;
         if (!incident.notes?.includes(marker)) {
           await tx.update(incidents).set({
             notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${incidentNote}`})`,
@@ -1577,10 +1630,11 @@ export async function getPendingCompatecCommand(alarmSystemId: number) {
   const result = await db.select({
     id: alarmRemoteCommands.id,
     commandPayload: alarmRemoteCommands.commandPayload,
+    zoneNumber: alarmRemoteCommands.zoneNumber,
   }).from(alarmRemoteCommands).where(and(
     eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
     eq(alarmRemoteCommands.brand, "COMPATEC"),
-    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm"]),
+    inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone"]),
     inArray(alarmRemoteCommands.transportMode, ["microbus_bench", "microbus_compatec"]),
     eq(alarmRemoteCommands.status, "waiting_connection"),
   )).orderBy(alarmRemoteCommands.id).limit(1);

@@ -178,6 +178,15 @@ function getRemoteProtocolMode(commandPayload?: string | null) {
   }
 }
 
+function getRemoteCommandRequester(commandPayload?: string | null) {
+  try {
+    const parsed = JSON.parse(commandPayload || "{}");
+    return typeof parsed.requestedBy === "string" ? parsed.requestedBy : null;
+  } catch {
+    return null;
+  }
+}
+
 function incidentStatusToQueueStatus(status?: string): QueueStatus {
   if (status === "attending") return "attending";
   if (status === "observing") return "observing";
@@ -276,8 +285,10 @@ export default function Dashboard() {
   const [remoteCommandOpen, setRemoteCommandOpen] = useState(false);
   const [remoteCommandType, setRemoteCommandType] = useState<RemoteCommandType>("arm");
   const [remoteCommandReason, setRemoteCommandReason] = useState("");
+  const [remoteCommandRequester, setRemoteCommandRequester] = useState("");
   const [remoteCommandZone, setRemoteCommandZone] = useState("");
   const [remoteCommandPgm, setRemoteCommandPgm] = useState("");
+  const [remoteCommandPartition, setRemoteCommandPartition] = useState("1");
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
@@ -289,6 +300,7 @@ export default function Dashboard() {
   const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
   const simulateRemoteCommandMut = trpc.remoteCommand.simulate.useMutation();
+  const compatecZonePhysicalMut = trpc.remoteCommand.compatecZonePhysical.useMutation();
   const queryBenchStatusMut = trpc.remoteCommand.queryBenchStatus.useMutation();
   const queryVettiBenchStatusMut = trpc.remoteCommand.queryVettiBenchStatus.useMutation();
   const disarmVettiBenchMut = trpc.remoteCommand.disarmVettiBench.useMutation();
@@ -446,6 +458,10 @@ export default function Dashboard() {
   const selectedRemoteSystemId = selectedRemoteIdentity.systemId;
   const selectedRemoteBrand = selectedRemoteIdentity.brand;
   const { data: remoteCommandPgms = [] } = trpc.alarmPgm.list.useQuery({ alarmSystemId: selectedRemoteSystemId || 0 }, { enabled: Boolean(selectedRemoteSystemId) });
+  const { data: remoteCompatecZones = [], isLoading: remoteCompatecZonesLoading } = trpc.alarmZone.list.useQuery(
+    { alarmSystemId: selectedRemoteSystemId || 0 },
+    { enabled: Boolean(selectedRemoteSystemId) && selectedRemoteBrand === "COMPATEC" },
+  );
   const { data: remoteCredentialStatus } = trpc.alarmSystem.remoteCommandCredentialStatus.useQuery(
     { alarmSystemId: selectedRemoteSystemId || 0 },
     { enabled: Boolean(selectedRemoteSystemId) && selectedRemoteBrand === "INTELBRAS", refetchInterval: 10_000, retry: false },
@@ -516,7 +532,7 @@ export default function Dashboard() {
     if (realtimeEvents.length === 0) return;
     const newEvents: QueueEvent[] = [];
     realtimeEvents.forEach((ev) => {
-      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation" || ev.kind === "remote_command_confirmation" || ev.kind === "radioenge_observation_escalated" || ev.kind === "alarm_schedule_alert") {
+      if (ev.kind === "keepalive" || ev.kind === "arm_disarm_confirmation" || ev.kind === "remote_command_confirmation" || ev.kind === "remote_command_ack" || ev.kind === "radioenge_observation_escalated" || ev.kind === "alarm_schedule_alert") {
         const operationalKey = `${ev.kind}-${ev.alarmSystemId || "unknown"}-${ev.timestamp}`;
         if (processedOperationalRefreshesRef.current.has(operationalKey)) return;
         processedOperationalRefreshesRef.current.add(operationalKey);
@@ -535,6 +551,10 @@ export default function Dashboard() {
           void utils.incident.openQueue.invalidate();
           void utils.dashboard.armDisarmStatus.invalidate();
           toast.success(`${ev.actionLabel || "Comando remoto"} confirmado pela central.`);
+        } else if (ev.kind === "remote_command_ack") {
+          if (ev.alarmSystemId) void utils.remoteCommand.list.invalidate({ alarmSystemId: ev.alarmSystemId, limit: 8 });
+          if (ev.incidentId) void utils.incident.openQueue.invalidate();
+          toast.success(`${ev.actionLabel || "Comando de zona"}: resposta KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.`, { duration: 12_000 });
         } else if (ev.kind === "radioenge_observation_escalated") {
           void utils.incident.openQueue.invalidate();
           startAlertSound();
@@ -1276,8 +1296,12 @@ export default function Dashboard() {
     }
     setRemoteCommandType(commandType);
     setRemoteCommandReason("");
-    setRemoteCommandZone(commandType === "isolate_zone" || commandType === "restore_zone" ? String(Number(selectedEvent.zoneUser || 0) || "") : "");
+    setRemoteCommandRequester("");
+    setRemoteCommandZone(commandType === "isolate_zone" || commandType === "restore_zone"
+      ? selectedRemoteBrand === "COMPATEC" ? "" : String(Number(selectedEvent.zoneUser || 0) || "")
+      : "");
     setRemoteCommandPgm("");
+    setRemoteCommandPartition("1");
     setRemoteCommandOpen(true);
   }
 
@@ -1314,6 +1338,54 @@ export default function Dashboard() {
         void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedRemoteSystemId, limit: 8 });
       },
       onError: (error) => toast.error(error.message),
+    });
+  }
+
+  function submitCompatecZonePhysical() {
+    if (!selectedEvent || !selectedRemoteSystemId || selectedRemoteBrand !== "COMPATEC") return;
+    if (remoteCommandType !== "isolate_zone" && remoteCommandType !== "restore_zone") {
+      toast.error("Selecione Inibir Zona ou Restaurar Zona.");
+      return;
+    }
+    const zoneNumber = Number(remoteCommandZone);
+    const zone = remoteCompatecZones.find((item: any) => item.zoneNumber === zoneNumber && item.isActive);
+    if (!zone) {
+      toast.error("Selecione uma zona ativa cadastrada nesta central.");
+      return;
+    }
+    if (remoteCommandRequester.trim().length < 2 || remoteCommandReason.trim().length < 5) {
+      toast.error("Informe quem solicitou e o motivo operacional.");
+      return;
+    }
+
+    const actionLabel = remoteCommandType === "isolate_zone" ? "INIBIR ZONA" : "RESTAURAR ZONA";
+    const confirmed = window.confirm(
+      `CONFIRMAR ${actionLabel} FÍSICO?\n\nConta ${selectedEvent.account} · ${selectedEvent.systemModel}\nMAC ${selectedSystem?.macAddress || "não cadastrado"} · Serial ${selectedSystem?.serialNumber || "não cadastrado"} · Porta ${selectedSystem?.receiverPort || "não informada"}\nZona ${zoneNumber} · ${zone.name}\nOperador ${user?.name || "autenticado"}\nSolicitado por ${remoteCommandRequester.trim()}\n\nMotivo: ${remoteCommandReason.trim()}\n\nSerão enviados AK2 e, em seguida, AK1 pela sessão TCP da central identificada por seu cadastro físico e porta Compatec. A resposta KA1 indica recebimento do comando, não confirma o estado final do bypass. O registro irá ao relatório sem gerar Contact ID ou cartão na fila.`,
+    );
+    if (!confirmed) return;
+
+    compatecZonePhysicalMut.mutate({
+      alarmSystemId: selectedRemoteSystemId,
+      incidentId: selectedEvent.incidentId,
+      commandType: remoteCommandType,
+      zoneNumber,
+      requestedBy: remoteCommandRequester.trim(),
+      reason: remoteCommandReason.trim(),
+    }, {
+      onSuccess: async (result) => {
+        const waiting = result.status === "waiting_connection" || result.status === "queued";
+        if (waiting) {
+          toast.success(`Solicitação registrada; ainda não foi enviada. Aguarda a próxima sessão Compatec identificada pelo cadastro físico e porta do receptor. Comando #${result.id}.`);
+        } else if (result.status === "sent") {
+          toast.success(`Quadros enviados; aguarda-se resposta KA1. O relatório registrará o resultado sem abrir item na fila. Comando #${result.id}.`);
+        } else {
+          toast.error(result.message || `Comando não enviado ou resultado indeterminado (${result.status}); consulte o relatório antes de qualquer nova ação.`);
+        }
+        setRemoteCommandOpen(false);
+        await utils.remoteCommand.list.invalidate({ alarmSystemId: selectedRemoteSystemId, limit: 8 });
+        if (selectedEvent.incidentId) await utils.incident.openQueue.invalidate();
+      },
+      onError: (error) => toast.error(`Comando físico não enviado: ${error.message}`),
     });
   }
 
@@ -1844,9 +1916,9 @@ export default function Dashboard() {
           <div className="flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border border-cyan-400/35 bg-card shadow-2xl sm:max-h-[90dvh] sm:w-[min(760px,96vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-cyan-400/25 bg-cyan-400/5 px-5 py-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{selectedRemoteBrand === "VETTI" ? "Comando remoto Vetti VSec · simulações e controle físico de bancada" : selectedRemoteBrand === "INTELBRAS" ? "Comando remoto Intelbras AMT-8000 · simulação" : "Comando remoto Compatec · simulações e Arme/Desarme físico"}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{selectedRemoteBrand === "VETTI" ? "Comando remoto Vetti VSec · simulações e controle físico de bancada" : selectedRemoteBrand === "INTELBRAS" ? "Comando remoto Intelbras AMT-8000 · simulação" : "Comando remoto Compatec · Arme/Desarme e Inibir/Restaurar Zona físicos"}</p>
                 <h3 className="mt-1 text-lg font-bold text-foreground">Conta {selectedEvent.account} · {selectedEvent.systemModel}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedRemoteBrand === "VETTI" ? "Simulados: Arme, Zona e PGM. Físicos controlados: consulta 0x14 e Desarme 0x43, exclusivamente na bancada Vetti autorizada." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O comando físico está temporariamente bloqueado: o fluxo implementado usa uma credencial de programação, mas Arme/Desarme deve usar a Senha Master (ou usuário permitido) no protocolo da central." : "O Arme físico AK4[4] e o Desarme físico AK4[12] estão disponíveis para centrais Compatec ativas e cadastradas. O comando só é transmitido pela conexão autenticada da própria central. Partições, setores, Toggle e PGM continuam bloqueados para transmissão."}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{selectedRemoteBrand === "VETTI" ? "Simulados: Arme, Zona e PGM. Físicos controlados: consulta 0x14 e Desarme 0x43, exclusivamente na bancada Vetti autorizada." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O comando físico está temporariamente bloqueado: o fluxo implementado usa uma credencial de programação, mas Arme/Desarme deve usar a Senha Master (ou usuário permitido) no protocolo da central." : "Arme/Desarme total usam AK4[4]/AK4[12]. Inibir/Restaurar Zona usa AK2→AK1 para zona ativa cadastrada; KA1 indica recebimento, não estado final do bypass. O envio usa a sessão TCP identificada pelo cadastro físico Compatec e porta do receptor. Partições/Stay, Toggle e PGM permanecem bloqueados."}</p>
               </div>
               <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setRemoteCommandOpen(false)} aria-label="Fechar comando remoto"><X className="h-5 w-5" /></button>
             </div>
@@ -1855,13 +1927,17 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-2">
                   {(Object.keys(REMOTE_COMMAND_LABELS) as RemoteCommandType[]).filter((command) => selectedRemoteBrand === "INTELBRAS" ? command === "arm" || command === "disarm" : selectedRemoteBrand !== "VETTI" || command !== "restore_zone" || vettiTwentyFourHourZones.length > 0).map((command) => <Button key={command} type="button" variant={remoteCommandType === command ? "default" : "outline"} className="h-auto min-h-11 justify-start whitespace-normal text-left text-xs" onClick={() => setRemoteCommandType(command)}>{REMOTE_COMMAND_LABELS[command]}</Button>)}
                 </div>
-                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">{selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" ? "Zona 24 horas" : "Zona"}{selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" ? <select value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a zona 24 horas</option>{vettiTwentyFourHourZones.map((zone: any) => <option key={zone.id} value={zone.zoneNumber}>Zona {zone.zoneNumber} · {zone.name}</option>)}</select> : <input type="number" min="1" max={selectedRemoteBrand === "VETTI" ? "511" : "10"} value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder={selectedRemoteBrand === "VETTI" ? "De 1 a 511" : "De 1 a 10"} />}</label>}
+                {(remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">{selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" ? "Zona 24 horas" : "Zona"}{selectedRemoteBrand === "VETTI" && remoteCommandType === "restore_zone" ? <select value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a zona 24 horas</option>{vettiTwentyFourHourZones.map((zone: any) => <option key={zone.id} value={zone.zoneNumber}>Zona {zone.zoneNumber} · {zone.name}</option>)}</select> : selectedRemoteBrand === "COMPATEC" ? <select value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} disabled={remoteCompatecZonesLoading} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">{remoteCompatecZonesLoading ? "Carregando zonas..." : "Selecione uma zona ativa cadastrada"}</option>{remoteCompatecZones.filter((zone: any) => zone.isActive && zone.zoneNumber >= 1 && zone.zoneNumber <= 23).map((zone: any) => <option key={zone.id} value={zone.zoneNumber}>Zona {zone.zoneNumber} · {zone.name}</option>)}</select> : <input type="number" min="1" max={selectedRemoteBrand === "VETTI" ? "511" : "10"} value={remoteCommandZone} onChange={(event) => setRemoteCommandZone(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder={selectedRemoteBrand === "VETTI" ? "De 1 a 511" : "De 1 a 10"} />}</label>}
+                {selectedRemoteBrand === "COMPATEC" && (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && !remoteCompatecZonesLoading && remoteCompatecZones.filter((zone: any) => zone.isActive && zone.zoneNumber >= 1 && zone.zoneNumber <= 23).length === 0 && <p className="-mt-2 text-xs text-amber-100">Não há zonas ativas (1–23) cadastradas para esta central. Nenhum comando físico será habilitado.</p>}
+                {selectedRemoteBrand === "COMPATEC" && (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <label className="block text-sm font-medium text-foreground">Solicitado por<Textarea className="mt-1 min-h-16" value={remoteCommandRequester} onChange={(event) => setRemoteCommandRequester(event.target.value)} placeholder="Nome do cliente ou responsável que pediu a alteração" /></label>}
                 {selectedRemoteBrand === "VETTI" && <p className="-mt-2 text-xs leading-relaxed text-muted-foreground">Para zona comum: desarme, isole e arme novamente; o próximo Desarme a restaura. <strong className="text-amber-200">Restaurar Zona</strong> só é exibido para zonas 24 horas.</p>}
                 {remoteCommandType === "activate_pgm" && <label className="block text-sm font-medium text-foreground">PGM <select value={remoteCommandPgm} onChange={(event) => setRemoteCommandPgm(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione a PGM</option>{remoteCommandPgms.map((pgm: any) => <option key={pgm.id} value={pgm.pgmNumber}>PGM {pgm.pgmNumber} · {pgm.name}</option>)}{remoteCommandPgms.length === 0 && Array.from({ length: selectedRemoteBrand === "VETTI" ? 32 : 16 }, (_, index) => <option key={index + 1} value={index + 1}>PGM {index + 1}</option>)}</select></label>}
                 <label className="block text-sm font-medium text-foreground">Motivo operacional <Textarea className="mt-1 min-h-24" value={remoteCommandReason} onChange={(event) => setRemoteCommandReason(event.target.value)} placeholder="Ex.: cliente confirmado por telefone; operador solicitou o comando durante o atendimento." /></label>
-                <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Operador autenticado:</strong> sua sessão ativa identificará automaticamente quem confirmou esta ação. Comando físico exige credencial técnica cadastrada e confirmação da própria central.</div>
-                <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>
-                {selectedRemoteBrand === "COMPATEC" && <><Button className="w-full border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false || armCompatecAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchArmAll}>{armCompatecAllMut.isPending ? "Enviando Arme..." : "Armar central Compatec (MB=AK4[4])"}</Button><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button><Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmBenchAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchDisarmAll}>{disarmBenchAllMut.isPending ? "Enviando Desarme..." : "Desarmar central Compatec (MB=AK4[12])"}</Button><p className="text-center text-[11px] text-muted-foreground">Desarme físico oficial do MW1: MB=AK4[12]. Arme oficial MB=AK4[4] disponível para centrais Compatec ativas e cadastradas; partições, setores, Toggle e PGMs continuam bloqueados. Toda ação exige motivo, operador e confirmação explícita.</p></>}
+                <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Operador autenticado:</strong> sua sessão ativa identifica quem registrou a ação. {selectedRemoteBrand === "COMPATEC" && (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") ? "Zona Compatec exige solicitante e motivo; KA1 informa recebimento, não confirma o estado final do bypass." : "Outros comandos físicos exigem os requisitos de segurança e a resposta previstos para cada protocolo."}</div>
+                {!(selectedRemoteBrand === "COMPATEC" && (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone")) && <Button className="w-full bg-cyan-600 text-white hover:bg-cyan-700" disabled={simulateRemoteCommandMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitRemoteCommandSimulation}>{simulateRemoteCommandMut.isPending ? "Registrando..." : `Confirmar simulação: ${REMOTE_COMMAND_LABELS[remoteCommandType]}`}</Button>}
+                {selectedRemoteBrand === "COMPATEC" && (remoteCommandType === "isolate_zone" || remoteCommandType === "restore_zone") && <Button className="w-full border border-amber-400/60 bg-amber-500/15 text-amber-50 hover:bg-amber-500/25" disabled={selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false || remoteCompatecZonesLoading || compatecZonePhysicalMut.isPending || !remoteCommandZone || remoteCommandRequester.trim().length < 2 || remoteCommandReason.trim().length < 5} onClick={submitCompatecZonePhysical}>{compatecZonePhysicalMut.isPending ? "Registrando comando físico..." : remoteCommandType === "isolate_zone" ? "Inibir zona física (AK2 → AK1)" : "Restaurar zona física (AK2 → AK1)"}</Button>}
+                {selectedRemoteBrand === "COMPATEC" && remoteCommandType === "arm" && <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3"><label className="block text-sm font-medium text-foreground">Preparação do futuro Arme por partição / Stay<select value={remoteCommandPartition} onChange={(event) => setRemoteCommandPartition(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="1">Partição 1</option><option value="2">Partição 2</option><option value="3">Partição 3</option></select></label><Button type="button" variant="outline" className="mt-2 w-full" disabled>Arme por partição indisponível até homologação Compatec</Button><p className="mt-2 text-xs leading-relaxed text-amber-100">A Compatec informou que ainda não identifica o estado individual das partições. Os comandos AK4[9–11] são toggle; não serão enviados para evitar armar/desarmar sem saber o estado real.</p></div>}
+                {selectedRemoteBrand === "COMPATEC" && <><Button className="w-full border border-emerald-400/60 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25" disabled={selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false || armCompatecAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchArmAll}>{armCompatecAllMut.isPending ? "Enviando Arme..." : "Armar central Compatec (MB=AK4[4])"}</Button><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchStatusQuery}>{queryBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar central de bancada (MB=AK0)"}</Button><Button className="w-full border border-violet-400/50 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20" disabled={!selectedSystem?.remoteCommandLabEnabled || queryBenchSectorsMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchSectorsQuery}>{queryBenchSectorsMut.isPending ? "Consultando setores..." : "Consultar setores da bancada (MB=AK1)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmBenchAllMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitCompatecBenchDisarmAll}>{disarmBenchAllMut.isPending ? "Enviando Desarme..." : "Desarmar central Compatec (MB=AK4[12])"}</Button><p className="text-center text-[11px] text-muted-foreground">Arme/Desarme total usam AK4[4]/AK4[12]. Inibir/Restaurar Zona utiliza somente AK2→AK1, com confirmação e auditoria. Arme Stay/por partição está apenas preparado na tela; não será transmitido enquanto a Compatec não homologar uma resposta que identifique o estado de cada partição. Nenhuma ação de zona cria evento Contact ID ou cartão na fila.</p></>}
                 {selectedRemoteBrand === "VETTI" && <><Button className="w-full border border-orange-400/50 bg-orange-500/10 text-orange-100 hover:bg-orange-500/20" disabled={queryVettiBenchStatusMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchStatusQuery}>{queryVettiBenchStatusMut.isPending ? "Enviando consulta..." : "Consultar status da central de testes (VSec 0x14)"}</Button><Button className="w-full border border-red-400/60 bg-red-500/15 text-red-50 hover:bg-red-500/25" disabled={disarmVettiBenchMut.isPending || remoteCommandReason.trim().length < 5} onClick={submitVettiBenchDisarm}>{disarmVettiBenchMut.isPending ? "Enviando Desarme..." : "Desarmar central de testes (VSec 0x43)"}</Button><p className="text-center text-[11px] text-muted-foreground">Na bancada Vetti 0336, a consulta `0x14` e o Desarme `0x43` exigem modo de bancada ativo, login remoto, auditoria e resposta da central. Arme, Zona e PGM continuam somente em simulação.</p></>}
                 {selectedRemoteBrand === "INTELBRAS" && <div className="space-y-2">
                   <div role="alert" className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 text-center text-xs leading-relaxed text-amber-100">{INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE} A Senha Master é diferente da senha de configuração/acesso remoto.</div>
@@ -1885,9 +1961,9 @@ export default function Dashboard() {
               </div>
               <div className="rounded-lg border border-border bg-black/15 p-4">
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
-                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "O Arme AK4[4] e o Desarme AK4[12] exigem confirmação explícita e conexão autenticada da própria central. Toggle, Zona e PGM permanecem bloqueados para transmissão." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O fluxo físico apresentado em registros antigos está bloqueado até correção; a senha de configuração/acesso remoto não é a Senha Master usada para Arme/Desarme." : "A consulta VSec 0x14 e o Desarme 0x43 da central de testes podem ser físicos; Arme, Zona e PGM Vetti permanecem simulados."}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "Arme/Desarme total usam AK4[4]/AK4[12]; Inibir/Restaurar Zona transmite AK2→AK1 pela conexão autenticada. A resposta KA1 informa recebimento, não confirma o estado final do bypass. Arme Stay/partição continua bloqueado até homologação Compatec; PGM não está habilitada nesta ação." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O fluxo físico apresentado em registros antigos está bloqueado até correção; a senha de configuração/acesso remoto não é a Senha Master usada para Arme/Desarme." : "A consulta VSec 0x14 e o Desarme 0x43 da central de testes podem ser físicos; Arme, Zona e PGM Vetti permanecem simulados."}</p>
                 <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{REMOTE_COMMAND_STATUS_LABELS[command.status] || command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{getRemoteProtocolMode(command.commandPayload) === "physical" ? "Quadro físico (senha não armazenada)" : "Quadro simulado"}</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "responded" && (command.commandType === "isolate_zone" || command.commandType === "restore_zone") ? "Resposta KA1 recebida · bypass não confirmado" : REMOTE_COMMAND_STATUS_LABELS[command.status] || command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.zoneNumber && <p className="mt-1 text-xs text-cyan-100">Zona: {command.zoneNumber}</p>}{getRemoteCommandRequester(command.commandPayload) && <p className="mt-1 text-xs text-cyan-100">Solicitado por: {getRemoteCommandRequester(command.commandPayload)}</p>}{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{getRemoteProtocolMode(command.commandPayload) === "physical" ? "Quadro físico (senha não armazenada)" : "Quadro simulado"}</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>

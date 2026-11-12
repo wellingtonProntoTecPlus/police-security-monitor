@@ -67,6 +67,44 @@ describe("auditoria de comandos remotos", () => {
     expect(occurrence.observations).not.toContain("Confirmado pela central.");
   });
 
+  it("registra Inibir Zona e o ACK KA1 sem afirmar que o bypass foi confirmado", () => {
+    const occurrence = buildRemoteCommandOccurrenceText({
+      commandId: 64,
+      commandType: "isolate_zone",
+      operatorName: "Amanda",
+      requestedBy: "Sr. Wellington",
+      zoneNumber: 23,
+      reason: "Janela em manutenção",
+      status: "responded",
+      response: "MB=KA1",
+    });
+    expect(occurrence.description).toContain("Inibição de zona via PoliceCentral");
+    expect(occurrence.description).toContain("Resposta KA1 recebida");
+    expect(occurrence.description).toContain("não confirmação do estado final do bypass");
+    expect(occurrence.observations).toContain("Operador: Amanda");
+    expect(occurrence.observations).toContain("Solicitado por: Sr. Wellington");
+    expect(occurrence.observations).toContain("Zona: 23");
+    expect(occurrence.observations).not.toContain("Confirmado pela central.");
+  });
+
+  it("distingue Restaurar Zona do isolamento e preserva o solicitante no atendimento", () => {
+    expect(getRemoteCommandActionLabel("restore_zone")).toBe("Restauração de zona via PoliceCentral");
+    expect(getRemoteCommandOutcomeLabel("responded", "restore_zone")).toContain("não confirmação do estado final do bypass");
+    const note = buildRemoteCommandIncidentNotes({
+      commandId: 65,
+      commandLabel: "Restauração de zona via PoliceCentral",
+      commandType: "restore_zone",
+      requestedBy: "Operador autenticado",
+      requesterName: "Cliente",
+      zoneNumber: 1,
+      response: "MB=KA1",
+    });
+    expect(note).toContain("RESPOSTA KA1 RECEBIDA");
+    expect(note).toContain("Solicitado por: Cliente");
+    expect(note).toContain("não confirma o estado final do bypass");
+    expect(note).not.toContain("CONFIRMADO]");
+  });
+
   it("distingue comando aguardando conexão de comando enviado", () => {
     expect(getRemoteCommandOutcomeLabel("waiting_connection")).toBe("Ainda não enviado; aguardando conexão autenticada da central.");
     expect(getRemoteCommandOutcomeLabel("sent")).toBe("Enviado à central; aguardando confirmação.");

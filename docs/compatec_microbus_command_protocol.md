@@ -156,4 +156,25 @@ Para setores individuais, a Compatec confirmou `MB=AK4[0,máscara]\r\n`: bit `0`
 
 O PoliceCentral usa `MB=AK4[4]\r\n` no Arme físico e `MB=AK4[12]\r\n` no Desarme físico oficial para centrais Compatec ativas e cadastradas. O quadro `MB=AK4[0,03FF]\r\n` permanece somente como evidência histórica do teste realizado na bancada; ele não é mais o quadro preferencial do software. O Toggle `MB=AK4[0]\r\n` não será usado nos botões ARMAR/DESARMAR, porque sua ação depende do estado atual e pode inverter o painel de forma inesperada.
 
-Os quadros oficiais de Arme `MB=AK4[4]\r\n` e Desarme `MB=AK4[12]\r\n` ficam disponíveis para todas as centrais Compatec ativas e cadastradas. Cada ação exige operador, motivo, confirmação explícita e transmissão somente pela sessão TCP autenticada da própria central; se ela estiver desconectada, o comando permanece aguardando o próximo contato identificado. Partições, setores, Toggle e PGMs continuam bloqueados para transmissão física. As consultas `MB=AK0\r\n` e `MB=AK1\r\n` continuam restritas ao modo técnico de bancada.
+Os quadros oficiais de Arme `MB=AK4[4]\r\n` e Desarme `MB=AK4[12]\r\n` ficam disponíveis para todas as centrais Compatec ativas e cadastradas. Cada ação exige operador, motivo, confirmação explícita e transmissão pela sessão TCP do painel associada a uma identidade física única cadastrada e à porta compatível do receptor; se ela estiver desconectada, o comando permanece aguardando o próximo contato identificado. Partições, setores, Toggle e PGMs continuam bloqueados para transmissão física. As consultas `MB=AK0\r\n` e `MB=AK1\r\n` continuam restritas ao modo técnico de bancada.
+
+## Isolamento e restauração de zona via MW1 — especificação Continente/Compatec
+
+O PDF enviado pelo usuário `ExemplodecomandosCentraisContinente_Compatec2.pdf` confirma que Continente e Compatec usam o mesmo protocolo. Para alterar uma zona, a central espera primeiro uma máscara `AK2` e depois o valor `AK1`, ambos com uma palavra de 16 bits por posição. O exemplo do fabricante permite até 23 setores. Para a zona selecionada, a máscara de bypass é `0008`; o valor `0008` inibe a zona e o valor `0000` restaura/retira a inibição. As demais posições permanecem zeradas:
+
+```text
+Exemplo — Inibir a zona 1:
+MB=AK2[0008,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000]\r\n
+MB=AK1[0008,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000]\r\n
+Exemplo — Restaurar a zona 23:
+MB=AK2[0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0008]\r\n
+MB=AK1[0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000,0000]\r\n
+```
+
+O comando físico usa exatamente estes dois quadros, nesta ordem, apenas para uma zona ativa cadastrada na central selecionada e dentro do limite documentado de 1 a 23. O backend recalcula os quadros a partir da ação e do número da zona, valida o payload antes da escrita e revalida se a zona continua ativa imediatamente antes do despacho. O envio ocorre somente pela sessão TCP aberta pelo painel, associada a uma identidade física única cadastrada e à porta compatível do receptor; o JSON de auditoria nunca é escrito no socket. Essa associação valida a identidade protocolar apresentada pelo painel, mas não equivale a TLS ou autenticação criptográfica mútua; a proteção da porta do receptor deve seguir o controle de rede vigente.
+
+A resposta `MB=KA1` é registrada como **resposta/recebimento do comando**, não como confirmação de que o estado final do bypass foi aplicado. A tela, a ocorrência do cliente e a nota no atendimento devem preservar essa distinção. Cada solicitação exige operador autenticado, nome de quem solicitou e motivo. A auditoria cria/atualiza somente a ocorrência de relatório; se o operador vinculou um atendimento já aberto da mesma central, pode acrescentar nele uma nota validada. Não cria Contact ID, `alarm_events`, novos `incidents` nem cartão na fila.
+
+### Arme Stay / partições — preparado, mas bloqueado
+
+Embora o fabricante tenha informado que `AK4[9]`, `AK4[10]` e `AK4[11]` alternam as partições 1, 2 e 3, a Compatec ainda não fornece ao PoliceCentral o estado individual de cada partição: a resposta atual só indica que a central está armada quando qualquer partição está armada. Como esses comandos são *toggle*, não é seguro inferir se a próxima ação armará ou desarmará. A seleção visual de partição pode ficar preparada, mas nenhuma rota ou envio físico por partição/Stay deve ser habilitado até a Compatec homologar a leitura inequívoca do estado individual.

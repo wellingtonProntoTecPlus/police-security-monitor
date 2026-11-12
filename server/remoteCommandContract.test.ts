@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecPhysicalZoneFrames, buildCompatecPhysicalZonePayload, buildCompatecSimulationFrames, buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, validateCompatecPhysicalZoneTarget, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
   it("libera a consulta física inicial somente para o MAC da bancada habilitada", () => {
@@ -71,6 +71,28 @@ describe("contrato de comandos remotos Compatec", () => {
       "MB=AJ2[0000,0008,0000,0000,0000,0000,0000,0000,0000,0000]\r\n",
       "MB=AJ1[0000,0008,0000,0000,0000,0000,0000,0000,0000,0000]\r\n",
     ]);
+  });
+
+  it("gera somente os dois quadros oficiais de bypass AK2→AK1 para a zona selecionada", () => {
+    const isolated = buildCompatecPhysicalZoneFrames({ commandType: "isolate_zone", zoneNumber: 1 });
+    const restored = buildCompatecPhysicalZoneFrames({ commandType: "restore_zone", zoneNumber: 23 });
+    expect(isolated).toHaveLength(2);
+    expect(isolated[0]).toMatch(/^MB=AK2\[/);
+    expect(isolated[1]).toMatch(/^MB=AK1\[/);
+    expect(isolated[0].replace(/\r\n$/, "").slice(8, -1).split(",")).toHaveLength(23);
+    expect(isolated).toEqual([
+      `MB=AK2[${["0008", ...Array(22).fill("0000")].join(",")}]\r\n`,
+      `MB=AK1[${["0008", ...Array(22).fill("0000")].join(",")}]\r\n`,
+    ]);
+    expect(restored).toEqual([
+      `MB=AK2[${[...Array(22).fill("0000"), "0008"].join(",")}]\r\n`,
+      `MB=AK1[${[...Array(22).fill("0000"), "0000"].join(",")}]\r\n`,
+    ]);
+    expect(buildCompatecPhysicalZonePayload({ commandType: "isolate_zone", zoneNumber: 4, requestedBy: "Sr. Cliente" })).toMatch(/"mode":"physical"/);
+    expect(validateCompatecPhysicalZoneTarget({ commandType: "isolate_zone", zoneNumber: 23 })).toBeUndefined();
+    expect(validateCompatecPhysicalZoneTarget({ commandType: "arm", zoneNumber: 1 })).toContain("somente isolamento");
+    expect(validateCompatecPhysicalZoneTarget({ commandType: "restore_zone", zoneNumber: 24 })).toContain("entre 1 e 23");
+    expect(() => buildCompatecPhysicalZoneFrames({ commandType: "isolate_zone", zoneNumber: 24 })).toThrow();
   });
 
   it("aceita somente central Intelbras ativa com MAC e somente Arme/Desarme físico", () => {

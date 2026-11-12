@@ -5,6 +5,7 @@ import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND
 const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
 const databaseSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const dashboardSource = readFileSync(new URL("../client/src/pages/Dashboard.tsx", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
   it("preserva a simulação Intelbras legada sem transformar seu quadro em transmissão física", () => {
@@ -40,6 +41,12 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(source).toContain("disarmBenchAll: operatorProcedure");
     expect(source).toContain("isConfirmedCompatecBenchSystem(system)");
     expect(source).toContain("MAC C1BDCB");
+    const statusQueryRoute = source.slice(source.indexOf("queryBenchStatus: operatorProcedure"), source.indexOf("queryBenchSectors: operatorProcedure"));
+    const sectorsQueryRoute = source.slice(source.indexOf("queryBenchSectors: operatorProcedure"), source.indexOf("armCompatecAll: operatorProcedure"));
+    expect(statusQueryRoute).toContain("createExclusiveCompatecPhysicalCommand");
+    expect(sectorsQueryRoute).toContain("createExclusiveCompatecPhysicalCommand");
+    expect(statusQueryRoute).toContain('transportMode: "microbus_compatec"');
+    expect(sectorsQueryRoute).toContain('transportMode: "microbus_compatec"');
     const disarmRoute = source.slice(source.indexOf("disarmBenchAll: operatorProcedure"), source.indexOf("  }),\n  alarmPgm: router"));
     expect(disarmRoute).toContain('system.brand !== "COMPATEC" || system.isActive === false');
     expect(disarmRoute).not.toContain("isConfirmedCompatecBenchSystem(system)");
@@ -61,6 +68,50 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(armRoute).toContain('transportMode: "microbus_compatec"');
     expect(armRoute).toContain("getLatestArmDisarmStatusForSystem");
     expect(armRoute).toContain('currentState.qualifier !== "E"');
+  });
+
+  it("autoriza Inibir/Restaurar Zona somente para Compatec ativa, zona cadastrada e solicitação auditável", () => {
+    const zoneRoute = source.slice(source.indexOf("compatecZonePhysical: operatorProcedure"), source.indexOf("  }),\n  alarmPgm: router"));
+    expect(zoneRoute).toContain("assertPartnerSystemScope(ctx, input.alarmSystemId)");
+    expect(zoneRoute).toContain("getOperationalAlarmSystem(input.alarmSystemId)");
+    expect(zoneRoute).toContain("db.getIncident(input.incidentId)");
+    expect(zoneRoute).toContain("incident.alarmSystemId !== system.id");
+    expect(zoneRoute).toContain("db.appendIncidentNote(input.incidentId, system.id");
+    expect(zoneRoute).toContain('system.brand !== "COMPATEC"');
+    expect(zoneRoute).toContain('z.enum(["isolate_zone", "restore_zone"])');
+    expect(zoneRoute).toContain('requestedBy: z.string().trim().min(2');
+    expect(zoneRoute).toContain('reason: z.string().trim().min(5');
+    expect(zoneRoute).toContain("listAlarmZones(system.id)");
+    expect(zoneRoute).toContain("item.isActive");
+    expect(zoneRoute).toContain("createExclusiveCompatecPhysicalCommand");
+    expect(zoneRoute).toContain("requiredZoneNumber: input.zoneNumber");
+    expect(zoneRoute).toContain("sendCompatecMw1PhysicalCommand");
+    expect(zoneRoute).not.toContain("AK4[9]");
+    expect(zoneRoute).not.toContain("alarmEvents");
+    expect(zoneRoute).not.toContain("tx.insert(incidents)");
+    expect(databaseSource).toContain("eq(incidents.alarmSystemId, alarmSystemId)");
+  });
+
+  it("exige seleção explícita/solicitante e mantém partição desabilitada na interface", () => {
+    expect(dashboardSource).toContain('selectedRemoteBrand === "COMPATEC" ? ""');
+    expect(dashboardSource).toContain("Selecione uma zona ativa cadastrada");
+    expect(dashboardSource).toContain("remoteCompatecZones.filter((zone: any) => zone.isActive && zone.zoneNumber >= 1 && zone.zoneNumber <= 23)");
+    expect(dashboardSource).toContain("Solicitado por");
+    expect(dashboardSource).toContain("window.confirm(");
+    expect(dashboardSource).toContain("compatecZonePhysicalMut.mutate");
+    expect(dashboardSource).toContain('else if (result.status === "sent")');
+    expect(dashboardSource).toContain("toast.error(result.message || `Comando não enviado ou resultado indeterminado");
+    expect(dashboardSource).toContain("function getRemoteCommandRequester(commandPayload?: string | null)");
+    expect(dashboardSource).toContain("Solicitado por: {getRemoteCommandRequester(command.commandPayload)}");
+    expect(dashboardSource).toContain("resposta KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.");
+    expect(dashboardSource).toContain("disabled>Arme por partição indisponível até homologação Compatec</Button>");
+  });
+
+  it("integra parser fragmentado e emite ACK KA1 separado de confirmação de Arme/Desarme", () => {
+    expect(receiverSource).toContain("getCompatecMw1StatusResponseLineForSocket(socket, data)");
+    expect(receiverSource).toContain('kind: isPhysicalZoneAction ? "remote_command_ack" : "remote_command_confirmation"');
+    expect(receiverSource).not.toContain("getCompatecMw1StatusResponseLine(data)");
+    expect(dashboardSource).toContain('ev.kind === "remote_command_ack"');
   });
 
   it("não mantém a rota de Desarme físico restrita exclusivamente ao administrador", () => {

@@ -99,6 +99,8 @@ async function startServer() {
       console.log(`[Socket.IO] Supervisão emitida: ${event.brand} conta ${event.account}`);
     } else if (event.kind === "remote_command_confirmation") {
       console.log(`[Socket.IO] Comando remoto confirmado: ${event.actionLabel || "ação remota"} | sistema ${event.alarmSystemId} | comando ${event.commandId}`);
+    } else if (event.kind === "remote_command_ack") {
+      console.log(`[Socket.IO] Resposta KA1 recebida (somente ACK, sem confirmar estado do bypass): ${event.actionLabel || "ação de zona"} | sistema ${event.alarmSystemId} | comando ${event.commandId}`);
     } else if (event.kind === "radioenge_observation_escalated") {
       console.log(`[Socket.IO] Radioenge E361 escalado: conta ${event.account} | incidente ${event.incidentId}`);
     } else {

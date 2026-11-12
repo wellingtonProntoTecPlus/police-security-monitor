@@ -19,7 +19,7 @@ import { persistAutomaticOccurrence } from './automaticOccurrencePersistence';
 import { formatKeepAliveInterval } from '../keepAliveTracking';
 import { extractIntelbrasIsecnetFrames, isIntelbrasIsecnetHeartbeat, parseIntelbrasIsecnetEvent, parseIntelbrasIsecnetIdentification } from './intelbrasIsecnetProtocol';
 import { extractCompatecFrames, parseCompatecFrame, shouldProcessCompatecEvent } from './compatecProtocol';
-import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLine, isCompatecArmDisarmConfirmation, rememberActiveCompatecSession, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
+import { COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL, consumeCompatecMw1StatusResponse, getCompatecMw1StatusResponseLineForSocket, isCompatecArmDisarmConfirmation, isCompatecPhysicalZoneCommand, isCompatecPhysicalZoneConfirmation, rememberActiveCompatecSession, sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from './compatecMicrobusTransport';
 import { clearPendingVettiBenchCommand, consumeVettiBenchDisarmResponse, consumeVettiBenchRemoteLoginResponse, consumeVettiBenchStatusResponse, doesVettiPostStatusConfirmDisarm, extractVettiFrames, parseVerifiedVettiStatusResponse, rememberActiveVettiBenchSession, sendVettiBenchDisarm, sendVettiBenchRemoteLogin, sendVettiBenchStatusQuery } from './vettiBenchTransport';
 import { isConfirmedVettiBenchSystem } from '../remoteCommandContract';
 import { getContactIdArgumentContext } from '@shared/contactIdArgumentContext';
@@ -759,19 +759,24 @@ async function handleVetti(socket: net.Socket, data: Buffer, port: number) {
 // Driver Compatec. O protocolo universal possui mensagens de tamanho fixo que
 // podem chegar juntas ou fracionadas em um mesmo stream TCP.
 async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
-  const microbusResponse = getCompatecMw1StatusResponseLine(data);
+  const microbusResponse = getCompatecMw1StatusResponseLineForSocket(socket, data);
   if (microbusResponse) {
     const completed = consumeCompatecMw1StatusResponse(socket, microbusResponse);
     if (completed) {
-      const isPhysicalAction = completed.payload === COMPATEC_MW1_ARM_ALL || completed.payload === COMPATEC_MW1_DISARM_ALL;
-      if (isPhysicalAction && isCompatecArmDisarmConfirmation(completed.payload, microbusResponse)) {
+      const isArmDisarmAction = completed.payload === COMPATEC_MW1_ARM_ALL || completed.payload === COMPATEC_MW1_DISARM_ALL;
+      const isPhysicalZoneAction = isCompatecPhysicalZoneCommand(completed.payload);
+      const isPhysicalAction = isArmDisarmAction || isPhysicalZoneAction;
+      const isPhysicalConfirmation = isArmDisarmAction
+        ? isCompatecArmDisarmConfirmation(completed.payload, microbusResponse)
+        : isPhysicalZoneAction && isCompatecPhysicalZoneConfirmation(completed.payload, microbusResponse);
+      if (isPhysicalAction && isPhysicalConfirmation) {
         const confirmation = await recordRemoteCommandConfirmation({
           commandId: completed.commandId,
           responsePayload: microbusResponse,
         });
         if (confirmation.recorded) {
           eventCallback?.({
-            kind: "remote_command_confirmation",
+            kind: isPhysicalZoneAction ? "remote_command_ack" : "remote_command_confirmation",
             alarmSystemId: confirmation.alarmSystemId,
             incidentId: confirmation.incidentId || undefined,
             commandId: confirmation.commandId,
@@ -781,7 +786,7 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
           });
         }
         if (confirmation.recorded) {
-          console.log(`[MICROBUS] COMPATEC ${confirmation.actionLabel} confirmado pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+          console.log(`[MICROBUS] COMPATEC ${confirmation.actionLabel} recebeu resposta física | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
         } else {
           console.warn(`[MICROBUS] COMPATEC resposta recebida para comando inexistente | comando ${completed.commandId}`);
         }
@@ -791,7 +796,7 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
           responsePayload: `Resposta incompatível com o comando Compatec: ${microbusResponse.replace(/\r?\n/g, "")}`,
           executedAt: new Date(),
         });
-        console.warn(`[MICROBUS] COMPATEC resposta incompatível com Arme/Desarme | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+        console.warn(`[MICROBUS] COMPATEC resposta incompatível com ação física | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
       } else {
         await updateAlarmRemoteCommandDelivery(completed.commandId, { status: "responded", responsePayload: microbusResponse, executedAt: new Date() });
         console.log(`[MICROBUS] COMPATEC consulta confirmada pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
@@ -815,12 +820,13 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
         if (pendingQuery) {
           const dispatched = await dispatchAlarmRemoteCommand({
             alarmSystemId: system.id, commandId: pendingQuery.id,
+            requiredZoneNumber: pendingQuery.zoneNumber ?? undefined,
             expectedStatuses: ["waiting_connection"], unavailableStatus: "waiting_connection",
-            sentResponsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima conexão autenticada da central; aguardando resposta.`,
+            sentResponsePayload: `Comando ${pendingQuery.commandPayload.replace(/\r\n/g, "")} enviado na próxima sessão Compatec identificada por cadastro físico/porta; aguardando resposta.`,
             send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: pendingQuery.id, payload: pendingQuery.commandPayload }),
           });
           if (dispatched.sent) {
-            console.log(`[MICROBUS] COMPATEC comando pendente enviado no contato autenticado | comando ${pendingQuery.id} | Conta ${system.account}`);
+            console.log(`[MICROBUS] COMPATEC comando pendente enviado na sessão identificada por cadastro físico/porta | comando ${pendingQuery.id} | Conta ${system.account}`);
           }
         }
         console.log(`[RECIP] COMPATEC identificada por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier} | Conta ${system.account}`);

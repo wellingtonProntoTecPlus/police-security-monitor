@@ -52,7 +52,9 @@ describe("Arme Compatec de bancada", () => {
 
   it("mantém Toggle, partições, setores e PGM fora do fluxo físico", () => {
     expect(dashboardSource).toContain("O Toggle, partições, setores e PGM não serão usados");
-    expect(dashboardSource).toContain("Toggle, Zona e PGM permanecem bloqueados para transmissão");
+    expect(dashboardSource).toContain("Inibir/Restaurar Zona transmite AK2→AK1");
+    expect(dashboardSource).toContain("Arme Stay/partição continua bloqueado até homologação Compatec");
+    expect(dashboardSource).toContain("AK4[9–11] são toggle; não serão enviados");
   });
 });
 
