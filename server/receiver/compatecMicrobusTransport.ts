@@ -115,7 +115,9 @@ export function isCompatecPhysicalZoneConfirmation(payload: string, response: st
 
 export function getCompatecMw1StatusResponseLine(input: Buffer) {
   const text = input.toString("latin1");
-  const match = text.match(/MB=KA[014](?:\[[^\r\n]*\])?(?:\r\n|\r|\n)/);
+  // O fornecedor documenta também o ACK curto MB=KA1. Se houver '[',
+  // aguarda obrigatoriamente ']' em vez de aceitar o prefixo como resposta.
+  const match = text.match(/MB=KA[014](?:\[[^\r\n]*\](?:\r\n|\r|\n)?|(?=\r|\n|$)(?:\r\n|\r|\n)?)/);
   return match?.[0];
 }
 

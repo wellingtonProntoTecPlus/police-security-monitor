@@ -769,6 +769,10 @@
 - [x] Homologar fisicamente o Desarme histórico `MB=AK4[0,03FF]`: operador autenticado, motivo, auditoria `sent` e confirmação independente no aplicativo da central
 - [x] Registrar a central Compatec de bancada em estado DESARMADO como referência após o teste físico de Desarme
 - [x] Receber da Compatec os quadros oficiais Wi-Fi MW1: Arme fixo `MB=AK4[4]`, Desarme fixo `MB=AK4[12]`, Toggle `MB=AK4[0]`, partições e PGMs
+- [x] Implementar Inibir/Restaurar Zona Compatec com máscara AK2 seguida de valor AK1 para zona ativa cadastrada 1–23, solicitante/motivo/confirmação e auditoria em relatório sem Contact ID ou novo atendimento
+- [x] Tratar KA1 de zona como recebimento, sem confirmar estado final do bypass nem preencher panelConfirmedAt; bloquear concorrência entre consultas e ações MicroBus
+- [x] Preparar seleção visual das partições 1/2/3 com botão desabilitado; não transmitir Stay/AK4[9–11] até homologação do estado individual pela Compatec
+- [ ] Após atualização da VPS, homologar Inibir/Restaurar Zona em uma zona expressamente autorizada, conferindo resposta, estado físico e ausência de novo cartão de fila
 - [x] Implementar um único candidato experimental `MB=AK4[0,0000]` de Arme, isolado por MAC C1BDCB, modo de bancada, motivo e confirmação explícita
 - [ ] Registrar o resultado físico do candidato experimental 0000 com consulta de setores antes/depois e confirmação independente no aplicativo
 - [x] Substituir a trava de bancada do Arme pelo quadro oficial `MB=AK4[4]`, mantendo a transmissão restrita à sessão autenticada da própria central Compatec

@@ -107,11 +107,12 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(getCompatecMw1StatusResponseLineForSocket(otherSocket, Buffer.from("MB=KA0[0001]\r\n", "latin1"))).toBe("MB=KA0[0001]\r\n");
   });
 
-  it("não classifica uma resposta KA1 truncada como recebida antes do delimitador", () => {
+  it("aguarda o fechamento dos argumentos e também aceita o ACK curto documentado", () => {
     const socket = fakeSocket();
     expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("MB=KA1[", "latin1"))).toBeUndefined();
-    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("0008]", "latin1"))).toBeUndefined();
-    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("\r\n", "latin1"))).toBe("MB=KA1[0008]\r\n");
+    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("0008", "latin1"))).toBeUndefined();
+    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("]\r\n", "latin1"))).toBe("MB=KA1[0008]\r\n");
+    expect(getCompatecMw1StatusResponseLineForSocket(socket, Buffer.from("MB=KA1", "latin1"))).toBe("MB=KA1");
   });
 
 });

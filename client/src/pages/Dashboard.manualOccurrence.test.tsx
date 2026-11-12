@@ -205,6 +205,18 @@ describe("Dashboard — Ocorrência Manual", () => {
     });
   });
 
+  it("apresenta KA1 como recebimento de zona, sem confirmar bypass nem atualizar estado armado", async () => {
+    mockedRealtimeEvents = [{ kind: "remote_command_ack", alarmSystemId: 6, commandId: 88, commandType: "isolate_zone", actionLabel: "Inibição de Zona", timestamp: "2026-11-12T19:00:00Z" }];
+    render(<Dashboard />);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Inibição de Zona: resposta KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.",
+      { duration: 12_000 },
+    ));
+    expect(invalidateArmDisarmStatus).not.toHaveBeenCalled();
+    expect(invalidateOpenQueue).not.toHaveBeenCalled();
+    expect(screen.getAllByText("Disparo de alarme")).toHaveLength(1);
+  });
+
   it("pede a senha em confirmação nativa ao desativar o áudio, sem montar um modal React", async () => {
     const user = userEvent.setup();
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValueOnce("SenhaConfirmada123").mockReturnValueOnce("Troca de turno");
