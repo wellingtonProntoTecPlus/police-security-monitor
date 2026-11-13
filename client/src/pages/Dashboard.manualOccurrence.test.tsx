@@ -86,7 +86,7 @@ vi.mock("@/lib/trpc", () => ({
       disarmBenchAll: { useMutation: () => standardMutation },
     },
     clientContact: { list: { useQuery: () => ({ data: [] }) } },
-    clientProcedure: { list: { useQuery: () => ({ data: [] }) } },
+    clientProcedure: { list: { useQuery: () => ({ data: [] }) }, treatment: { useQuery: () => ({ data: undefined, isLoading: false, error: null, refetch: vi.fn() }) } },
     alarmZone: { list: { useQuery: () => ({ data: [] }) } },
     alarmUser: {
       list: { useQuery: () => ({ data: [] }) },

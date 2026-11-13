@@ -1314,6 +1314,19 @@ CREATE TABLE IF NOT EXISTS compatec_zone_arm_selections (
   KEY compatec_zone_arm_selection_command_idx (armCommandId)
 );
 
+-- Tipo de protocolo de atendimento; registros anteriores permanecem como orientações gerais.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    "ALTER TABLE client_procedures ADD COLUMN procedureType ENUM('general','alarm','panic','outside_schedule_disarm','system_problem') NOT NULL DEFAULT 'general'",
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'client_procedures' AND COLUMN_NAME = 'procedureType'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Ficha cadastral de DVRs por cliente. Sem conexão ao equipamento; senha cifrada AES-256-GCM.
 CREATE TABLE IF NOT EXISTS client_dvrs (
   id INT AUTO_INCREMENT PRIMARY KEY,

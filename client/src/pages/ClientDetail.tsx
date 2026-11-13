@@ -21,6 +21,7 @@ import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, 
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { getRemoteCommandCredentialProfiles, INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
 import AlarmScheduleEditor from "@/components/AlarmScheduleEditor";
+import ClientProcedureEditor from "@/components/ClientProcedureEditor";
 
 const CONTACTS_PER_PAGE = 20;
 
@@ -205,6 +206,7 @@ export default function ClientDetail() {
             <TabsTrigger value="users">Usuários do Painel ({alarmUsers.length})</TabsTrigger>
             <TabsTrigger value="zones">Zonas/Setores ({zones.length})</TabsTrigger>
             <TabsTrigger value="schedule">Agenda de Arme</TabsTrigger>
+            <TabsTrigger value="procedures">Providências</TabsTrigger>
             <TabsTrigger value="dvrs">DVRs ({dvrs.length})</TabsTrigger>
             <TabsTrigger value="cameras">Câmeras ({cameras.length})</TabsTrigger>
           </TabsList>
@@ -722,6 +724,8 @@ export default function ClientDetail() {
             {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para agenda</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(event) => setOperationalSystemId(Number(event.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand} {system.model || ""}</option>)}</select></div>}
             <AlarmScheduleEditor system={activeSystem} />
           </TabsContent>
+
+          <TabsContent value="procedures" className="mt-4"><ClientProcedureEditor key={clientId} clientId={clientId} /></TabsContent>
 
           {/* CADASTRO INFORMATIVO DE DVRs — sem conexão ao equipamento */}
           <TabsContent value="dvrs" className="mt-4 space-y-4">

@@ -18,7 +18,7 @@ const until = new Date("2026-11-04T16:30:00Z");
 let pool: mysql.Pool;
 let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
-const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts"];
+const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts", "client_procedures"];
 function snapshotDDL() {
   const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0048_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {

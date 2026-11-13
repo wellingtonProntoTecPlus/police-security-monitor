@@ -43,6 +43,7 @@ import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule } from "./alarmSchedulePolicy";
 import { getScheduleOverrideWindow, type ScheduleOverrideDuration } from "./alarmScheduleOverrideWindow";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
+import { applicableProcedures, classifyProcedureEvent } from "../shared/operationalProcedures";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
 import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflVersion5OrLaterByProfile } from "@shared/alarmSystemProfiles";
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
@@ -3213,7 +3214,7 @@ export async function upsertAlarmSchedule(data: InsertAlarmSchedule) {
 // ============================================================
 export async function listClientProcedures(clientId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) throw new Error("Banco indisponível para consultar as providências");
   return db.select().from(clientProcedures).where(eq(clientProcedures.clientId, clientId)).orderBy(clientProcedures.priority);
 }
 
@@ -3222,6 +3223,43 @@ export async function createClientProcedure(data: InsertClientProcedure) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(clientProcedures).values(prepareClientProcedurePayload(data));
   return { id: result[0].insertId };
+}
+
+export async function getClientProcedure(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco indisponível para consultar a providência");
+  const [row] = await db.select().from(clientProcedures).where(eq(clientProcedures.id, id)).limit(1);
+  return row;
+}
+
+export async function updateClientProcedure(id: number, clientId: number, data: Partial<Pick<InsertClientProcedure, "title" | "description" | "procedureType" | "priority" | "isActive">>) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco indisponível para salvar a providência");
+  await db.update(clientProcedures).set(prepareClientProcedurePayload(data)).where(and(eq(clientProcedures.id, id), eq(clientProcedures.clientId, clientId)));
+  return { success: true };
+}
+
+export async function getClientProcedureTreatment(clientId: number, eventId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco indisponível para consultar o protocolo de atendimento");
+  const [row] = await db.select({ event: alarmEvents }).from(alarmEvents)
+    .innerJoin(alarmSystems, eq(alarmEvents.alarmSystemId, alarmSystems.id))
+    .where(and(eq(alarmEvents.id, eventId), eq(alarmSystems.clientId, clientId))).limit(1);
+  if (!row) throw new Error("Evento não pertence ao cliente deste atendimento");
+  const classification = classifyContactIdOperationalEvent(row.event);
+  let outsideScheduleDisarm = false;
+  if (classification.kind === "disarm") {
+    const [alert] = await db.select({ id: alarmScheduleAlerts.id }).from(alarmScheduleAlerts).where(and(
+      eq(alarmScheduleAlerts.sourceEventId, eventId),
+      eq(alarmScheduleAlerts.alarmSystemId, row.event.alarmSystemId!),
+      eq(alarmScheduleAlerts.alertType, "unexpected_disarm"),
+    )).limit(1);
+    outsideScheduleDisarm = Boolean(alert);
+  }
+  const eventType = classifyProcedureEvent(row.event, outsideScheduleDisarm);
+  const rows = await listClientProcedures(clientId);
+  const procedures = applicableProcedures(rows, eventType);
+  return { clientId, eventId, eventType, procedures, hasSpecificProcedure: procedures.some(row => row.procedureType === eventType) };
 }
 
 // ============================================================

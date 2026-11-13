@@ -729,6 +729,7 @@ export type AlarmScheduleAlert = typeof alarmScheduleAlerts.$inferSelect;
 export const clientProcedures = mysqlTable("client_procedures", {
   id: int("id").autoincrement().primaryKey(),
   clientId: int("clientId").notNull(),
+  procedureType: mysqlEnum("procedureType", ["general", "alarm", "panic", "outside_schedule_disarm", "system_problem"]).default("general").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description").notNull(),
   priority: int("priority").default(1).notNull(),

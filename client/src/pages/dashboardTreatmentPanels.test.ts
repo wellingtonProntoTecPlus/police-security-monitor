@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE } from "@shared/remoteCommandCredentialProfiles";
 
 const dashboardSource = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
+const procedurePanelSource = readFileSync(resolve(process.cwd(), "client/src/components/OperationalProcedurePanel.tsx"), "utf8");
 
 describe("painéis operacionais do tratamento", () => {
   it("oferece atalhos para contatos e usuários e abre os dados em foco", () => {
@@ -18,7 +19,7 @@ describe("painéis operacionais do tratamento", () => {
   });
 
   it("mantém providências completas e credenciais de segurança acessíveis ao operador", () => {
-    expect(dashboardSource).toContain("Ver tudo");
+    expect(procedurePanelSource).toContain("Ver tudo");
     expect(dashboardSource).toContain("Providências e histórico do atendimento");
     expect(dashboardSource).toContain("Credenciais de segurança");
     expect(dashboardSource).toContain("Credenciais do usuário");
@@ -27,9 +28,10 @@ describe("painéis operacionais do tratamento", () => {
   });
 
   it("mantém providências legíveis de imediato e posiciona zonas na coluna esquerda", () => {
-    expect(dashboardSource).toContain("trpc.clientProcedure.list.useQuery");
-    expect(dashboardSource).toContain("Providências operacionais");
-    expect(dashboardSource).toContain("Orientações cadastradas para este cliente");
+    expect(dashboardSource).toContain("trpc.clientProcedure.treatment.useQuery");
+    expect(procedurePanelSource).toContain("Providências operacionais");
+    expect(procedurePanelSource).toContain("Orientações cadastradas para este cliente");
+    expect(dashboardSource).toContain("Registros deste atendimento — não são o protocolo");
     expect(dashboardSource).toContain('lg:grid-cols-[0.82fr_1.18fr]');
     expect(dashboardSource).toContain("Zonas e setores");
   });

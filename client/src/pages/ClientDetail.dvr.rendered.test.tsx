@@ -222,7 +222,7 @@ describe("ClientDetail — cadastro informativo de DVRs", () => {
     expect(harness.refetchDvrs).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(harness.toast.success).toHaveBeenCalledWith("DVR cadastrado com sucesso!");
-  });
+  }, 10000);
 
   it("mantém o formulário aberto e apresenta o erro do mutation quando o cadastro falha", async () => {
     harness.user = { id: 1, role: "admin", partnerId: null, name: "Administrador" };

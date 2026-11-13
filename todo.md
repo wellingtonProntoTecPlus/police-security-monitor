@@ -944,3 +944,14 @@
 - [x] Excluir DVRs e credenciais na mesma transação de exclusão do cliente e tratar uma senha indisponível sem bloquear a ficha dos demais equipamentos
 - [x] Validar TypeScript, 149 arquivos/672 testes aprovados com todas as integrações privadas habilitadas, build e diff limpo; incluem 6 testes MariaDB DVR, 6 testes renderizados e recuperação da chave a partir de backup
 - [ ] Atualizar a VPS e conferir a aba DVRs com perfis Administrador/Parceiro/Operador em produção; nenhuma conexão física faz parte desta entrega
+
+## Protocolos de providências por cliente
+- [x] Corrigir lacuna do cadastro: adicionar aba Providências com categorias Gerais, Disparos, Pânico/Coação, Desarme fora de hora e Problemas/Falhas
+- [x] Permitir cadastrar/editar/ordenar/inativar/reativar instruções aprovadas pelo responsável; operador consulta, administrador/supervisor e parceira própria administram
+- [x] Mostrar orientações imediatamente no atendimento e no modal Ver tudo, separadas das anotações e logs do operador
+- [x] Consultar protocolo por cliente/evento persistido; Desarme fora de hora usa alerta de agenda do mesmo evento e da mesma central, inclusive após reconhecimento
+- [x] Avisar explicitamente quando falta protocolo específico ou quando a consulta falha; não tratar erro como ausência de instruções
+- [x] Preservar protocolos legados como gerais, inativos persistidos e isolamento entre carteiras; sem criar eventos Contact ID, incidentes ou comandos físicos
+- [x] Aplicar migration aditiva somente no WebDev e preparar inclusão idempotente para VPS
+- [ ] Atualizar a VPS e cadastrar os textos aprovados de cada cliente para os quatro casos solicitados
+- [x] Validação final aprovada: TypeScript, 154 arquivos/708 testes com integrações MariaDB privadas (6 novas de protocolos), build e diff limpo; revisão independente sem bloqueadores

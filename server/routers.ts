@@ -19,6 +19,7 @@ import { buildRemoteCommandRequestNote } from "./remoteCommandEventCorrelation";
 import { emitIncidentStateChanged } from "./_core/socketEvents";
 import { emitOperatorShiftNotice } from "./_core/operatorShiftRuntime";
 import * as operatorShiftDb from "./operatorShiftDb";
+import { PROCEDURE_TYPES } from "../shared/operationalProcedures";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -70,6 +71,11 @@ async function assertPartnerCompanyScope(ctx: any, partnerCompanyId: number) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Empresa parceira não permitida para este usuário" });
   }
 }
+
+const procedureManagerProcedure = partnerDataProcedure.use(({ ctx, next }) => {
+  if (!["admin", "supervisor", "partner"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "O operador consulta as providências; a alteração cabe ao responsável pelo cadastro" });
+  return next({ ctx });
+});
 
 async function assertPartnerClientScope(ctx: any, clientId: number) {
   if (ctx.user?.role !== "partner") return;
@@ -1567,16 +1573,39 @@ export const appRouter = router({
     }),
   }),
   clientProcedure: router({
-    list: partnerDataProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ clientId: z.number().int().positive() })).query(async ({ input, ctx }) => {
       await assertPartnerClientScope(ctx, input.clientId);
       return db.listClientProcedures(input.clientId);
     }),
-    create: partnerDataProcedure.input(z.object({
-      clientId: z.number(),
-      title: z.string().min(1),
-      description: z.string().min(1),
-      priority: z.number().optional(),
-    })).mutation(async ({ input, ctx }) => { await assertPartnerClientScope(ctx, input.clientId); return db.createClientProcedure(input); }),
+    treatment: operatorProcedure.input(z.object({ clientId: z.number().int().positive(), eventId: z.number().int().positive() })).query(({ input }) => db.getClientProcedureTreatment(input.clientId, input.eventId)),
+    create: procedureManagerProcedure.input(z.object({
+      clientId: z.number().int().positive(),
+      procedureType: z.enum(PROCEDURE_TYPES).default("general"),
+      title: z.string().trim().min(1).max(255),
+      description: z.string().trim().min(1).max(20000),
+      priority: z.number().int().min(1).max(1000).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerClientScope(ctx, input.clientId);
+      if (ctx.user.role !== "partner" && !await db.getClient(input.clientId)) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
+      return db.createClientProcedure(input);
+    }),
+    update: procedureManagerProcedure.input(z.object({
+      id: z.number().int().positive(), procedureType: z.enum(PROCEDURE_TYPES).optional(),
+      title: z.string().trim().min(1).max(255).optional(), description: z.string().trim().min(1).max(20000).optional(),
+      priority: z.number().int().min(1).max(1000).optional(), isActive: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const row = await db.getClientProcedure(input.id);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Providência não encontrada" });
+      await assertPartnerClientScope(ctx, row.clientId);
+      const { id, ...data } = input;
+      return db.updateClientProcedure(id, row.clientId, data);
+    }),
+    deactivate: procedureManagerProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const row = await db.getClientProcedure(input.id);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Providência não encontrada" });
+      await assertPartnerClientScope(ctx, row.clientId);
+      return db.updateClientProcedure(input.id, row.clientId, { isActive: false });
+    }),
   }),
   partnerHoliday: router({
     list: partnerDataProcedure.input(z.object({ partnerCompanyId: z.number() })).query(async ({ input, ctx }) => {

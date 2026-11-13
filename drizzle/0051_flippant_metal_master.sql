@@ -1,0 +1,1 @@
+ALTER TABLE `client_procedures` ADD `procedureType` enum('general','alarm','panic','outside_schedule_disarm','system_problem') DEFAULT 'general' NOT NULL;

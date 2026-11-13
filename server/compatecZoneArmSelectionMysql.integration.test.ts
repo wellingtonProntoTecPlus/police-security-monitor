@@ -199,7 +199,9 @@ describe.skipIf(!localEnabled)("Compatec seleção de zonas · integração Mari
 
     const selected = await selectZone(3);
 
-    const remainingMs = selected.expiresAt.getTime() - before;
+    // A seleção começa durante a chamada, não antes das consultas da fixture.
+    const remainingMs = selected.expiresAt.getTime() - Date.now();
+    expect(selected.expiresAt.getTime()).toBeGreaterThan(before);
     expect(remainingMs).toBeGreaterThan(0);
     expect(remainingMs).toBeLessThanOrEqual(60_000);
     expect(await orm.select().from(compatecZoneArmSelections)).toMatchObject([
