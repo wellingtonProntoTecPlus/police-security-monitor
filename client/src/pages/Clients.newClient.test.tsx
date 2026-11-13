@@ -96,6 +96,7 @@ describe("Clientes — Novo Cliente", () => {
     render(<Clients />);
 
     expect(screen.getByText("Status de monitoramento")).toBeTruthy();
+    expect(screen.getByText("Status").parentElement?.className).toContain("grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px]");
     expect(screen.queryByText("Empresa parceira")).toBeNull();
     expect(screen.getByText("Suspenso Válido")).toBeTruthy();
     expect(screen.getByText("Bloqueado Válido")).toBeTruthy();
