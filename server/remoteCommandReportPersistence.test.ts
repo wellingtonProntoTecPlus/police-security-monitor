@@ -33,6 +33,8 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
 
     expect(reserve).toContain("await syncCompatecRemoteCommandOccurrence(tx, command)");
     expect(updateDelivery).toContain("await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)");
+    expect(updateDelivery).toContain("appendResponsePayload && command.responsePayload");
+    expect(updateDelivery).toContain('`${command.responsePayload}\\n${updates.responsePayload || ""}`');
     expect(confirm).toContain("await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)");
   });
 
@@ -87,9 +89,21 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
       "/**\n * Um evento Vetti",
     );
     expect(confirmation).toContain('command.commandType === "isolate_zone" || command.commandType === "restore_zone"');
-    expect(confirmation).toContain('"RESPOSTA KA1 RECEBIDA" : "CONFIRMADO"');
-    expect(confirmation).toContain("...(isZoneBypassCommand ? {} : { panelConfirmedAt: confirmedAt })");
+    expect(confirmation).toContain('"RESPOSTA KA1 RECEBIDA" : isCompatecArmDisarmAck ? "RESPOSTA KA4 RECEBIDA"');
+    expect(confirmation).toContain("...(isResponseOnly ? {} : { panelConfirmedAt: confirmedAt })");
     expect(confirmation).toContain("syncCompatecRemoteCommandOccurrence(tx, updatedCommand)");
+  });
+
+  it("registra Arme/Desarme Compatec KA4 como resposta recebida, sem estado final confirmado", () => {
+    const confirmation = sourceBetween(
+      dbSource,
+      "export async function recordRemoteCommandConfirmation",
+      "/**\n * Um evento Vetti",
+    );
+    expect(confirmation).toContain('command.transportMode === "microbus_compatec"');
+    expect(confirmation).toContain("const isResponseOnly = isZoneBypassCommand || isCompatecArmDisarmAck");
+    expect(confirmation).toContain("...(isResponseOnly ? {} : { panelConfirmedAt: confirmedAt })");
+    expect(confirmation).toContain("isCompatecArmDisarmAck ? \"RESPOSTA KA4 RECEBIDA\"");
   });
 
   it("inclui comandos antigos na migração VPS de forma idempotente e vinculados ao cliente correto", () => {

@@ -22,6 +22,7 @@ export interface AlarmEvent {
   commandId?: number;
   commandType?: string;
   actionLabel?: string;
+  responsePayload?: string;
   alertType?: "missed_arm" | "unexpected_disarm";
   expectedAt?: string | Date;
   detectedAt?: string | Date;

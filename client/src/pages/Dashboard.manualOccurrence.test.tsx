@@ -207,16 +207,26 @@ describe("Dashboard — Ocorrência Manual", () => {
     });
   });
 
-  it("apresenta KA1 como recebimento de zona, sem confirmar bypass nem atualizar estado armado", async () => {
+  it("apresenta KA1 como informação de recebimento de zona, sem confirmar bypass nem atualizar estado armado", async () => {
     mockedRealtimeEvents = [{ kind: "remote_command_ack", alarmSystemId: 6, commandId: 88, commandType: "isolate_zone", actionLabel: "Inibição de Zona", timestamp: "2026-11-12T19:00:00Z" }];
     render(<Dashboard />);
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
-      "Inibição de Zona: resposta KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.",
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(
+      "Inibição de Zona: resposta MB=KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.",
       { duration: 12_000 },
     ));
     expect(invalidateArmDisarmStatus).not.toHaveBeenCalled();
     expect(invalidateOpenQueue).not.toHaveBeenCalled();
     expect(screen.getAllByText("Disparo de alarme")).toHaveLength(1);
+  });
+
+  it("apresenta KA4 como resposta ao quadro, sem confirmar o Arme nem invalidar status final", async () => {
+    mockedRealtimeEvents = [{ kind: "remote_command_ack", alarmSystemId: 6, commandId: 90, commandType: "arm", actionLabel: "Arme Compatec", responsePayload: "MB=KA4", timestamp: "2026-11-12T19:00:00Z" }];
+    render(<Dashboard />);
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(
+      "Arme Compatec: resposta MB=KA4 recebida. A resposta não confirma o estado final; confira o evento/status real do painel.",
+      { duration: 12_000 },
+    ));
+    expect(invalidateArmDisarmStatus).not.toHaveBeenCalled();
   });
 
   it("pede a senha em confirmação nativa ao desativar o áudio, sem montar um modal React", async () => {

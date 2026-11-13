@@ -1358,6 +1358,7 @@ export async function createExclusiveIntelbrasPhysicalCommand(data: InsertAlarmR
 export async function updateAlarmRemoteCommandDelivery(id: number, data: {
   status: string;
   responsePayload?: string | null;
+  appendResponsePayload?: boolean;
   executedAt?: Date | null;
   technicalUserCode?: string | null;
   panelConfirmedAt?: Date | null;
@@ -1372,15 +1373,21 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
       .limit(1)
       .for("update");
     if (!command) return;
+    const { appendResponsePayload = false, ...updates } = data;
+    const responsePayload = updates.responsePayload === undefined
+      ? command.responsePayload
+      : appendResponsePayload && command.responsePayload
+        ? `${command.responsePayload}\n${updates.responsePayload || ""}`
+        : updates.responsePayload;
     const updatedCommand = {
       ...command,
-      ...data,
-      responsePayload: data.responsePayload === undefined ? command.responsePayload : data.responsePayload,
-      executedAt: data.executedAt === undefined ? command.executedAt : data.executedAt,
-      panelConfirmedAt: data.panelConfirmedAt === undefined ? command.panelConfirmedAt : data.panelConfirmedAt,
+      ...updates,
+      responsePayload,
+      executedAt: updates.executedAt === undefined ? command.executedAt : updates.executedAt,
+      panelConfirmedAt: updates.panelConfirmedAt === undefined ? command.panelConfirmedAt : updates.panelConfirmedAt,
       updatedAt: new Date(),
     };
-    await tx.update(alarmRemoteCommands).set(data).where(eq(alarmRemoteCommands.id, id));
+    await tx.update(alarmRemoteCommands).set({ ...updates, responsePayload }).where(eq(alarmRemoteCommands.id, id));
     await syncCompatecRemoteCommandOccurrence(tx, updatedCommand);
   });
 }
@@ -1595,18 +1602,22 @@ export async function recordRemoteCommandConfirmation(input: {
 
     if (["failed", "cancelled", "expired"].includes(command.status)) return { recorded: false as const };
     const isZoneBypassCommand = command.commandType === "isolate_zone" || command.commandType === "restore_zone";
+    const isCompatecArmDisarmAck = command.brand === "COMPATEC"
+      && command.transportMode === "microbus_compatec"
+      && (command.commandType === "arm" || command.commandType === "disarm");
+    const isResponseOnly = isZoneBypassCommand || isCompatecArmDisarmAck;
     const updatedCommand = {
       ...command,
       status: "responded",
       responsePayload: command.commandPayload.includes('"physical_arm_with_zones"') ? `${command.responsePayload || ""}\n${input.responsePayload}` : input.responsePayload,
-      panelConfirmedAt: isZoneBypassCommand ? command.panelConfirmedAt : confirmedAt,
+      panelConfirmedAt: isResponseOnly ? command.panelConfirmedAt : confirmedAt,
       executedAt: confirmedAt,
       updatedAt: confirmedAt,
     };
     await tx.update(alarmRemoteCommands).set({
       status: "responded",
       responsePayload: updatedCommand.responsePayload,
-      ...(isZoneBypassCommand ? {} : { panelConfirmedAt: confirmedAt }),
+      ...(isResponseOnly ? {} : { panelConfirmedAt: confirmedAt }),
       executedAt: confirmedAt,
     }).where(eq(alarmRemoteCommands.id, command.id));
 
@@ -1641,7 +1652,7 @@ export async function recordRemoteCommandConfirmation(input: {
         .where(and(eq(incidents.id, command.incidentId), eq(incidents.alarmSystemId, command.alarmSystemId)))
         .limit(1);
       if (incident && incident.status !== "closed") {
-        const marker = `[COMANDO REMOTO #${command.id} ${isZoneBypassCommand ? "RESPOSTA KA1 RECEBIDA" : "CONFIRMADO"}]`;
+        const marker = `[COMANDO REMOTO #${command.id} ${isZoneBypassCommand ? "RESPOSTA KA1 RECEBIDA" : isCompatecArmDisarmAck ? "RESPOSTA KA4 RECEBIDA" : "CONFIRMADO"}]`;
         if (!incident.notes?.includes(marker)) {
           await tx.update(incidents).set({
             notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${incidentNote}`})`,

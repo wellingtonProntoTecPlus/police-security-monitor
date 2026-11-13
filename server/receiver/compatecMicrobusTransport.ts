@@ -137,8 +137,8 @@ export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: s
 }
 
 export function isCompatecArmDisarmConfirmation(payload: string, response: string) {
-  if (payload === COMPATEC_MW1_ARM_ALL || isCompatecArmWithZonesCommand(payload)) return /^MB=KA4\[4\]\r?\n?$/.test(response);
-  if (payload === COMPATEC_MW1_DISARM_ALL) return /^MB=KA4\[12\]\r?\n?$/.test(response);
+  if (payload === COMPATEC_MW1_ARM_ALL || isCompatecArmWithZonesCommand(payload)) return /^MB=KA4(?:\[4\])?\r?\n?$/.test(response);
+  if (payload === COMPATEC_MW1_DISARM_ALL) return /^MB=KA4(?:\[12\])?\r?\n?$/.test(response);
   return false;
 }
 

@@ -10,6 +10,8 @@ import {
   resetCompatecZoneSelectionsOnDisarm,
   setCompatecZoneArmSelection,
   setDbForTesting,
+  recordRemoteCommandConfirmation,
+  updateAlarmRemoteCommandDelivery,
 } from "./db";
 import {
   alarmEvents,
@@ -302,6 +304,71 @@ describe.skipIf(!localEnabled)("Compatec seleção de zonas · integração Mari
     expect(rows[0].observations).toContain("Zonas selecionadas para inibir no Arme: 3, 5.");
     expect(rows[0].observations).toContain("Seleção zona 3: operador Operador Compatec");
     expect(rows[0].observations).toContain("Seleção zona 5: operador Operador Compatec");
+    expect(await orm.select().from(incidents)).toHaveLength(0);
+    expect(await orm.select().from(alarmEvents)).toHaveLength(1);
+  });
+
+  it("registra KA1 seguido de KA4 curto como duas respostas recebidas sem confirmar o estado final", async () => {
+    const selected = await selectZone(3);
+    const reservation = await createExclusiveCompatecPhysicalCommand(armCommandData(), [selected.id], "Solicitante fictício");
+    if (!reservation.created) throw new Error("Reserva esperada");
+
+    const firstWrite = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID, commandId: reservation.id, requiredZoneNumbers: [3],
+      expectedStatuses: ["waiting_connection"], unavailableStatus: "failed",
+      sentResponsePayload: "AK2→AK1 enviados; aguardando KA1.",
+      send: () => ({ sent: true, payload: "AK2→AK1 fictícios" }),
+    });
+    expect(firstWrite.status).toBe("sent");
+
+    const secondWrite = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID, commandId: reservation.id, requiredZoneNumbers: [3],
+      expectedStatuses: ["sent"], unavailableStatus: "dispatch_unknown",
+      sentResponsePayload: "MB=KA1 recebido; AK4[4] enviado.",
+      send: () => ({ sent: true, payload: "AK4[4] fictício" }),
+    });
+    expect(secondWrite.status).toBe("sent");
+
+    const result = await recordRemoteCommandConfirmation({
+      commandId: reservation.id, responsePayload: "MB=KA4", confirmedAt: new Date(),
+    });
+    expect(result).toMatchObject({ recorded: true, commandType: "arm" });
+    const [command] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reservation.id));
+    expect(command).toMatchObject({ status: "responded", panelConfirmedAt: null });
+    expect(command.responsePayload).toContain("MB=KA1 recebido; AK4[4] enviado.");
+    expect(command.responsePayload).toContain("MB=KA4");
+    const [occurrence] = await orm.select().from(occurrences);
+    expect(occurrence.description).toContain("Resposta KA4 recebida");
+    expect(occurrence.observations).toContain("não confirma o estado final");
+    expect(occurrence.observations).toContain("Solicitado por: Solicitante fictício");
+    expect(await orm.select().from(occurrences)).toHaveLength(1);
+    expect(await orm.select().from(incidents)).toHaveLength(0);
+    expect(await orm.select().from(alarmEvents)).toHaveLength(1);
+  });
+
+  it("preserva ACK anterior e interrompe sem segundo envio se KA4 chegar antes de KA1", async () => {
+    const selected = await selectZone(3);
+    const reservation = await createExclusiveCompatecPhysicalCommand(armCommandData(), [selected.id], "Solicitante fictício");
+    if (!reservation.created) throw new Error("Reserva esperada");
+    const writes: string[] = [];
+    await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID, commandId: reservation.id, requiredZoneNumbers: [3],
+      expectedStatuses: ["waiting_connection"], unavailableStatus: "failed",
+      sentResponsePayload: "AK2→AK1 enviados; aguardando KA1.",
+      send: () => { writes.push("AK2", "AK1"); return { sent: true }; },
+    });
+    await updateAlarmRemoteCommandDelivery(reservation.id, {
+      status: "dispatch_unknown", appendResponsePayload: true,
+      responsePayload: "Resposta inesperada MB=KA4 antes de KA1; Arme interrompido.", executedAt: new Date(),
+    });
+    expect(writes).toEqual(["AK2", "AK1"]);
+    const [command] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reservation.id));
+    expect(command.status).toBe("dispatch_unknown");
+    expect(command.responsePayload).toContain("AK2→AK1 enviados; aguardando KA1.");
+    expect(command.responsePayload).toContain("Resposta inesperada MB=KA4 antes de KA1");
+    expect(command.panelConfirmedAt).toBeNull();
+    const [occurrence] = await orm.select().from(occurrences);
+    expect(occurrence.description).toContain("indeterminado");
     expect(await orm.select().from(incidents)).toHaveLength(0);
     expect(await orm.select().from(alarmEvents)).toHaveLength(1);
   });

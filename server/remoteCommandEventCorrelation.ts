@@ -26,8 +26,10 @@ export function getRemoteCommandActionLabel(commandType: string) {
       : `Comando remoto via PoliceCentral: ${commandType}`;
 }
 
-export function getRemoteCommandOutcomeLabel(status: string, commandType?: string) {
+export function getRemoteCommandOutcomeLabel(status: string, commandType?: string, response?: string | null) {
   const isZoneBypassCommand = commandType === "isolate_zone" || commandType === "restore_zone";
+  const isCompatecArmDisarmAck = (commandType === "arm" || commandType === "disarm")
+    && /(?:^|\n)MB=KA4(?:\[[^\]\r\n]*\])?\r?$/m.test(response || "");
   switch (status) {
     case "queued":
       return "Solicitado; aguardando envio à central.";
@@ -42,9 +44,9 @@ export function getRemoteCommandOutcomeLabel(status: string, commandType?: strin
     case "sent":
       return isZoneBypassCommand ? "Enviado à central; aguardando resposta KA1." : "Enviado à central; aguardando confirmação.";
     case "responded":
-      return isZoneBypassCommand
-        ? "Resposta KA1 recebida; indica recebimento do comando, não confirmação do estado final do bypass."
-        : "Confirmado pela central.";
+      if (isZoneBypassCommand) return "Resposta KA1 recebida; indica recebimento do comando, não confirmação do estado final do bypass.";
+      if (isCompatecArmDisarmAck) return "Resposta KA4 recebida; indica resposta ao comando, não confirma o estado final. Confira o estado/evento da central.";
+      return "Confirmado pela central.";
     case "failed":
       return "Falha; a central não confirmou o comando.";
     case "expired":
@@ -92,7 +94,7 @@ export function buildRemoteCommandOccurrenceText(input: {
   zoneNumber?: number | null;
 }) {
   const action = getRemoteCommandActionLabel(input.commandType);
-  const outcome = getRemoteCommandOutcomeLabel(input.status, input.commandType);
+  const outcome = getRemoteCommandOutcomeLabel(input.status, input.commandType, input.response);
   return {
     eventCode: "REMOTE",
     qualifier: null,
@@ -148,8 +150,10 @@ export function buildRemoteCommandIncidentNotes(input: {
   commandType?: string;
 }) {
   const isZoneBypassCommand = input.commandType === "isolate_zone" || input.commandType === "restore_zone";
+  const isCompatecArmDisarmAck = (input.commandType === "arm" || input.commandType === "disarm")
+    && /(?:^|\n)MB=KA4(?:\[[^\]\r\n]*\])?\r?$/m.test(input.response || "");
   const rows = [
-    `[COMANDO REMOTO #${input.commandId} ${isZoneBypassCommand ? "RESPOSTA KA1 RECEBIDA" : "CONFIRMADO"}]`,
+    `[COMANDO REMOTO #${input.commandId} ${isZoneBypassCommand ? "RESPOSTA KA1 RECEBIDA" : isCompatecArmDisarmAck ? "RESPOSTA KA4 RECEBIDA" : "CONFIRMADO"}]`,
     `Ação: ${input.commandLabel}`,
     "Origem: PoliceCentral (Central de Monitoramento)",
     `Operador: ${input.requestedBy}`,
@@ -159,7 +163,9 @@ export function buildRemoteCommandIncidentNotes(input: {
   if (input.reason) rows.push(`Motivo: ${input.reason}`);
   rows.push(isZoneBypassCommand
     ? "Resultado: resposta KA1 recebida; indica que a central recebeu o comando, não confirma o estado final do bypass."
-    : "Resultado: confirmado pela central.");
+    : isCompatecArmDisarmAck
+      ? "Resultado: resposta KA4 recebida; indica resposta ao comando, não confirma o estado final do Arme/Desarme. Confira o estado/evento do painel."
+      : "Resultado: confirmado pela central.");
   if (input.response) rows.push(`Resposta da central: ${input.response}`);
   if (input.panelUser) rows.push(`Usuário informado pela central: ${input.panelUser}`);
   if (input.technicalUserCode) rows.push(`Usuário técnico do comando: ${input.technicalUserCode}`);

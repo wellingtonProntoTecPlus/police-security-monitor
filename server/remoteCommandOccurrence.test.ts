@@ -29,7 +29,7 @@ describe("auditoria de comandos remotos", () => {
     expect(note).toContain("Auditoria do comando: #41");
   });
 
-  it("gera uma ocorrência identificável no relatório quando o painel confirma", () => {
+  it("registra KA4[4] como resposta recebida, sem afirmar estado final confirmado", () => {
     const occurrence = buildRemoteCommandOccurrenceText({
       commandId: 42,
       commandType: "arm",
@@ -42,7 +42,8 @@ describe("auditoria de comandos remotos", () => {
     expect(occurrence.eventCode).toBe("REMOTE");
     expect(occurrence.qualifier).toBeNull();
     expect(occurrence.description).toContain("Arme remoto via PoliceCentral");
-    expect(occurrence.description).toContain("Confirmado pela central");
+    expect(occurrence.description).toContain("Resposta KA4 recebida");
+    expect(occurrence.description).toContain("não confirma o estado final");
     expect(occurrence.observations).toContain("[COMANDO REMOTO #42]");
     expect(occurrence.observations).toContain("Origem: PoliceCentral (Central de Monitoramento)");
     expect(occurrence.observations).toContain("Operador: Operador da noite");
@@ -110,7 +111,7 @@ describe("auditoria de comandos remotos", () => {
     expect(getRemoteCommandOutcomeLabel("sent")).toBe("Enviado à central; aguardando confirmação.");
   });
 
-  it("mantém o texto de confirmação compatível com o atendimento existente", () => {
+  it("mantém a compatibilidade de notas não Compatec sem resposta KA4", () => {
     const note = buildRemoteCommandIncidentNotes({
       commandId: 43,
       commandLabel: "Desarmado Remoto por Central de Monitoramento",
@@ -121,5 +122,30 @@ describe("auditoria de comandos remotos", () => {
     expect(note).toContain("Origem: PoliceCentral (Central de Monitoramento)");
     expect(note).toContain("Operador: Operador autenticado");
     expect(note).toContain("Auditoria do comando: #43");
+  });
+
+  it("não chama KA4 curto de confirmação de Arme e preserva a resposta literal", () => {
+    const occurrence = buildRemoteCommandOccurrenceText({
+      commandId: 90,
+      commandType: "arm",
+      operatorName: "Wellington",
+      reason: "Teste autorizado",
+      status: "responded",
+      response: "MB=KA1 recebido para AK2→AK1; aguardando KA4.\nMB=KA4",
+    });
+    const incidentNote = buildRemoteCommandIncidentNotes({
+      commandId: 90,
+      commandLabel: "Arme Compatec",
+      commandType: "arm",
+      requestedBy: "Wellington",
+      reason: "Teste autorizado",
+      response: "MB=KA4",
+    });
+    expect(occurrence.description).toContain("Resposta KA4 recebida");
+    expect(occurrence.description).not.toContain("Confirmado pela central");
+    expect(occurrence.observations).toContain("Resposta da central: MB=KA1 recebido para AK2→AK1; aguardando KA4.\nMB=KA4");
+    expect(incidentNote).toContain("RESPOSTA KA4 RECEBIDA");
+    expect(incidentNote).toContain("não confirma o estado final do Arme/Desarme");
+    expect(incidentNote).not.toContain("CONFIRMADO]");
   });
 });

@@ -776,6 +776,7 @@
 - [x] Conservar indicação da zona selecionada no Arme até Desarme real posterior da mesma central; não transmitir restauração automática nem tratar KA1 como confirmação do bypass
 - [x] Validar migração aditiva, interface renderizada, banco MariaDB privado e regressões completas do fluxo de seleção
 - [ ] Após atualização da VPS, homologar o fluxo Inibir no Arme em zona expressamente autorizada, conferindo resposta, estado físico, restauração no Desarme e ausência de novo cartão de fila
+- [ ] Consultar a Compatec sobre a resposta `MB=KA4` sem argumentos observada na sequência AK2→AK1→AK4: determinar se corresponde a AK2, AK1 ou AK4, confirmar o ACK KA1 da zona e o ACK do Arme
 - [x] Implementar um único candidato experimental `MB=AK4[0,0000]` de Arme, isolado por MAC C1BDCB, modo de bancada, motivo e confirmação explícita
 - [ ] Registrar o resultado físico do candidato experimental 0000 com consulta de setores antes/depois e confirmação independente no aplicativo
 - [x] Substituir a trava de bancada do Arme pelo quadro oficial `MB=AK4[4]`, mantendo a transmissão restrita à sessão autenticada da própria central Compatec

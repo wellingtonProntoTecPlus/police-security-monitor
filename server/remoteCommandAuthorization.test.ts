@@ -103,13 +103,15 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(dashboardSource).toContain("toast.error(result.message || `Comando não enviado ou resultado indeterminado");
     expect(dashboardSource).toContain("function getRemoteCommandRequester(commandPayload?: string | null)");
     expect(dashboardSource).toContain("Solicitado por: {getRemoteCommandRequester(command.commandPayload)}");
-    expect(dashboardSource).toContain("resposta KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.");
+    expect(dashboardSource).toContain('toast.info(`${ev.actionLabel || "Comando Compatec"}: resposta ${responseCode} recebida. ${caution}`');
+    expect(dashboardSource).toContain("A resposta não confirma o estado final; confira o evento/status real do painel.");
+    expect(dashboardSource).toContain("Isso indica recebimento, não confirma o estado final do bypass.");
     expect(dashboardSource).toContain("disabled>Arme por partição indisponível até homologação Compatec</Button>");
   });
 
   it("integra parser fragmentado e emite ACK KA1 separado de confirmação de Arme/Desarme", () => {
     expect(receiverSource).toContain("getCompatecMw1StatusResponseLineForSocket(socket, data)");
-    expect(receiverSource).toContain('kind: isPhysicalZoneAction ? "remote_command_ack" : "remote_command_confirmation"');
+    expect(receiverSource).toContain('kind: "remote_command_ack"');
     expect(receiverSource).not.toContain("getCompatecMw1StatusResponseLine(data)");
     expect(dashboardSource).toContain('ev.kind === "remote_command_ack"');
   });

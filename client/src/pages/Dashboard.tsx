@@ -64,6 +64,17 @@ const REMOTE_COMMAND_STATUS_LABELS: Record<string, string> = {
   finalization_failed: "Ação confirmada · liberação falhou",
   expired: "Expirou sem transmissão",
 };
+function getRemoteCommandHistoryStatusLabel(command: any) {
+  if (command.status === "responded" && command.transportMode === "microbus_compatec"
+    && (command.commandType === "arm" || command.commandType === "disarm")
+    && /(?:^|\n)MB=KA4(?:\[[^\]\r\n]*\])?\r?$/m.test(command.responsePayload || "")) {
+    return "Resposta KA4 recebida · estado final não confirmado";
+  }
+  if (command.status === "responded" && (command.commandType === "isolate_zone" || command.commandType === "restore_zone")) {
+    return "Resposta KA1 recebida · bypass não confirmado";
+  }
+  return REMOTE_COMMAND_STATUS_LABELS[command.status] || command.status;
+}
 function isStandalonePhysicalCommandSupported(brand?: string | null) {
   const normalized = String(brand || "").trim().toUpperCase();
   return normalized === "COMPATEC";
@@ -555,7 +566,12 @@ export default function Dashboard() {
         } else if (ev.kind === "remote_command_ack") {
           if (ev.alarmSystemId) void utils.remoteCommand.list.invalidate({ alarmSystemId: ev.alarmSystemId, limit: 8 });
           if (ev.incidentId) void utils.incident.openQueue.invalidate();
-          toast.success(`${ev.actionLabel || "Comando de zona"}: resposta KA1 recebida. Isso indica recebimento, não confirma o estado final do bypass.`, { duration: 12_000 });
+          const isArmDisarmAck = ev.commandType === "arm" || ev.commandType === "disarm";
+          const responseCode = ev.responsePayload?.match(/^MB=KA[14]/)?.[0] || (isArmDisarmAck ? "MB=KA4" : "MB=KA1");
+          const caution = isArmDisarmAck
+            ? "A resposta não confirma o estado final; confira o evento/status real do painel."
+            : "Isso indica recebimento, não confirma o estado final do bypass.";
+          toast.info(`${ev.actionLabel || "Comando Compatec"}: resposta ${responseCode} recebida. ${caution}`, { duration: 12_000 });
         } else if (ev.kind === "radioenge_observation_escalated") {
           void utils.incident.openQueue.invalidate();
           startAlertSound();
@@ -1954,7 +1970,7 @@ export default function Dashboard() {
                 <h4 className="font-bold text-foreground">Histórico desta central</h4>
                 <p className="mt-1 text-xs text-muted-foreground">Cada item informa operador, motivo e resultado. {selectedRemoteBrand === "COMPATEC" ? "Arme/Desarme total usam AK4[4]/AK4[12]; Inibir/Restaurar Zona transmite AK2→AK1 pela conexão autenticada. A resposta KA1 informa recebimento, não confirma o estado final do bypass. Arme Stay/partição continua bloqueado até homologação Compatec; PGM não está habilitada nesta ação." : selectedRemoteBrand === "INTELBRAS" ? "A simulação não transmite. O fluxo físico apresentado em registros antigos está bloqueado até correção; a senha de configuração/acesso remoto não é a Senha Master usada para Arme/Desarme." : "A consulta VSec 0x14 e o Desarme 0x43 da central de testes podem ser físicos; Arme, Zona e PGM Vetti permanecem simulados."}</p>
                 <div className="mt-3 max-h-[260px] space-y-2 overflow-y-auto pr-1 sm:max-h-[390px]">
-                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{command.status === "responded" && (command.commandType === "isolate_zone" || command.commandType === "restore_zone") ? "Resposta KA1 recebida · bypass não confirmado" : REMOTE_COMMAND_STATUS_LABELS[command.status] || command.status}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.zoneNumber && <p className="mt-1 text-xs text-cyan-100">Zona: {command.zoneNumber}</p>}{getRemoteCommandRequester(command.commandPayload) && <p className="mt-1 text-xs text-cyan-100">Solicitado por: {getRemoteCommandRequester(command.commandPayload)}</p>}{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{getRemoteProtocolMode(command.commandPayload) === "physical" ? "Quadro físico (senha não armazenada)" : "Quadro simulado"}</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
+                  {remoteCommandHistory.map((command: any) => <div key={command.id} className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-cyan-200">{REMOTE_COMMAND_HISTORY_LABELS[command.commandType as RemoteCommandHistoryType] || command.commandType}</strong><Badge className="bg-slate-700 text-slate-100">{getRemoteCommandHistoryStatusLabel(command)}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{command.operatorName || "Operador"} · {new Date(command.confirmedAt).toLocaleString("pt-BR")}</p>{command.zoneNumber && <p className="mt-1 text-xs text-cyan-100">Zona: {command.zoneNumber}</p>}{getRemoteCommandRequester(command.commandPayload) && <p className="mt-1 text-xs text-cyan-100">Solicitado por: {getRemoteCommandRequester(command.commandPayload)}</p>}{command.technicalUserCode && <p className="mt-1 text-xs text-cyan-100">Usuário técnico: <strong className="font-mono">{command.technicalUserCode}</strong>{command.remoteEventId ? ` · Evento vinculado #${command.remoteEventId}` : ""}</p>}<p className="mt-2 text-sm text-foreground">{command.reason}</p>{getSimulatedProtocolFrames(command.commandPayload).length > 0 && <div className="mt-2 rounded border border-cyan-400/15 bg-black/25 p-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{getRemoteProtocolMode(command.commandPayload) === "physical" ? "Quadro físico (senha não armazenada)" : "Quadro simulado"}</p>{getSimulatedProtocolFrames(command.commandPayload).map((frame: string) => <code key={frame} className="block break-all font-mono text-[10px] text-cyan-100">{frame.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}</code>)}</div>}</div>)}
                   {remoteCommandHistory.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Nenhum comando remoto registrado para esta central.</p>}
                 </div>
               </div>

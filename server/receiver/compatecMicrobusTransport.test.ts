@@ -77,12 +77,15 @@ describe("transporte MicroBus Compatec de bancada", () => {
 
   it("confirma Arme e Desarme somente com uma resposta KA4, nunca com uma consulta", () => {
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[4]\r\n")).toBe(true);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4")).toBe(true);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4[12]\r\n")).toBe(true);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4\r\n")).toBe(true);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA0[03FF]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_STATUS_QUERY, "MB=KA4[4]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[12]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_DISARM_ALL, "MB=KA4[4]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[]\r\n")).toBe(false);
+    expect(isCompatecArmDisarmConfirmation(COMPATEC_MW1_ARM_ALL, "MB=KA4[12]\r\n")).toBe(false);
   });
 
   it("envia isolamento físico AK2→AK1 e só considera KA1 resposta compatível", () => {
@@ -140,6 +143,19 @@ describe("transporte MicroBus Compatec de bancada", () => {
     expect(socket.writes.join("")).not.toContain('"mode"');
     expect(isCompatecArmDisarmConfirmation(payload, "MB=KA4[12]\r\n")).toBe(false);
     expect(isCompatecArmDisarmConfirmation(payload, "MB=KA4[9]\r\n")).toBe(false);
+  });
+
+  it("não confunde KA4 recebido no estágio AK2/AK1 com confirmação do Arme", () => {
+    const socket = fakeSocket();
+    rememberActiveCompatecSession(socket, { id: 9403, account: "0403" });
+    const payload = buildCompatecPhysicalArmWithZonesPayload({ zoneNumbers: [1], requestedBy: "Cliente" });
+    sendCompatecMw1BenchQuery({ alarmSystemId: 9403, commandId: 403, payload });
+    const earlyKa4 = consumeCompatecMw1StatusResponse(socket, "MB=KA4");
+    expect(earlyKa4).toMatchObject({ commandId: 403, stage: "zone_ack" });
+    expect(earlyKa4).not.toHaveProperty("intermediateZoneAck");
+    expect(sendCompatecMw1ArmAfterZones({ alarmSystemId: 9403, commandId: 403 }).sent).toBe(false);
+    expect(socket.writes).toHaveLength(2);
+    expect(socket.writes.join("")).not.toContain("MB=AK4[4]");
   });
 
   it("não continua o Arme em novo socket e rejeita quadros/zonas adulterados", () => {

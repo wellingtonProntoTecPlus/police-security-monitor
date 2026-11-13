@@ -788,12 +788,13 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
         });
         if (confirmation.recorded) {
           eventCallback?.({
-            kind: isPhysicalZoneAction ? "remote_command_ack" : "remote_command_confirmation",
+            kind: "remote_command_ack",
             alarmSystemId: confirmation.alarmSystemId,
             incidentId: confirmation.incidentId || undefined,
             commandId: confirmation.commandId,
             commandType: confirmation.commandType,
             actionLabel: confirmation.actionLabel,
+            responsePayload: microbusResponse.trim(),
             timestamp: new Date().toISOString(),
           });
         }
@@ -804,11 +805,12 @@ async function handleCompatec(socket: net.Socket, data: Buffer, port: number) {
         }
       } else if (isPhysicalAction) {
         await updateAlarmRemoteCommandDelivery(completed.commandId, {
-          status: "failed",
-          responsePayload: `Resposta incompatível com o comando Compatec: ${microbusResponse.replace(/\r?\n/g, "")}`,
+          status: "dispatch_unknown",
+          appendResponsePayload: true,
+          responsePayload: `Resposta inesperada do MicroBus Compatec: ${microbusResponse.replace(/\r?\n/g, "")}. O resultado físico é indeterminado; conferir o estado no painel e não reenviar automaticamente.`,
           executedAt: new Date(),
         });
-        console.warn(`[MICROBUS] COMPATEC resposta incompatível com ação física | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
+        console.warn(`[MICROBUS] COMPATEC resposta fora do estágio esperado; sequência interrompida | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
       } else {
         await updateAlarmRemoteCommandDelivery(completed.commandId, { status: "responded", responsePayload: microbusResponse, executedAt: new Date() });
         console.log(`[MICROBUS] COMPATEC consulta confirmada pela central | comando ${completed.commandId} | ${microbusResponse.replace(/\r?\n/g, "")}`);
