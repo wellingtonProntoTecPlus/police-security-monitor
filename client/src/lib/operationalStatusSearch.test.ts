@@ -6,12 +6,13 @@ describe("busca dos indicadores operacionais", () => {
     account: "0334",
     clientName: "Wellington de Sousa Portes",
     clientFantasyName: "Police Electronics",
+    partnerName: "Segurança São José",
     brand: "COMPATEC",
     model: "AW3 Pro",
   };
 
-  it("localiza por conta, parte do nome, sobrenome e nome fantasia", () => {
-    for (const term of ["0334", "wellington", "portes", "police", "compatec"]) {
+  it("localiza por conta, parte do nome, sobrenome, fantasia, parceira e nome da marca", () => {
+    for (const term of ["0334", "wellington", "portes", "police", "compatec", "seguranca", "sao jose"]) {
       expect(matchesOperationalStatusSearch(system, term)).toBe(true);
     }
   });

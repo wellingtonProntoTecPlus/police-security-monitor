@@ -3,6 +3,7 @@ type OperationalSearchEntry = {
   accounts?: string[] | null;
   clientName?: string | null;
   clientFantasyName?: string | null;
+  partnerName?: string | null;
   name?: string | null;
   fantasyName?: string | null;
   brand?: string | null;
@@ -17,7 +18,7 @@ function normalize(value?: string | null) {
     .trim();
 }
 
-/** Busca progressiva, aceitando parte da conta, nome, sobrenome, razão social ou fantasia. */
+/** Busca progressiva por conta, cliente, fantasia, parceira, marca ou modelo. */
 export function matchesOperationalStatusSearch(item: OperationalSearchEntry, query: string) {
   const normalizedQuery = normalize(query);
   if (!normalizedQuery) return true;
@@ -27,6 +28,7 @@ export function matchesOperationalStatusSearch(item: OperationalSearchEntry, que
     ...accounts,
     item.clientName,
     item.clientFantasyName,
+    item.partnerName,
     item.name,
     item.fantasyName,
     item.brand,

@@ -522,14 +522,16 @@ export default function Dashboard() {
   const onlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "online"), [connectionSystems]);
   const offlineSystems = useMemo(() => connectionSystems.filter((system: any) => system.connectionStatus === "offline"), [connectionSystems]);
   const clientsById = useMemo(() => new Map((clientData || []).map((client: any) => [client.id, client])), [clientData]);
+  const partnersById = useMemo(() => new Map((partnerCompanyData || []).map((partner: any) => [partner.id, partner])), [partnerCompanyData]);
   const blockedClients = useMemo(() => (clientData || []).filter((client: any) => getEffectiveClientMonitoringStatus(client) !== "active"), [clientData]);
   const operationalSearchMatches = useCallback((item: any, client?: any) => matchesOperationalStatusSearch({
     ...item,
     clientName: item.clientName || client?.name,
     clientFantasyName: item.clientFantasyName || client?.fantasyName,
+    partnerName: item.partnerName || partnersById.get(client?.partnerCompanyId)?.name,
     name: client?.name,
     fantasyName: client?.fantasyName,
-  }, operationalStatusSearch), [operationalStatusSearch]);
+  }, operationalStatusSearch), [operationalStatusSearch, partnersById]);
   const connectionStatusSystems = useMemo(() => {
     const systems = connectionStatusModal === "online" ? onlineSystems : offlineSystems;
     return systems.filter((system: any) => operationalSearchMatches(system, clientsById.get(system.clientId)));
@@ -2584,7 +2586,7 @@ export default function Dashboard() {
             <div className="p-3 border-b border-border bg-muted/20">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, nome ou fantasia..." className="pl-9" />
+                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, cliente, fantasia ou parceira..." className="pl-9" />
               </div>
             </div>
             <div className="overflow-y-auto max-h-[58vh] p-2">
@@ -2595,6 +2597,7 @@ export default function Dashboard() {
                     <div>
                       <p className="text-sm font-bold text-foreground">{client?.fantasyName || client?.name || "Cliente não identificado"}</p>
                       <p className="text-xs text-muted-foreground">Conta {system.account} · {system.brand} {system.model || ""} · Porta {system.receiverPort || "não definida"}</p>
+                      <p className="text-[11px] text-cyan-300/80">Parceira: {partnersById.get(client?.partnerCompanyId)?.name || "Sem parceira vinculada"}</p>
                     </div>
                     <div className="text-right">
                       <Badge className={connectionStatusModal === "online" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}>{connectionStatusModal === "online" ? "ONLINE" : "OFFLINE"}</Badge>
@@ -2620,7 +2623,7 @@ export default function Dashboard() {
             <div className="p-3 border-b border-border bg-muted/20">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, nome ou fantasia..." className="pl-9" />
+                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, cliente, fantasia ou parceira..." className="pl-9" />
               </div>
             </div>
             <div className="overflow-y-auto max-h-[54vh] p-2">
@@ -2684,7 +2687,7 @@ export default function Dashboard() {
             <div className="p-3 border-b border-border bg-muted/20">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, nome ou fantasia..." className="pl-9" />
+                <Input autoFocus value={operationalStatusSearch} onChange={(event) => setOperationalStatusSearch(event.target.value)} placeholder="Buscar por conta, cliente, fantasia ou parceira..." className="pl-9" />
               </div>
             </div>
             <div className="overflow-y-auto max-h-[60vh] p-2">
@@ -2693,6 +2696,7 @@ export default function Dashboard() {
                    <div>
                      <p className="text-sm font-bold text-foreground">{item.clientName}</p>
                      <p className="text-xs text-muted-foreground">Conta: {item.account} · {item.brand || "Marca não informada"} {item.model || ""}</p>
+                     <p className="text-[11px] text-cyan-300/80">Parceira: {partnersById.get(clientsById.get(item.clientId)?.partnerCompanyId)?.name || "Sem parceira vinculada"}</p>
                    </div>
                   <div className="flex shrink-0 items-center gap-2 text-right">
                     <Button size="sm" variant="outline" className="h-8 px-2 text-[11px] text-amber-200" disabled={!Number(item.alarmSystemId || item.systemId)} onClick={() => setQuickScheduleSystem({ id: Number(item.alarmSystemId || item.systemId), account: item.account, clientName: item.clientName, brand: item.brand, model: item.model })}>Alterar agenda</Button>

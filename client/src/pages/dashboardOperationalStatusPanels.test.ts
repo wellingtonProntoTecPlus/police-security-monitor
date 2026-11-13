@@ -4,12 +4,17 @@ import { readFileSync } from "node:fs";
 const source = readFileSync(new URL("./Dashboard.tsx", import.meta.url), "utf8");
 
 describe("indicadores operacionais do Dashboard", () => {
-  it("mantém as cinco listas pesquisáveis por conta, nome ou fantasia", () => {
+  it("mantém as listas pesquisáveis por conta, cliente, fantasia ou parceira", () => {
     for (const label of ["Armados", "Desarmados", "Online", "Offline", "Bloqueados"]) {
       expect(source).toContain(label);
     }
-    expect(source).toContain('placeholder="Buscar por conta, nome ou fantasia..."');
+    expect(source).toContain('placeholder="Buscar por conta, cliente, fantasia ou parceira..."');
     expect(source).toContain("matchesOperationalStatusSearch");
+    expect(source).toContain("partnersById.get(client?.partnerCompanyId)?.name");
+    expect(source).toContain("partnersById.get(clientsById.get(item.clientId)?.partnerCompanyId)?.name");
+    expect(source).toContain('armDisarmModal === "armed" ? armDisarmData?.armed || [] : armDisarmData?.disarmed || []');
+    expect(source).toContain('system.connectionStatus === "online"');
+    expect(source).toContain('system.connectionStatus === "offline"');
   });
 
   it("mostra os dados administrativos da suspensão sem descartar a identidade do cliente", () => {
