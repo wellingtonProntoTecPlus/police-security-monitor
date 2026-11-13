@@ -52,6 +52,8 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     await admin.end();
     pool = mysql.createPool({ socketPath: socket, user: "root", database, connectionLimit: 4, timezone: "Z", multipleStatements: true });
     await pool.query(snapshotDDL());
+    const upgrade = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    await pool.query(upgrade.slice(upgrade.lastIndexOf("CREATE TABLE IF NOT EXISTS client_dvrs (")));
     orm = drizzle(pool);
     setDbForTesting(orm);
   });

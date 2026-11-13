@@ -13,6 +13,7 @@ import {
   compatecZoneArmSelections,
   alarmUsers, InsertAlarmUser,
   cameras, InsertCamera,
+  clientDvrs, InsertClientDvr,
   alarmEvents, InsertAlarmEvent,
   incidents, InsertIncident, incidentHistory,
   contactIdCodes,
@@ -55,6 +56,7 @@ import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 import { getPublicBrandingOrNull } from "./publicBrandingFallback";
 import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
+import { decryptDvrPassword, encryptDvrPassword } from "./dvrPasswordEncryption";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
 import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
 import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
@@ -2155,6 +2157,58 @@ export async function getCamera(id: number) {
   return rows[0];
 }
 
+export async function listClientDvrs(clientId: number, includeAdminPassword = false) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(clientDvrs).where(eq(clientDvrs.clientId, clientId)).orderBy(clientDvrs.id);
+  return rows.map((row: typeof clientDvrs.$inferSelect) => {
+    const { encryptedPassword, ...registrationData } = row;
+    if (!includeAdminPassword) return registrationData;
+    try {
+      return { ...registrationData, password: encryptedPassword ? decryptDvrPassword(encryptedPassword) : "", passwordUnavailable: false };
+    } catch {
+      // Não expõe ciphertext nem impede consultar os demais equipamentos.
+      return { ...registrationData, password: "", passwordUnavailable: true };
+    }
+  });
+}
+
+export async function getClientDvr(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(clientDvrs).where(eq(clientDvrs.id, id)).limit(1);
+  const row = rows[0];
+  if (!row) return undefined;
+  const { encryptedPassword: _encryptedPassword, ...registrationData } = row;
+  return registrationData;
+}
+
+export async function createClientDvr(data: InsertClientDvr & { password?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { password, encryptedPassword: _untrustedEncryptedPassword, ...registrationData } = data as InsertClientDvr & { password?: string };
+  const result = await db.insert(clientDvrs).values({
+    ...registrationData,
+    encryptedPassword: password?.trim() ? encryptDvrPassword(password) : null,
+  });
+  return { id: result[0].insertId };
+}
+
+export async function updateClientDvr(id: number, data: Partial<InsertClientDvr> & { password?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { password, encryptedPassword: _untrustedEncryptedPassword, clientId: _clientId, ...registrationData } = data as Partial<InsertClientDvr> & { password?: string };
+  const values: Partial<InsertClientDvr> = { ...registrationData };
+  if (password?.trim()) values.encryptedPassword = encryptDvrPassword(password);
+  await db.update(clientDvrs).set(values).where(eq(clientDvrs.id, id));
+}
+
+export async function deleteClientDvr(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(clientDvrs).where(eq(clientDvrs.id, id));
+}
+
 export async function updateCamera(id: number, data: Partial<InsertCamera>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -3784,6 +3838,7 @@ export async function deleteClient(id: number) {
       }).where(and(inArray(alarmSystems.id, systemIds), isNotNull(alarmSystems.serialNumber)));
       await tx.delete(alarmRemoteCredentials).where(inArray(alarmRemoteCredentials.alarmSystemId, systemIds));
     }
+    await tx.delete(clientDvrs).where(eq(clientDvrs.clientId, id));
     await tx.delete(registrationDocuments).where(and(eq(registrationDocuments.ownerType, "client"), eq(registrationDocuments.ownerId, id)));
     await tx.delete(clients).where(eq(clients.id, id));
     return systemIds;

@@ -122,6 +122,26 @@ async function assertPartnerCameraScope(ctx: any, cameraId: number) {
   return camera;
 }
 
+async function assertPartnerDvrScope(ctx: any, dvrId: number) {
+  const dvr = await db.getClientDvr(dvrId);
+  if (!dvr) throw new TRPCError({ code: "NOT_FOUND", message: "DVR não encontrado" });
+  await assertPartnerClientScope(ctx, dvr.clientId);
+  return dvr;
+}
+
+async function assertDvrClientScope(ctx: any, clientId: number) {
+  await assertPartnerClientScope(ctx, clientId);
+  if (ctx.user?.role !== "partner" && !await db.getClient(clientId)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
+  }
+}
+
+function assertDvrPasswordPermission(ctx: any, password: string | undefined) {
+  if (password !== undefined && ctx.user?.role !== "admin" && ctx.user?.role !== "partner") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "A senha do DVR só pode ser consultada ou alterada por um Administrador ou pela empresa responsável pelo cliente" });
+  }
+}
+
 async function assertPartnerHolidayRecordScope(ctx: any, holidayId: number) {
   if (ctx.user?.role !== "partner") return undefined;
   const holiday = await db.getPartnerHoliday(holidayId);
@@ -811,6 +831,61 @@ export const appRouter = router({
       isActive: z.boolean().optional(),
     })).mutation(async ({ input, ctx }) => { const { id, ...data } = input; await assertPartnerCameraScope(ctx, id); return db.updateCamera(id, data); }),
     delete: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => { await assertPartnerCameraScope(ctx, input.id); return db.deleteCamera(input.id); }),
+  }),
+
+  // ============================================================
+  // DADOS CADASTRAIS DOS DVRs (sem conexão ao equipamento)
+  // ============================================================
+  dvr: router({
+    list: partnerDataProcedure.input(z.object({ clientId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+      await assertDvrClientScope(ctx, input.clientId);
+      return db.listClientDvrs(input.clientId, ctx.user.role === "admin" || ctx.user.role === "partner");
+    }),
+    create: partnerDataProcedure.input(z.object({
+      clientId: z.number().int().positive(),
+      brand: z.string().trim().min(1).max(100),
+      model: z.string().max(150).optional(),
+      firmwareVersion: z.string().max(100).optional(),
+      serialNumber: z.string().max(150).optional(),
+      host: z.string().max(255).optional(),
+      tcpPort: z.number().int().min(1).max(65535).nullable().optional(),
+      udpPort: z.number().int().min(1).max(65535).nullable().optional(),
+      httpPort: z.number().int().min(1).max(65535).nullable().optional(),
+      rtspPort: z.number().int().min(1).max(65535).nullable().optional(),
+      httpsPort: z.number().int().min(1).max(65535).nullable().optional(),
+      serverPort: z.number().int().min(1).max(65535).nullable().optional(),
+      username: z.string().max(128).optional(),
+      password: z.string().max(500).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await assertDvrClientScope(ctx, input.clientId);
+      assertDvrPasswordPermission(ctx, input.password);
+      return db.createClientDvr(input);
+    }),
+    update: partnerDataProcedure.input(z.object({
+      id: z.number().int().positive(),
+      brand: z.string().trim().min(1).max(100).optional(),
+      model: z.string().max(150).optional(),
+      firmwareVersion: z.string().max(100).optional(),
+      serialNumber: z.string().max(150).optional(),
+      host: z.string().max(255).optional(),
+      tcpPort: z.number().int().min(1).max(65535).nullable().optional(),
+      udpPort: z.number().int().min(1).max(65535).nullable().optional(),
+      httpPort: z.number().int().min(1).max(65535).nullable().optional(),
+      rtspPort: z.number().int().min(1).max(65535).nullable().optional(),
+      httpsPort: z.number().int().min(1).max(65535).nullable().optional(),
+      serverPort: z.number().int().min(1).max(65535).nullable().optional(),
+      username: z.string().max(128).optional(),
+      password: z.string().max(500).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, password, ...registrationData } = input;
+      await assertPartnerDvrScope(ctx, id);
+      assertDvrPasswordPermission(ctx, password);
+      return db.updateClientDvr(id, { ...registrationData, ...(password === undefined ? {} : { password }) });
+    }),
+    delete: partnerDataProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      await assertPartnerDvrScope(ctx, input.id);
+      return db.deleteClientDvr(input.id);
+    }),
   }),
 
   // ============================================================

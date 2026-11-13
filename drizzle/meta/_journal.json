@@ -351,6 +351,13 @@
       "when": 1794524109345,
       "tag": "0049_complex_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "5",
+      "when": 1794571974754,
+      "tag": "0050_typical_medusa",
+      "breakpoints": true
     }
   ]
 }

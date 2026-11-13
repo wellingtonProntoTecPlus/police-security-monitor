@@ -440,6 +440,33 @@ export const cameras = mysqlTable("cameras", {
 export type Camera = typeof cameras.$inferSelect;
 export type InsertCamera = typeof cameras.$inferInsert;
 
+// Dados cadastrais de DVR/NVR do cliente; não representa conexão nem acesso ao equipamento.
+export const clientDvrs = mysqlTable("client_dvrs", {
+  id: int("id").autoincrement().primaryKey(),
+  clientId: int("clientId").notNull(),
+  brand: varchar("brand", { length: 100 }),
+  model: varchar("model", { length: 150 }),
+  firmwareVersion: varchar("firmwareVersion", { length: 100 }),
+  serialNumber: varchar("serialNumber", { length: 150 }),
+  host: varchar("host", { length: 255 }),
+  tcpPort: int("tcpPort"),
+  udpPort: int("udpPort"),
+  httpPort: int("httpPort"),
+  rtspPort: int("rtspPort"),
+  httpsPort: int("httpsPort"),
+  serverPort: int("serverPort"),
+  username: varchar("username", { length: 128 }).default("admin").notNull(),
+  encryptedPassword: text("encryptedPassword"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("client_dvrs_client_idx").on(table.clientId),
+  index("client_dvrs_serial_idx").on(table.serialNumber),
+]);
+
+export type ClientDvr = typeof clientDvrs.$inferSelect;
+export type InsertClientDvr = typeof clientDvrs.$inferInsert;
+
 // ============================================================
 // EVENTOS RECEBIDOS (Contact ID)
 // ============================================================

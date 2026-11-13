@@ -9,11 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2, KeyRound } from "lucide-react";
+import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2, KeyRound, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
 import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
@@ -32,6 +32,12 @@ const INITIAL_SYSTEM_FORM = {
   keepAliveRepeatAlertEveryMinutes: 60,
 };
 
+const INITIAL_DVR_FORM = {
+  brand: "", model: "", firmwareVersion: "", serialNumber: "", host: "",
+  tcpPort: "", udpPort: "", httpPort: "", rtspPort: "", httpsPort: "", serverPort: "",
+  username: "admin", password: "",
+};
+
 function portsForBrand(brand: string) {
   return getAlarmSystemProfile(brand)?.receiverPorts || [];
 }
@@ -46,11 +52,13 @@ export default function ClientDetail() {
   const clientId = Number(params?.id);
 
   const isPartner = user?.role === "partner";
+  const canSeeDvrPassword = user?.role === "admin" || isPartner;
   const { data: client } = trpc.monitoredClient.get.useQuery({ id: clientId }, { enabled: !!clientId });
   const { data: systems = [], refetch: refetchSystems } = trpc.alarmSystem.list.useQuery({ clientId }, { enabled: !!clientId });
   const { data: connectionSystems = [] } = trpc.dashboard.connectionStatus.useQuery(undefined, { enabled: !isPartner, refetchInterval: 15000 });
   const clientConnectionStatusQuery = trpc.alarmSystem.clientConnectionStatus.useQuery({ clientId }, { enabled: isPartner && Boolean(clientId), refetchInterval: 15000 });
   const { data: cameras = [], refetch: refetchCameras } = trpc.camera.list.useQuery({ clientId }, { enabled: !!clientId });
+  const { data: dvrs = [], refetch: refetchDvrs, isLoading: isDvrsLoading, error: dvrLoadError } = trpc.dvr.list.useQuery({ clientId }, { enabled: !!clientId });
   const visibleConnectionSystems = isPartner ? clientConnectionStatusQuery.data || [] : connectionSystems;
   const connectionStatusBySystemId = new Map(visibleConnectionSystems.map((system: any) => [system.id, system.connectionStatus]));
 
@@ -99,6 +107,21 @@ export default function ClientDetail() {
   const createCamera = trpc.camera.create.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera adicionada!"); } });
   const deleteCamera = trpc.camera.delete.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera excluída!"); } });
   const updateCamera = trpc.camera.update.useMutation({ onSuccess: () => { refetchCameras(); toast.success("Câmera atualizada!"); setEditingCamera(null); } });
+  const createDvr = trpc.dvr.create.useMutation({ onSuccess: async () => {
+    await refetchDvrs();
+    setShowDvrForm(false);
+    setEditingDvr(null);
+    setDvrForm({ ...INITIAL_DVR_FORM });
+    toast.success("DVR cadastrado com sucesso!");
+  }, onError: (error) => toast.error(`Não foi possível cadastrar o DVR: ${error.message}`) });
+  const updateDvr = trpc.dvr.update.useMutation({ onSuccess: async () => {
+    await refetchDvrs();
+    setShowDvrForm(false);
+    setEditingDvr(null);
+    setDvrForm({ ...INITIAL_DVR_FORM });
+    toast.success("Dados do DVR atualizados com sucesso!");
+  }, onError: (error) => toast.error(`Não foi possível atualizar o DVR: ${error.message}`) });
+  const deleteDvr = trpc.dvr.delete.useMutation({ onSuccess: async () => { await refetchDvrs(); toast.success("DVR excluído com sucesso!"); }, onError: (error) => toast.error(`Não foi possível excluir o DVR: ${error.message}`) });
   const createZone = trpc.alarmZone.create.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona adicionada!"); } });
   const deleteZone = trpc.alarmZone.delete.useMutation({ onSuccess: () => { refetchZones(); toast.success("Zona excluída!"); } });
   const updateZone = trpc.alarmZone.update.useMutation({ onSuccess: () => { refetchZones(); setEditingZone(null); toast.success("Zona atualizada!"); } });
@@ -118,6 +141,7 @@ export default function ClientDetail() {
   const [showContactForm, setShowContactForm] = useState(false);
   const [showSystemForm, setShowSystemForm] = useState(false);
   const [showCameraForm, setShowCameraForm] = useState(false);
+  const [showDvrForm, setShowDvrForm] = useState(false);
   const [showZoneForm, setShowZoneForm] = useState(false);
   const [editingContact, setEditingContact] = useState<any>(null);
   const [editingSystem, setEditingSystem] = useState<any>(null);
@@ -132,6 +156,8 @@ export default function ClientDetail() {
   const [systemForm, setSystemForm] = useState({ ...INITIAL_SYSTEM_FORM });
   const [cameraForm, setCameraForm] = useState({ name: "", rtspUrl: "", brand: "", location: "" });
   const [editingCamera, setEditingCamera] = useState<any>(null);
+  const [editingDvr, setEditingDvr] = useState<any>(null);
+  const [dvrForm, setDvrForm] = useState({ ...INITIAL_DVR_FORM });
   const [zoneForm, setZoneForm] = useState({ zoneNumber: 1, name: "", type: "perimeter" as any, partition: 1 });
   const [alarmUserForm, setAlarmUserForm] = useState({ userNumber: 1, name: "", apartmentNumber: "", phone: "", password: "", counterPassword: "", coercionPassword: "" });
   const contactPageCount = Math.max(1, Math.ceil(contacts.length / CONTACTS_PER_PAGE));
@@ -172,13 +198,14 @@ export default function ClientDetail() {
         </div>
 
         <Tabs defaultValue="info" className="w-full">
-          <TabsList>
+          <TabsList className="h-auto flex-wrap justify-start gap-1">
             <TabsTrigger value="info">Informações</TabsTrigger>
             <TabsTrigger value="contacts">Contatos e Credenciais ({contacts.length})</TabsTrigger>
             <TabsTrigger value="systems">Sistemas ({systems.length})</TabsTrigger>
             <TabsTrigger value="users">Usuários do Painel ({alarmUsers.length})</TabsTrigger>
             <TabsTrigger value="zones">Zonas/Setores ({zones.length})</TabsTrigger>
             <TabsTrigger value="schedule">Agenda de Arme</TabsTrigger>
+            <TabsTrigger value="dvrs">DVRs ({dvrs.length})</TabsTrigger>
             <TabsTrigger value="cameras">Câmeras ({cameras.length})</TabsTrigger>
           </TabsList>
 
@@ -694,6 +721,98 @@ export default function ClientDetail() {
           <TabsContent value="schedule" className="mt-4 space-y-4">
             {systems.length > 1 && <div className="flex items-center gap-3 rounded border border-border bg-card p-3"><Label>Sistema para agenda</Label><select className="h-9 rounded border border-border bg-background px-2" value={String(activeSystemId)} onChange={(event) => setOperationalSystemId(Number(event.target.value))}>{systems.map((system: any) => <option key={system.id} value={system.id}>Conta {system.account} — {system.brand} {system.model || ""}</option>)}</select></div>}
             <AlarmScheduleEditor system={activeSystem} />
+          </TabsContent>
+
+          {/* CADASTRO INFORMATIVO DE DVRs — sem conexão ao equipamento */}
+          <TabsContent value="dvrs" className="mt-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-3">
+              <div>
+                <p className="font-semibold">Dados cadastrais dos DVRs</p>
+                <p className="text-xs text-muted-foreground">Cadastro informativo; não conecta nem acessa o equipamento.</p>
+              </div>
+              <Dialog open={showDvrForm} onOpenChange={(open) => { setShowDvrForm(open); if (!open) { setEditingDvr(null); setDvrForm({ ...INITIAL_DVR_FORM }); } }}>
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => { setEditingDvr(null); setDvrForm({ ...INITIAL_DVR_FORM }); }}><Plus className="mr-1 h-4 w-4" />Adicionar DVR</Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>{editingDvr ? "Editar dados do DVR" : "Cadastrar DVR"}</DialogTitle>
+                    <DialogDescription>Somente cadastro. Não é uma configuração de acesso ou conexão com o DVR.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div><Label htmlFor="dvr-brand">Marca *</Label><Input id="dvr-brand" value={dvrForm.brand} onChange={(event) => setDvrForm({ ...dvrForm, brand: event.target.value })} placeholder="Ex.: Intelbras" /></div>
+                    <div><Label>Modelo</Label><Input value={dvrForm.model} onChange={(event) => setDvrForm({ ...dvrForm, model: event.target.value })} /></div>
+                    <div><Label>Versão</Label><Input value={dvrForm.firmwareVersion} onChange={(event) => setDvrForm({ ...dvrForm, firmwareVersion: event.target.value })} /></div>
+                    <div><Label>Serial</Label><Input value={dvrForm.serialNumber} onChange={(event) => setDvrForm({ ...dvrForm, serialNumber: event.target.value })} /></div>
+                    <div className="sm:col-span-2"><Label>IP/DDNS</Label><Input value={dvrForm.host} onChange={(event) => setDvrForm({ ...dvrForm, host: event.target.value })} placeholder="Endereço IP ou nome DDNS" /></div>
+                    {([
+                      ["tcpPort", "Porta TCP"], ["udpPort", "Porta UDP"], ["httpPort", "Porta HTTP"],
+                      ["rtspPort", "Porta RTSP"], ["httpsPort", "Porta HTTPS"], ["serverPort", "Porta Servidor"],
+                    ] as const).map(([key, label]) => <div key={key}><Label>{label}</Label><Input type="number" min={1} max={65535} value={dvrForm[key]} onChange={(event) => setDvrForm({ ...dvrForm, [key]: event.target.value })} placeholder="1–65535" /></div>)}
+                    <div><Label>Usuário</Label><Input value={dvrForm.username} onChange={(event) => setDvrForm({ ...dvrForm, username: event.target.value })} /></div>
+                    {canSeeDvrPassword && <div><Label>Senha do DVR</Label><Input type="text" autoComplete="new-password" value={dvrForm.password} onChange={(event) => setDvrForm({ ...dvrForm, password: event.target.value })} placeholder="Visível ao Administrador e à parceira responsável" /></div>}
+                  </div>
+                  {canSeeDvrPassword && <p className="text-xs text-muted-foreground">A senha fica cifrada no banco e é exibida em texto legível somente ao Administrador e à empresa responsável por este cliente.</p>}
+                  <Button className="mt-2" disabled={createDvr.isPending || updateDvr.isPending} onClick={() => {
+                    if (!dvrForm.brand.trim()) { toast.error("Informe a marca do DVR"); return; }
+                    const portValue = (value: string) => value.trim() ? Number(value) : null;
+                    const common = {
+                      brand: dvrForm.brand.trim(), model: dvrForm.model.trim(), firmwareVersion: dvrForm.firmwareVersion.trim(),
+                      serialNumber: dvrForm.serialNumber.trim(), host: dvrForm.host.trim(),
+                      tcpPort: portValue(dvrForm.tcpPort), udpPort: portValue(dvrForm.udpPort), httpPort: portValue(dvrForm.httpPort),
+                      rtspPort: portValue(dvrForm.rtspPort), httpsPort: portValue(dvrForm.httpsPort), serverPort: portValue(dvrForm.serverPort),
+                      username: dvrForm.username.trim() || "admin",
+                      ...(canSeeDvrPassword && dvrForm.password.trim() ? { password: dvrForm.password } : {}),
+                    };
+                    if (editingDvr) updateDvr.mutate({ id: editingDvr.id, ...common });
+                    else createDvr.mutate({ clientId, ...common });
+                  }}>{editingDvr ? "Salvar alterações" : "Cadastrar DVR"}</Button>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="space-y-3">
+              {isDvrsLoading && <p className="py-8 text-center text-muted-foreground">Carregando DVRs…</p>}
+              {dvrLoadError && <div className="rounded-md border border-destructive/30 p-3 text-sm" role="alert">Não foi possível consultar os DVRs deste cliente. <Button variant="outline" size="sm" onClick={() => refetchDvrs()}>Tentar novamente</Button></div>}
+              {dvrs.map((dvr: any) => (
+                <Card key={dvr.id}>
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <HardDrive className="mt-0.5 h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-semibold">{dvr.brand || "DVR"}{dvr.model ? ` · ${dvr.model}` : ""}</p>
+                          <p className="text-xs text-muted-foreground">Versão: {dvr.firmwareVersion || "—"} · Serial: {dvr.serialNumber || "—"}</p>
+                          <p className="text-xs text-muted-foreground">IP/DDNS: {dvr.host || "—"} · Usuário: {dvr.username || "admin"}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" title="Editar DVR" onClick={() => {
+                          setEditingDvr(dvr);
+                          setDvrForm({
+                            brand: dvr.brand || "", model: dvr.model || "", firmwareVersion: dvr.firmwareVersion || "", serialNumber: dvr.serialNumber || "", host: dvr.host || "",
+                            tcpPort: dvr.tcpPort ? String(dvr.tcpPort) : "", udpPort: dvr.udpPort ? String(dvr.udpPort) : "", httpPort: dvr.httpPort ? String(dvr.httpPort) : "",
+                            rtspPort: dvr.rtspPort ? String(dvr.rtspPort) : "", httpsPort: dvr.httpsPort ? String(dvr.httpsPort) : "", serverPort: dvr.serverPort ? String(dvr.serverPort) : "",
+                            username: dvr.username || "admin", password: canSeeDvrPassword ? dvr.password || "" : "",
+                          });
+                          setShowDvrForm(true);
+                        }}><Pencil className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" title="Excluir DVR" onClick={() => { if (confirm("Excluir este cadastro de DVR?")) deleteDvr.mutate({ id: dvr.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-3">
+                      <p><strong>TCP:</strong> {dvr.tcpPort || "—"}</p>
+                      <p><strong>UDP:</strong> {dvr.udpPort || "—"}</p>
+                      <p><strong>HTTP:</strong> {dvr.httpPort || "—"}</p>
+                      <p><strong>RTSP:</strong> {dvr.rtspPort || "—"}</p>
+                      <p><strong>HTTPS:</strong> {dvr.httpsPort || "—"}</p>
+                      <p><strong>Servidor:</strong> {dvr.serverPort || "—"}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground"><strong>Senha:</strong> {canSeeDvrPassword ? dvr.passwordUnavailable ? "Senha protegida indisponível; restaurar a chave privada ou cadastrar nova senha." : dvr.password || "Não cadastrada" : "Visível somente ao Administrador e à parceira responsável"}</p>
+                  </CardContent>
+                </Card>
+              ))}
+              {!isDvrsLoading && !dvrLoadError && dvrs.length === 0 && <p className="py-8 text-center text-muted-foreground">Nenhum DVR cadastrado para este cliente.</p>}
+            </div>
           </TabsContent>
 
           {/* CÂMERAS */}

@@ -1313,3 +1313,26 @@ CREATE TABLE IF NOT EXISTS compatec_zone_arm_selections (
   KEY compatec_zone_arm_selection_expiry_idx (alarmSystemId, expiresAt),
   KEY compatec_zone_arm_selection_command_idx (armCommandId)
 );
+
+-- Ficha cadastral de DVRs por cliente. Sem conexão ao equipamento; senha cifrada AES-256-GCM.
+CREATE TABLE IF NOT EXISTS client_dvrs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  clientId INT NOT NULL,
+  brand VARCHAR(100),
+  model VARCHAR(150),
+  firmwareVersion VARCHAR(100),
+  serialNumber VARCHAR(150),
+  host VARCHAR(255),
+  tcpPort INT,
+  udpPort INT,
+  httpPort INT,
+  rtspPort INT,
+  httpsPort INT,
+  serverPort INT,
+  username VARCHAR(128) NOT NULL DEFAULT 'admin',
+  encryptedPassword TEXT,
+  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY client_dvrs_client_idx (clientId),
+  KEY client_dvrs_serial_idx (serialNumber)
+);

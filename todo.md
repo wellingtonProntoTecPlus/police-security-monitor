@@ -932,3 +932,15 @@
 - [x] Confirmar que o cadastro de usuário já permite criar role Parceiro e vinculá-lo a uma empresa parceira
 - [ ] Publicar e homologar com um usuário parceiro de teste, comprovando que IDs de outra parceira são negados e que nenhum evento operacional é recebido
 - [ ] Desenvolver relatórios filtrados por cliente/parceira como etapa futura, mantendo proibição de relatórios globais
+
+## Dados cadastrais de DVRs por cliente
+- [x] Criar aba DVRs na ficha do cliente, permitindo vários equipamentos e cadastro/edição/exclusão sem conexão ao DVR
+- [x] Campos: marca, modelo, versão, serial, IP/DDNS, portas TCP/UDP/HTTP/RTSP/HTTPS/Servidor, usuário padrão admin e senha
+- [x] Cifrar senha com AES-256-GCM, preservar caracteres da credencial e não retornar ciphertext na API; senha legível ao Administrador e à parceira proprietária da carteira já autorizada
+- [x] Bloquear consulta/alteração de senha por operador/supervisor e impedir acesso a DVRs de clientes de outras parceiras
+- [x] Validar portas 1–65535, conservar senha ao editar apenas dados cadastrais e emitir feedback sem fechar formulário antes da persistência
+- [x] Gerar/aplicar migration somente no WebDev; incluir criação aditiva/idempotente no upgrade VPS e homologar em MariaDB privado sem rede
+- [x] Usar chave privada DVR independente de JWT_SECRET: criar uma única vez com permissão 0600, não sobrescrever nem publicar no Git; manter sua cópia de segurança privada junto ao backup das credenciais
+- [x] Excluir DVRs e credenciais na mesma transação de exclusão do cliente e tratar uma senha indisponível sem bloquear a ficha dos demais equipamentos
+- [x] Validar TypeScript, 149 arquivos/672 testes aprovados com todas as integrações privadas habilitadas, build e diff limpo; incluem 6 testes MariaDB DVR, 6 testes renderizados e recuperação da chave a partir de backup
+- [ ] Atualizar a VPS e conferir a aba DVRs com perfis Administrador/Parceiro/Operador em produção; nenhuma conexão física faz parte desta entrega

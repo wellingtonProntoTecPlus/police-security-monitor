@@ -70,6 +70,49 @@ describe("partner tenant access", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it("allows the responsible partner to create, read, update and delete DVR records including its own DVR password", async () => {
+    vi.spyOn(db, "getClient").mockResolvedValue({ id: 101, partnerCompanyId: 99 } as any);
+    vi.spyOn(db, "getClientDvr").mockResolvedValue({ id: 601, clientId: 101 } as any);
+    const list = vi.spyOn(db, "listClientDvrs").mockResolvedValue([{ id: 601, clientId: 101, brand: "Intelbras", password: "senha-do-dvr" }] as any);
+    const create = vi.spyOn(db, "createClientDvr").mockResolvedValue({ id: 602 });
+    const update = vi.spyOn(db, "updateClientDvr").mockResolvedValue(undefined);
+    const remove = vi.spyOn(db, "deleteClientDvr").mockResolvedValue(undefined);
+    const partner = appRouter.createCaller(context("partner", 99));
+
+    const rows = await partner.dvr.list({ clientId: 101 });
+    await partner.dvr.create({ clientId: 101, brand: "Intelbras", password: "nova-senha" });
+    await partner.dvr.update({ id: 601, model: "MHDX", password: "senha-atualizada" });
+    await partner.dvr.delete({ id: 601 });
+
+    expect(list).toHaveBeenCalledWith(101, true);
+    expect(rows[0]).toMatchObject({ brand: "Intelbras", password: "senha-do-dvr" });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ clientId: 101, password: "nova-senha" }));
+    expect(update).toHaveBeenCalledWith(601, expect.objectContaining({ model: "MHDX", password: "senha-atualizada" }));
+    expect(remove).toHaveBeenCalledWith(601);
+  });
+
+  it("denies DVR records belonging to another partner and never returns DVR password to operational non-admin roles", async () => {
+    const partnerList = vi.spyOn(db, "listClientDvrs").mockResolvedValue([]);
+    vi.spyOn(db, "getClientDvr").mockResolvedValue({ id: 602, clientId: 202 } as any);
+    vi.spyOn(db, "getClient").mockResolvedValue({ id: 202, partnerCompanyId: 200 } as any);
+    const update = vi.spyOn(db, "updateClientDvr").mockResolvedValue(undefined);
+    const remove = vi.spyOn(db, "deleteClientDvr").mockResolvedValue(undefined);
+    const partner = appRouter.createCaller(context("partner", 99));
+    await expect(partner.dvr.list({ clientId: 202 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.dvr.update({ id: 602, password: "tentativa" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.dvr.delete({ id: 602 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    vi.mocked(db.getClient).mockResolvedValue({ id: 101, partnerCompanyId: 99 } as any);
+    partnerList.mockResolvedValueOnce([{ id: 603, clientId: 101, brand: "Intelbras" }] as any);
+    const operatorRows = await appRouter.createCaller(context("operator")).dvr.list({ clientId: 101 });
+    expect(partnerList).not.toHaveBeenCalledWith(202, true);
+    expect(db.listClientDvrs).toHaveBeenLastCalledWith(101, false);
+    expect(operatorRows[0]).not.toHaveProperty("password");
+    await expect(appRouter.createCaller(context("operator")).dvr.create({ clientId: 101, brand: "Intelbras", password: "nao-permitida" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(update).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
   it("rejects cross-tenant contact, zone, panel user, camera, and holiday mutations by record ID", async () => {
     const partner = appRouter.createCaller(context("partner", 99));
     vi.spyOn(db, "getClientContact").mockResolvedValue({ id: 501, clientId: 202, alarmSystemId: 701 } as any);
