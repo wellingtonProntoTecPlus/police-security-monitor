@@ -721,12 +721,14 @@ export async function listSystemsConnectionStatus(
   const conditions = scope.includeInactive ? [] : [eq(alarmSystems.isActive, true), eq(clients.isActive, true)];
   if (scope.clientId !== undefined) conditions.push(eq(clients.id, scope.clientId));
   if (scope.partnerCompanyId !== undefined) conditions.push(eq(clients.partnerCompanyId, scope.partnerCompanyId));
-  const linkedSystems = await db.select({ system: alarmSystems, clientIsActive: clients.isActive }).from(alarmSystems)
+  const linkedSystems = await db.select({ system: alarmSystems, clientIsActive: clients.isActive, partnerName: partnerCompanies.name }).from(alarmSystems)
     .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .leftJoin(partnerCompanies, eq(clients.partnerCompanyId, partnerCompanies.id))
     .where(conditions.length ? and(...conditions) : undefined);
   const systems = linkedSystems.map((row: { system: typeof alarmSystems.$inferSelect }) => row.system);
   if (systems.length === 0) return [];
   const clientActivityBySystemId = new Map(linkedSystems.map((row: { system: typeof alarmSystems.$inferSelect; clientIsActive: boolean }) => [row.system.id, row.clientIsActive]));
+  const partnerNameBySystemId = new Map(linkedSystems.map((row: { system: typeof alarmSystems.$inferSelect; partnerName: string | null }) => [row.system.id, row.partnerName]));
 
   const intervalsBySystem = new Map<number, Array<number | null>>();
   const systemsNeedingAdaptiveCutoff = systems.filter((system) =>
@@ -748,7 +750,7 @@ export async function listSystemsConnectionStatus(
 
   return systems.map((system) => {
     if (!system.isActive || clientActivityBySystemId.get(system.id) === false || !system.keepAliveMonitoringEnabled) {
-      return { ...system, connectionStatus: "not_monitored" as const, cutoffMs: null };
+      return { ...system, partnerName: partnerNameBySystemId.get(system.id) ?? null, connectionStatus: "not_monitored" as const, cutoffMs: null };
     }
     const status = getKeepAliveConnectionStatus({
       lastKeepAliveAt: system.lastKeepAliveAt,
@@ -756,7 +758,7 @@ export async function listSystemsConnectionStatus(
       configuredOfflineAfterMinutes: system.keepAliveOfflineAfterMinutes,
       now: referenceTime,
     });
-    return { ...system, ...status };
+    return { ...system, partnerName: partnerNameBySystemId.get(system.id) ?? null, ...status };
   });
 }
 
@@ -4070,8 +4072,10 @@ export async function getArmDisarmStatus() {
     model: alarmSystems.model,
     clientName: clients.name,
     clientFantasyName: clients.fantasyName,
+    partnerName: partnerCompanies.name,
   }).from(alarmSystems)
     .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .leftJoin(partnerCompanies, eq(clients.partnerCompanyId, partnerCompanies.id))
     .where(and(eq(alarmSystems.isActive, true), eq(clients.isActive, true)));
   const activeSystemIds = systems.map((system: any) => system.id);
   if (activeSystemIds.length === 0) return { armed: [], disarmed: [] };
@@ -4127,6 +4131,7 @@ export async function getArmDisarmStatus() {
       lastEvent: status.receivedAt,
       clientName,
       clientFantasyName,
+      partnerName: systemInfo?.partnerName || null,
       clientId,
       systemId,
       // Mantém o nome usado pelos eventos e pelo Dashboard, sem remover o

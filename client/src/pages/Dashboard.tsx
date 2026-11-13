@@ -2597,7 +2597,7 @@ export default function Dashboard() {
                     <div>
                       <p className="text-sm font-bold text-foreground">{client?.fantasyName || client?.name || "Cliente não identificado"}</p>
                       <p className="text-xs text-muted-foreground">Conta {system.account} · {system.brand} {system.model || ""} · Porta {system.receiverPort || "não definida"}</p>
-                      <p className="text-[11px] text-cyan-300/80">Parceira: {partnersById.get(client?.partnerCompanyId)?.name || "Sem parceira vinculada"}</p>
+                      <p className="text-[11px] text-cyan-300/80">Parceira: {system.partnerName || partnersById.get(client?.partnerCompanyId)?.name || "Sem parceira vinculada"}</p>
                     </div>
                     <div className="text-right">
                       <Badge className={connectionStatusModal === "online" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}>{connectionStatusModal === "online" ? "ONLINE" : "OFFLINE"}</Badge>
@@ -2696,7 +2696,7 @@ export default function Dashboard() {
                    <div>
                      <p className="text-sm font-bold text-foreground">{item.clientName}</p>
                      <p className="text-xs text-muted-foreground">Conta: {item.account} · {item.brand || "Marca não informada"} {item.model || ""}</p>
-                     <p className="text-[11px] text-cyan-300/80">Parceira: {partnersById.get(clientsById.get(item.clientId)?.partnerCompanyId)?.name || "Sem parceira vinculada"}</p>
+                     <p className="text-[11px] text-cyan-300/80">Parceira: {item.partnerName || partnersById.get(clientsById.get(item.clientId)?.partnerCompanyId)?.name || "Sem parceira vinculada"}</p>
                    </div>
                   <div className="flex shrink-0 items-center gap-2 text-right">
                     <Button size="sm" variant="outline" className="h-8 px-2 text-[11px] text-amber-200" disabled={!Number(item.alarmSystemId || item.systemId)} onClick={() => setQuickScheduleSystem({ id: Number(item.alarmSystemId || item.systemId), account: item.account, clientName: item.clientName, brand: item.brand, model: item.model })}>Alterar agenda</Button>
