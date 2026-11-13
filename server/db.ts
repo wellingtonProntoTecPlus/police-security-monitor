@@ -579,6 +579,13 @@ export async function listClientContacts(clientId: number, alarmSystemId?: numbe
   return db.select().from(clientContacts).where(eq(clientContacts.clientId, clientId)).orderBy(clientContacts.priority);
 }
 
+export async function getClientContact(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(clientContacts).where(eq(clientContacts.id, id)).limit(1);
+  return rows[0];
+}
+
 export async function createClientContact(data: InsertClientContact) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -699,17 +706,24 @@ export async function endSystemMaintenance(systemId: number) {
   }).where(eq(alarmSystems.id, systemId));
 }
 
-export async function listSystemsConnectionStatus(referenceTime = new Date()) {
+export async function listSystemsConnectionStatus(
+  referenceTime = new Date(),
+  scope: { clientId?: number; partnerCompanyId?: number; includeInactive?: boolean } = {},
+) {
   // A tela operacional não pode contar cadastros desativados como Online ou
   // Offline. Eles continuam disponíveis nos cadastros e relatórios, mas não
   // fazem parte da supervisão em tempo real.
   const db = await getDb();
   if (!db) return [];
-  const linkedSystems = await db.select({ system: alarmSystems }).from(alarmSystems)
+  const conditions = scope.includeInactive ? [] : [eq(alarmSystems.isActive, true), eq(clients.isActive, true)];
+  if (scope.clientId !== undefined) conditions.push(eq(clients.id, scope.clientId));
+  if (scope.partnerCompanyId !== undefined) conditions.push(eq(clients.partnerCompanyId, scope.partnerCompanyId));
+  const linkedSystems = await db.select({ system: alarmSystems, clientIsActive: clients.isActive }).from(alarmSystems)
     .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
-    .where(and(eq(alarmSystems.isActive, true), eq(clients.isActive, true)));
+    .where(conditions.length ? and(...conditions) : undefined);
   const systems = linkedSystems.map((row: { system: typeof alarmSystems.$inferSelect }) => row.system);
   if (systems.length === 0) return [];
+  const clientActivityBySystemId = new Map(linkedSystems.map((row: { system: typeof alarmSystems.$inferSelect; clientIsActive: boolean }) => [row.system.id, row.clientIsActive]));
 
   const intervalsBySystem = new Map<number, Array<number | null>>();
   const systemsNeedingAdaptiveCutoff = systems.filter((system) =>
@@ -730,7 +744,7 @@ export async function listSystemsConnectionStatus(referenceTime = new Date()) {
   }
 
   return systems.map((system) => {
-    if (!system.keepAliveMonitoringEnabled) {
+    if (!system.isActive || clientActivityBySystemId.get(system.id) === false || !system.keepAliveMonitoringEnabled) {
       return { ...system, connectionStatus: "not_monitored" as const, cutoffMs: null };
     }
     const status = getKeepAliveConnectionStatus({
@@ -2059,6 +2073,13 @@ export async function listAlarmZones(alarmSystemId: number) {
   return db.select().from(alarmZones).where(eq(alarmZones.alarmSystemId, alarmSystemId)).orderBy(alarmZones.zoneNumber);
 }
 
+export async function getAlarmZone(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(alarmZones).where(eq(alarmZones.id, id)).limit(1);
+  return rows[0];
+}
+
 export async function createAlarmZone(data: InsertAlarmZone) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -2073,6 +2094,13 @@ export async function listAlarmUsers(alarmSystemId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(alarmUsers).where(eq(alarmUsers.alarmSystemId, alarmSystemId)).orderBy(alarmUsers.userNumber);
+}
+
+export async function getAlarmUser(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(alarmUsers).where(eq(alarmUsers.id, id)).limit(1);
+  return rows[0];
 }
 
 /** Lista operacional sem senhas, contra-senhas ou códigos de coação. */
@@ -2118,6 +2146,13 @@ export async function createCamera(data: InsertCamera) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(cameras).values(formatRegistrationFields(data, ["name", "location"]));
   return { id: result[0].insertId };
+}
+
+export async function getCamera(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(cameras).where(eq(cameras.id, id)).limit(1);
+  return rows[0];
 }
 
 export async function updateCamera(id: number, data: Partial<InsertCamera>) {
@@ -3076,6 +3111,13 @@ export async function createAlarmPgm(data: InsertAlarmPgm) {
 // ============================================================
 // ALARM SCHEDULES
 // ============================================================
+export async function getAlarmPgm(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(alarmPgms).where(eq(alarmPgms.id, id)).limit(1);
+  return rows[0];
+}
+
 export async function listAlarmSchedules(alarmSystemId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -3135,6 +3177,13 @@ export async function listPartnerHolidays(partnerCompanyId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(partnerHolidays).where(eq(partnerHolidays.partnerCompanyId, partnerCompanyId)).orderBy(partnerHolidays.date);
+}
+
+export async function getPartnerHoliday(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(partnerHolidays).where(eq(partnerHolidays.id, id)).limit(1);
+  return rows[0];
 }
 
 export async function createPartnerHoliday(data: InsertPartnerHoliday) {

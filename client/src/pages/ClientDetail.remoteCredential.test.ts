@@ -11,4 +11,11 @@ describe("ClientDetail — persistência de credencial técnica", () => {
     expect(source).toContain('disabled={setRemoteCredential.isPending}');
     expect(source).toContain('setRemoteCredential.isPending ? "Salvando credencial..." : "Concluir"');
   });
+
+  it("usa status por cliente no perfil parceiro sem liberar credenciais ou regras de Keep Alive", () => {
+    expect(source).toContain("trpc.alarmSystem.clientConnectionStatus.useQuery({ clientId }");
+    expect(source).toContain("refetchInterval: 15000");
+    expect(source).toContain("!isPartner && <Button variant=\"ghost\" size=\"sm\" className=\"h-7 w-7 p-0 text-amber-300\"");
+    expect(source).toContain("if (!isPartner) Object.assign(payload");
+  });
 });

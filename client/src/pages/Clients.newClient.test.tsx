@@ -2,9 +2,10 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Clients from "./Clients";
 
+const authState = vi.hoisted(() => ({ user: { id: 2, role: "operator", partnerId: null, name: "Operador" } as any }));
 const standardMutation = {
   mutate: vi.fn(),
   isPending: false,
@@ -20,6 +21,8 @@ const systemsForClient = [
   { id: 51, clientId: 5, account: "0101", brand: "JFL", model: "Active 8W" },
   { id: 52, clientId: 5, account: "0102", brand: "COMPATEC", model: "AW32" },
 ];
+
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: authState.user }) }));
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -63,6 +66,10 @@ vi.mock("sonner", () => ({
 }));
 
 describe("Clientes — Novo Cliente", () => {
+  beforeEach(() => {
+    authState.user = { id: 2, role: "operator", partnerId: null, name: "Operador" };
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -79,6 +86,26 @@ describe("Clientes — Novo Cliente", () => {
     expect(screen.getByText("Empresa Responsável")).toBeTruthy();
     expect(screen.getByText("Situação do Monitoramento")).toBeTruthy();
     expect(screen.getByRole("button", { name: /cadastrar cliente/i })).toBeTruthy();
+  });
+
+  it("parceiro vê apenas sua empresa fixa e não pode escolher status de monitoramento", async () => {
+    authState.user = { id: 4, role: "partner", partnerId: 1, name: "Police Electronics" };
+    const user = userEvent.setup();
+    render(<Clients />);
+
+    expect(screen.queryByText("Status de monitoramento")).toBeNull();
+    expect(screen.queryByText("Empresa parceira")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /novo cliente/i }));
+    await screen.findByRole("heading", { name: /cadastrar novo cliente/i });
+    expect(screen.getByLabelText("Empresa responsável fixa").textContent).toContain("Police Electronics");
+    expect(screen.queryByText("Situação do Monitoramento")).toBeNull();
+    await user.type(screen.getByPlaceholderText("Razão Social da empresa"), "Cliente da Parceira");
+    await user.click(screen.getByRole("button", { name: /cadastrar cliente/i }));
+
+    expect(standardMutation.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Cliente da Parceira",
+      partnerCompanyId: 1,
+    }));
   });
 
   it("avisa com a frase solicitada e carrega dados da própria parceira antes de permitir o cadastro", async () => {

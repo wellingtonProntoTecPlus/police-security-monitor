@@ -9,6 +9,9 @@ describe("status de conexão na tela de cliente", () => {
     const source = fs.readFileSync(path.join(projectRoot, "client/src/pages/ClientDetail.tsx"), "utf8");
 
     expect(source).toContain("trpc.dashboard.connectionStatus.useQuery");
+    expect(source).toContain("trpc.alarmSystem.clientConnectionStatus.useQuery");
+    expect(source).toContain("enabled: !isPartner");
+    expect(source).toContain("enabled: isPartner && Boolean(clientId)");
     expect(source).toContain("connectionStatusBySystemId");
     expect(source).toContain('connectionStatus === "online"');
     expect(source).not.toContain("system.isOnline ?");

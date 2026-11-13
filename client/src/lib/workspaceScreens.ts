@@ -22,7 +22,7 @@ const ROLE_WORKSPACE_PATHS: Record<string, string[]> = {
   admin: WORKSPACE_SCREENS.map((screen) => screen.path),
   supervisor: ["/dashboard", "/partners", "/clients", "/reports", "/contact-id", "/finalizations"],
   operator: ["/dashboard", "/clients", "/finalizations"],
-  partner: ["/clients", "/reports"],
+  partner: ["/clients"],
 };
 
 export function getWorkspaceScreensForRole(role?: WorkspaceRole | null) {

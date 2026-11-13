@@ -1,10 +1,12 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { isPartnerWorkspacePath } from "./lib/partnerAccess";
 
 const Home = lazy(() => import("@/pages/Home"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -32,9 +34,21 @@ function RouteLoading() {
   );
 }
 
+function PartnerRouteBoundary({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const [location] = useLocation();
+
+  // Hold authenticated screens while the role is resolving so a deep link cannot
+  // briefly render restricted content before the partner redirect is applied.
+  if (user?.role === "partner" && !isPartnerWorkspacePath(location)) return <Redirect to="/clients" />;
+  if (loading && location !== "/login") return <RouteLoading />;
+  return <>{children}</>;
+}
+
 function Router() {
   return (
-    <Suspense fallback={<RouteLoading />}>
+    <PartnerRouteBoundary>
+      <Suspense fallback={<RouteLoading />}>
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/login" component={Login} />
@@ -53,7 +67,8 @@ function Router() {
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
-    </Suspense>
+      </Suspense>
+    </PartnerRouteBoundary>
   );
 }
 

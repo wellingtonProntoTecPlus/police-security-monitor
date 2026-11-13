@@ -51,7 +51,7 @@ const ROLE_MENU_ITEMS: Record<string, string[]> = {
   admin: menuItems.map((item) => item.path),
   supervisor: ["/dashboard", "/partners", "/clients", "/reports", "/operator-shifts", "/contact-id", "/finalizations"],
   operator: ["/dashboard", "/clients", "/finalizations"],
-  partner: ["/clients", "/reports"],
+  partner: ["/clients"],
 };
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

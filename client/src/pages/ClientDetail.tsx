@@ -44,11 +44,14 @@ export default function ClientDetail() {
   const [, params] = useRoute("/clients/:id");
   const clientId = Number(params?.id);
 
+  const isPartner = user?.role === "partner";
   const { data: client } = trpc.monitoredClient.get.useQuery({ id: clientId }, { enabled: !!clientId });
   const { data: systems = [], refetch: refetchSystems } = trpc.alarmSystem.list.useQuery({ clientId }, { enabled: !!clientId });
-  const { data: connectionSystems = [] } = trpc.dashboard.connectionStatus.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: connectionSystems = [] } = trpc.dashboard.connectionStatus.useQuery(undefined, { enabled: !isPartner, refetchInterval: 15000 });
+  const clientConnectionStatusQuery = trpc.alarmSystem.clientConnectionStatus.useQuery({ clientId }, { enabled: isPartner && Boolean(clientId), refetchInterval: 15000 });
   const { data: cameras = [], refetch: refetchCameras } = trpc.camera.list.useQuery({ clientId }, { enabled: !!clientId });
-  const connectionStatusBySystemId = new Map(connectionSystems.map((system: any) => [system.id, system.connectionStatus]));
+  const visibleConnectionSystems = isPartner ? clientConnectionStatusQuery.data || [] : connectionSystems;
+  const connectionStatusBySystemId = new Map(visibleConnectionSystems.map((system: any) => [system.id, system.connectionStatus]));
 
   // Dados operacionais são sempre vinculados ao sistema selecionado do cliente.
   const [operationalSystemId, setOperationalSystemId] = useState<number | undefined>(undefined);
@@ -153,9 +156,9 @@ export default function ClientDetail() {
             <h1 className="text-2xl font-bold text-foreground">{client.name}</h1>
             <p className="text-muted-foreground">{client.type === "pf" ? "CPF" : "CNPJ"}: {client.document} {client.fantasyName ? `| ${client.fantasyName}` : ""}</p>
           </div>
-          <Badge variant={client.isActive ? "default" : "destructive"} className="text-sm">
+          {!isPartner && <Badge variant={client.isActive ? "default" : "destructive"} className="text-sm">
             {client.isActive ? "Ativo" : "Inativo"}
-          </Badge>
+          </Badge>}
         </div>
 
         <Tabs defaultValue="info" className="w-full">
@@ -349,7 +352,7 @@ export default function ClientDetail() {
                       </Select>
                     </div>
                   </div>
-                  <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                  {!isPartner && <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-emerald-200">Configurações de Keep Alive</p>
@@ -367,7 +370,7 @@ export default function ClientDetail() {
                       <label className="sm:col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={systemForm.keepAliveRepeatAlertEnabled} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
                       {systemForm.keepAliveRepeatAlertEnabled && <div className="sm:col-span-2"><Label>Repetir alerta a cada (minutos)</Label><Input type="number" min={1} max={10080} disabled={!systemForm.keepAliveMonitoringEnabled || !systemForm.keepAliveDisconnectAlertEnabled} value={systemForm.keepAliveRepeatAlertEveryMinutes} onChange={(event) => setSystemForm({ ...systemForm, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
                     </div>
-                  </div>
+                  </div>}
                   {systemForm.brand === "VIAWEB" && <p className="mt-3 text-xs text-muted-foreground">O ID ISEP ViaWeb é gerado automaticamente com 4 caracteres hexadecimais (0–9 e A–F). Ele é separado da Conta Contact ID e deve ser programado apenas no campo ISEP próprio da central ViaWeb.</p>}
                   <p className="mt-3 text-xs text-muted-foreground">Após salvar, este novo sistema será selecionado automaticamente nas abas Contatos, Zonas e Usuários.</p>
                   </div>
@@ -377,7 +380,11 @@ export default function ClientDetail() {
                     if (!systemForm.account.trim()) { toast.error("Conta ou identificador do painel é obrigatório"); return; }
                     const identifierError = getAlarmSystemIdentifierValidationError(systemForm);
                     if (identifierError) { toast.error(identifierError); return; }
-                    createSystem.mutate({ clientId, ...systemForm });
+                    const payload = { clientId, ...systemForm };
+                    if (isPartner) {
+                      for (const key of ["keepAliveMonitoringEnabled", "keepAliveExpectedIntervalSeconds", "keepAliveFailureEventEnabled", "keepAliveOfflineAfterMinutes", "keepAliveDisconnectAlertEnabled", "keepAliveRepeatAlertEnabled", "keepAliveRepeatAlertEveryMinutes"]) delete (payload as any)[key];
+                    }
+                    createSystem.mutate(payload);
                   }}>{createSystem.isPending ? "Salvando..." : "Salvar sistema"}</Button>
                   </div>
                 </DialogContent>
@@ -386,12 +393,18 @@ export default function ClientDetail() {
             <ScrollArea className="h-[400px]">
               <div className="grid gap-3">
                 {systems.map((system: any, index: number) => {
-                  const connectionStatus = connectionStatusBySystemId.get(system.id) || "offline";
+                  const partnerStatus = connectionStatusBySystemId.get(system.id);
+                  const isSystemNotMonitored = isPartner
+                    ? partnerStatus === "not_monitored"
+                    : client.isActive === false || system.isActive === false;
+                  const isStatusLoading = isPartner && !isSystemNotMonitored && clientConnectionStatusQuery.isLoading;
+                  const isStatusUnavailable = isPartner && !isSystemNotMonitored && clientConnectionStatusQuery.isError;
+                  const connectionStatus = isSystemNotMonitored ? "not_monitored" : partnerStatus || "offline";
                   const isOnline = connectionStatus === "online";
                   const isNotMonitored = connectionStatus === "not_monitored";
-                  const isAwaitingInitialCommunication = connectionStatus === "offline" && !system.lastCommunication && !system.lastKeepAliveAt;
+                  const isAwaitingInitialCommunication = !isPartner && connectionStatus === "offline" && !system.lastCommunication && !system.lastKeepAliveAt;
                   return (
-                  <Card key={system.id} className={`border-l-4 ${isOnline ? 'border-l-green-500' : isNotMonitored || isAwaitingInitialCommunication ? 'border-l-amber-500' : 'border-l-red-500'}`}>
+                  <Card key={system.id} className={`border-l-4 ${isOnline ? 'border-l-green-500' : isStatusLoading || isStatusUnavailable || isNotMonitored || isAwaitingInitialCommunication ? 'border-l-amber-500' : 'border-l-red-500'}`}>
                     <CardContent className="p-4 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Shield className="h-5 w-5 text-primary" />
@@ -402,19 +415,19 @@ export default function ClientDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant={isOnline ? "default" : isNotMonitored || isAwaitingInitialCommunication ? "secondary" : "destructive"}>
-                          {isOnline ? "Online" : isNotMonitored ? "Não monitorado" : isAwaitingInitialCommunication ? "Aguardando comunicação" : "Offline"}
+                        <Badge variant={isOnline ? "default" : isStatusLoading || isStatusUnavailable || isNotMonitored || isAwaitingInitialCommunication ? "secondary" : "destructive"}>
+                          {isStatusLoading ? "Consultando status…" : isStatusUnavailable ? "Status indisponível" : isOnline ? "Online" : isNotMonitored ? "Não monitorado" : isAwaitingInitialCommunication ? "Aguardando comunicação" : "Offline"}
                         </Badge>
                         <span className="text-xs text-muted-foreground">Porta {system.receiverPort}</span>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-300" onClick={() => { setCredentialSystem(system); setRemoteCredentialValues({}); }} title="Credenciais técnicas do sistema">
+                        {!isPartner && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-300" onClick={() => { setCredentialSystem(system); setRemoteCredentialValues({}); }} title="Credenciais técnicas do sistema">
                           <KeyRound className="h-3.5 w-3.5" />
-                        </Button>
+                        </Button>}
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => setEditingSystem({ ...system })} title="Editar sistema">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { setSystemPendingDeletion(system); setSystemDeletionConfirmation(""); }} title={`Excluir ${system.brand} ${system.model || ""} · Conta ${system.account}`}>
+                        {!isPartner && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400" onClick={() => { setSystemPendingDeletion(system); setSystemDeletionConfirmation(""); }} title={`Excluir ${system.brand} ${system.model || ""} · Conta ${system.account}`}>
                           <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        </Button>}
                       </div>
                     </CardContent>
                   </Card>
@@ -423,7 +436,7 @@ export default function ClientDetail() {
                 {systems.length === 0 && <p className="text-muted-foreground text-center py-8">Nenhum sistema cadastrado</p>}
               </div>
             </ScrollArea>
-            <AlertDialog open={!!systemPendingDeletion} onOpenChange={(open) => { if (!open) { setSystemPendingDeletion(null); setSystemDeletionConfirmation(""); } }}>
+            {!isPartner && <AlertDialog open={!!systemPendingDeletion} onOpenChange={(open) => { if (!open) { setSystemPendingDeletion(null); setSystemDeletionConfirmation(""); } }}>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Confirmar exclusão do sistema</AlertDialogTitle>
@@ -441,7 +454,7 @@ export default function ClientDetail() {
                   <AlertDialogAction className="bg-red-600 hover:bg-red-700" disabled={!systemPendingDeletion || systemDeletionConfirmation !== buildAlarmSystemDeletionConfirmation(systemPendingDeletion) || deleteSystem.isPending} onClick={(event) => { event.preventDefault(); if (systemPendingDeletion) deleteSystem.mutate({ id: systemPendingDeletion.id, confirmation: systemDeletionConfirmation }); }}>Excluir sistema</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
-            </AlertDialog>
+            </AlertDialog>}
             {editingSystem && (
               <Dialog open={!!editingSystem} onOpenChange={() => setEditingSystem(null)}>
                 <DialogContent>
@@ -458,7 +471,7 @@ export default function ClientDetail() {
                     {editingSystem.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input className={editingSystem.isepId && !/^[0-9A-F]{4}$/i.test(editingSystem.isepId) ? "border-amber-400 text-amber-200" : ""} value={editingSystem.isepId || "Será gerado ao salvar"} disabled />{editingSystem.isepId && !/^[0-9A-F]{4}$/i.test(editingSystem.isepId) && <p className="mt-1 text-[11px] text-amber-300">ID legado inválido. Ao salvar, será gerado um novo código hexadecimal de 4 caracteres para programar na central.</p>}</div>}
                     <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">A porta é sugerida ao selecionar a central e pode ser ajustada manualmente.</p></div>
                   </div>
-                  <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                  {!isPartner && <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-emerald-200">Configurações de Keep Alive</p>
@@ -476,17 +489,19 @@ export default function ClientDetail() {
                       <label className="col-span-2 flex items-center gap-2 rounded border border-border bg-background/40 p-2 text-xs text-foreground"><input type="checkbox" checked={editingSystem.keepAliveRepeatAlertEnabled === true} disabled={editingSystem.keepAliveMonitoringEnabled === false || editingSystem.keepAliveDisconnectAlertEnabled === false} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveRepeatAlertEnabled: event.target.checked })} /> Repetir alerta de painel desconectado</label>
                       {editingSystem.keepAliveRepeatAlertEnabled === true && <div className="col-span-2"><Label>Repetir alerta a cada (minutos)</Label><Input type="number" min={1} max={10080} disabled={editingSystem.keepAliveMonitoringEnabled === false || editingSystem.keepAliveDisconnectAlertEnabled === false} value={editingSystem.keepAliveRepeatAlertEveryMinutes ?? 60} onChange={(event) => setEditingSystem({ ...editingSystem, keepAliveRepeatAlertEveryMinutes: Math.max(1, Number(event.target.value) || 60) })} /></div>}
                     </div>
-                  </div>
+                  </div>}
                   <Button className="mt-3" onClick={() => {
                     if (!editingSystem.account?.trim()) { toast.error("Conta é obrigatória"); return; }
                     const identifierError = getAlarmSystemIdentifierValidationError(editingSystem);
                     if (identifierError) { toast.error(identifierError); return; }
-                    updateSystem.mutate({ id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", simCardNumber: editingSystem.simCardNumber || "", simPhoneNumber: editingSystem.simPhoneNumber || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0, keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveExpectedIntervalSeconds: Number(editingSystem.keepAliveExpectedIntervalSeconds) || 60, keepAliveFailureEventEnabled: editingSystem.keepAliveFailureEventEnabled === true, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5, keepAliveDisconnectAlertEnabled: editingSystem.keepAliveDisconnectAlertEnabled !== false, keepAliveRepeatAlertEnabled: editingSystem.keepAliveRepeatAlertEnabled === true, keepAliveRepeatAlertEveryMinutes: Number(editingSystem.keepAliveRepeatAlertEveryMinutes) || 60 });
+                    const payload: any = { id: editingSystem.id, account: editingSystem.account, brand: editingSystem.brand, model: editingSystem.model || "", firmwareVersion: editingSystem.firmwareVersion || "", macAddress: editingSystem.macAddress || "", imeiGprs: editingSystem.imeiGprs || "", simCardNumber: editingSystem.simCardNumber || "", simPhoneNumber: editingSystem.simPhoneNumber || "", serialNumber: editingSystem.serialNumber || "", receiverPort: Number(editingSystem.receiverPort) || 0 };
+                    if (!isPartner) Object.assign(payload, { keepAliveMonitoringEnabled: editingSystem.keepAliveMonitoringEnabled !== false, keepAliveExpectedIntervalSeconds: Number(editingSystem.keepAliveExpectedIntervalSeconds) || 60, keepAliveFailureEventEnabled: editingSystem.keepAliveFailureEventEnabled === true, keepAliveOfflineAfterMinutes: Number(editingSystem.keepAliveOfflineAfterMinutes) || 5, keepAliveDisconnectAlertEnabled: editingSystem.keepAliveDisconnectAlertEnabled !== false, keepAliveRepeatAlertEnabled: editingSystem.keepAliveRepeatAlertEnabled === true, keepAliveRepeatAlertEveryMinutes: Number(editingSystem.keepAliveRepeatAlertEveryMinutes) || 60 });
+                    updateSystem.mutate(payload);
                   }}>Salvar Alterações</Button>
                 </DialogContent>
               </Dialog>
             )}
-            {credentialSystem && (
+            {!isPartner && credentialSystem && (
               <Dialog open={!!credentialSystem} onOpenChange={(open) => {
                 if (!open && setRemoteCredential.isPending) {
                   toast.info("Aguarde a confirmação da atualização da credencial antes de fechar esta janela.");

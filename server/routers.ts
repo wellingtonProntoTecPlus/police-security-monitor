@@ -46,15 +46,27 @@ const operatorProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 
 const scheduleOperatorProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-  if (!ctx.user || !["admin", "supervisor", "operator", "partner"].includes(ctx.user.role)) {
+  if (!ctx.user || !["admin", "supervisor", "operator"].includes(ctx.user.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Seu usuário não pode administrar agendas operacionais" });
   }
   await assertOperatorScheduleDecisionComplete(ctx);
   return next({ ctx });
 });
 
+const partnerDataProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.user || !["admin", "supervisor", "operator", "partner"].includes(ctx.user.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso permitido apenas a usuários internos ou parceiros" });
+  }
+  if (ctx.user.role === "partner" && !ctx.user.partnerId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+  }
+  await assertOperatorScheduleDecisionComplete(ctx);
+  return next({ ctx });
+});
+
 async function assertPartnerCompanyScope(ctx: any, partnerCompanyId: number) {
-  if (ctx.user?.role === "partner" && ctx.user.partnerId !== partnerCompanyId) {
+  if (ctx.user?.role !== "partner") return;
+  if (!ctx.user.partnerId || ctx.user.partnerId !== partnerCompanyId) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Empresa parceira não permitida para este usuário" });
   }
 }
@@ -72,6 +84,81 @@ async function assertPartnerSystemScope(ctx: any, alarmSystemId: number) {
   const system = await db.getAlarmSystem(alarmSystemId);
   if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Sistema de alarme não encontrado" });
   await assertPartnerClientScope(ctx, system.clientId);
+}
+
+async function assertPartnerContactScope(ctx: any, contactId: number) {
+  if (ctx.user?.role !== "partner") return undefined;
+  const contact = await db.getClientContact(contactId);
+  if (!contact) throw new TRPCError({ code: "NOT_FOUND", message: "Contato não encontrado" });
+  if (contact.alarmSystemId != null) {
+    const system = await db.getAlarmSystem(contact.alarmSystemId);
+    if (!system || system.clientId !== contact.clientId) throw new TRPCError({ code: "FORBIDDEN", message: "Contato sem vínculo válido com o cliente" });
+  }
+  await assertPartnerClientScope(ctx, contact.clientId);
+  return contact;
+}
+
+async function assertPartnerZoneScope(ctx: any, zoneId: number) {
+  if (ctx.user?.role !== "partner") return undefined;
+  const zone = await db.getAlarmZone(zoneId);
+  if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "Zona não encontrada" });
+  await assertPartnerSystemScope(ctx, zone.alarmSystemId);
+  return zone;
+}
+
+async function assertPartnerAlarmUserScope(ctx: any, alarmUserId: number) {
+  if (ctx.user?.role !== "partner") return undefined;
+  const user = await db.getAlarmUser(alarmUserId);
+  if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário da central não encontrado" });
+  await assertPartnerSystemScope(ctx, user.alarmSystemId);
+  return user;
+}
+
+async function assertPartnerCameraScope(ctx: any, cameraId: number) {
+  if (ctx.user?.role !== "partner") return undefined;
+  const camera = await db.getCamera(cameraId);
+  if (!camera) throw new TRPCError({ code: "NOT_FOUND", message: "Câmera não encontrada" });
+  await assertPartnerClientScope(ctx, camera.clientId);
+  return camera;
+}
+
+async function assertPartnerHolidayRecordScope(ctx: any, holidayId: number) {
+  if (ctx.user?.role !== "partner") return undefined;
+  const holiday = await db.getPartnerHoliday(holidayId);
+  if (!holiday) throw new TRPCError({ code: "NOT_FOUND", message: "Feriado não encontrado" });
+  await assertPartnerCompanyScope(ctx, holiday.partnerCompanyId);
+  return holiday;
+}
+
+function partnerClientRecord<T extends Record<string, any> | null | undefined>(client: T): T {
+  if (!client) return client;
+  const { isActive: _isActive, monitoringStatus: _monitoringStatus, monitoringStatusReason: _monitoringStatusReason, monitoringStatusUntil: _monitoringStatusUntil, ...registration } = client;
+  return registration as T;
+}
+
+function partnerAlarmSystemRecord<T extends Record<string, any> | null | undefined>(system: T): T {
+  if (!system) return system;
+  const {
+    isActive: _isActive,
+    remoteCommandLabEnabled: _remoteCommandLabEnabled,
+    isOnline: _isOnline,
+    lastCommunication: _lastCommunication,
+    lastKeepAliveAt: _lastKeepAliveAt,
+    lastKeepAliveIntervalMs: _lastKeepAliveIntervalMs,
+    keepAliveMonitoringEnabled: _keepAliveMonitoringEnabled,
+    keepAliveExpectedIntervalSeconds: _keepAliveExpectedIntervalSeconds,
+    keepAliveFailureEventEnabled: _keepAliveFailureEventEnabled,
+    keepAliveOfflineAfterMinutes: _keepAliveOfflineAfterMinutes,
+    keepAliveDisconnectAlertEnabled: _keepAliveDisconnectAlertEnabled,
+    keepAliveRepeatAlertEnabled: _keepAliveRepeatAlertEnabled,
+    keepAliveRepeatAlertEveryMinutes: _keepAliveRepeatAlertEveryMinutes,
+    maintenanceStartAt: _maintenanceStartAt,
+    maintenanceEndAt: _maintenanceEndAt,
+    maintenanceNotes: _maintenanceNotes,
+    maintenanceOperatorId: _maintenanceOperatorId,
+    ...registration
+  } = system;
+  return registration as T;
 }
 
 async function assertIncidentPartnerScope(ctx: any, incidentId: number) {
@@ -98,7 +185,10 @@ export const appRouter = router({
           message: "O sistema demorou para confirmar sua sessão. Tente novamente.",
         });
       }
-      return opts.ctx.user;
+      const user = opts.ctx.user;
+      if (!user) return null;
+      const { password: _password, ...safeUser } = user;
+      return safeUser;
     }),
     logout: publicProcedure.input(z.object({
       handoffs: z.array(z.object({ incidentId: z.number().int().positive(), toUserId: z.number().int().positive(), message: z.string().max(4000), observationUntil: z.date().optional() })).max(500).default([]),
@@ -239,14 +329,14 @@ export const appRouter = router({
   // PARTNER COMPANIES
   // ============================================================
   partnerCompany: router({
-    list: protectedProcedure.input(z.object({ managingCompanyId: z.number().optional() }).optional()).query(({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ managingCompanyId: z.number().optional() }).optional()).query(({ input, ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
         return db.getPartnerCompany(ctx.user.partnerId).then(partner => partner ? [partner] : []);
       }
       return db.listPartnerCompanies(input?.managingCompanyId);
     }),
-    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    get: partnerDataProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerCompanyScope(ctx, input.id);
       return db.getPartnerCompany(input.id);
     }),
@@ -307,10 +397,7 @@ export const appRouter = router({
   // ============================================================
   // CLIENTS
   tacticalMobile: router({
-    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number() })).query(async ({ input, ctx }) => {
-      await assertPartnerCompanyScope(ctx, input.partnerCompanyId);
-      return db.listTacticalMobiles(input.partnerCompanyId);
-    }),
+    list: operatorProcedure.input(z.object({ partnerCompanyId: z.number() })).query(({ input }) => db.listTacticalMobiles(input.partnerCompanyId)),
     create: operatorProcedure.input(z.object({
       partnerCompanyId: z.number(), name: z.string().min(1), phone: z.string().optional(), whatsapp: z.string().optional(),
       vehicle: z.string().optional(), plate: z.string().optional(), notes: z.string().optional(), isActive: z.boolean().optional(),
@@ -332,21 +419,22 @@ export const appRouter = router({
   // CLIENTS
   // ============================================================
   monitoredClient: router({
-    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number().optional(), monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional() }).optional()).query(({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ partnerCompanyId: z.number().optional(), monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional() }).optional()).query(async ({ input, ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
-        return db.listClients(ctx.user.partnerId, input?.monitoringStatus);
+        const clients = await db.listClients(ctx.user.partnerId);
+        return clients.map(partnerClientRecord);
       }
       return db.listClients(input?.partnerCompanyId, input?.monitoringStatus);
     }),
-    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    get: partnerDataProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       const client = await db.getClient(input.id);
       if (ctx.user.role === "partner" && client?.partnerCompanyId !== ctx.user.partnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence à sua empresa parceira" });
       }
-      return client;
+      return ctx.user.role === "partner" ? partnerClientRecord(client) : client;
     }),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       partnerCompanyId: z.number(),
       type: z.enum(["pf", "pj"]),
       propertyType: z.enum(["residence", "company", "condominium"]).optional(),
@@ -370,11 +458,16 @@ export const appRouter = router({
       monitoringStatusReason: z.string().max(255).optional().nullable(),
       monitoringStatusUntil: z.date().optional().nullable(),
       confirmPartnerDocumentReuse: z.boolean().optional(),
-    })).mutation(({ input }) => {
+    })).mutation(({ input, ctx }) => {
       const { confirmPartnerDocumentReuse, ...data } = input;
+      if (ctx.user.role === "partner") {
+        if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
+        if (input.partnerCompanyId !== ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Empresa parceira não permitida para este usuário" });
+        return db.createClient({ ...data, partnerCompanyId: ctx.user.partnerId, monitoringStatus: "active", monitoringStatusReason: null, monitoringStatusUntil: null, isActive: true }, { confirmPartnerDocumentReuse });
+      }
       return db.createClient(data, { confirmPartnerDocumentReuse });
     }),
-    update: operatorProcedure.input(z.object({
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       partnerCompanyId: z.number().optional(),
       type: z.enum(["pf", "pj"]).optional(),
@@ -400,8 +493,14 @@ export const appRouter = router({
       monitoringStatusReason: z.string().max(255).optional().nullable(),
       monitoringStatusUntil: z.date().optional().nullable(),
       confirmPartnerDocumentReuse: z.boolean().optional(),
-    })).mutation(({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const { id, confirmPartnerDocumentReuse, ...data } = input;
+      if (ctx.user.role === "partner") {
+        await assertPartnerClientScope(ctx, id);
+        if (input.partnerCompanyId !== undefined && input.partnerCompanyId !== ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Não é permitido reassociar o cliente a outra parceira" });
+        if (input.isActive !== undefined || input.monitoringStatus !== undefined || input.monitoringStatusReason !== undefined || input.monitoringStatusUntil !== undefined) throw new TRPCError({ code: "FORBIDDEN", message: "Parceiros não podem alterar o status ou a atividade de monitoramento" });
+        delete (data as any).partnerCompanyId;
+      }
       return db.updateClient(id, data, { confirmPartnerDocumentReuse });
     }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteClient(input.id)),
@@ -411,12 +510,12 @@ export const appRouter = router({
   // CLIENT CONTACTS
   // ============================================================
   clientContact: router({
-    list: protectedProcedure.input(z.object({ clientId: z.number(), alarmSystemId: z.number().optional() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ clientId: z.number(), alarmSystemId: z.number().optional() })).query(async ({ input, ctx }) => {
       await assertPartnerClientScope(ctx, input.clientId);
       if (input.alarmSystemId) await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listClientContacts(input.clientId, input.alarmSystemId);
     }),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       clientId: z.number(),
       alarmSystemId: z.number(),
       name: z.string().min(1),
@@ -428,8 +527,13 @@ export const appRouter = router({
       counterPassword: z.string().max(50).optional(),
       coercionPassword: z.string().max(50).optional(),
       priority: z.number().optional(),
-    })).mutation(({ input }) => db.createClientContact(input)),
-    update: operatorProcedure.input(z.object({
+    })).mutation(async ({ input, ctx }) => {
+      const system = await db.getAlarmSystem(input.alarmSystemId);
+      if (!system || system.clientId !== input.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "A central deve pertencer ao cliente informado" });
+      await assertPartnerClientScope(ctx, input.clientId);
+      return db.createClientContact(input);
+    }),
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       alarmSystemId: z.number().optional(),
       name: z.string().optional(),
@@ -442,32 +546,49 @@ export const appRouter = router({
       coercionPassword: z.string().max(50).optional(),
       priority: z.number().optional(),
       isActive: z.boolean().optional(),
-    })).mutation(({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
+      if (ctx.user.role === "partner") {
+        const current = await assertPartnerContactScope(ctx, id);
+        if (input.alarmSystemId !== undefined) {
+          const nextSystem = await db.getAlarmSystem(input.alarmSystemId);
+          if (!nextSystem || nextSystem.clientId !== current!.clientId) throw new TRPCError({ code: "FORBIDDEN", message: "Não é permitido reassociar o contato a outro cliente" });
+        }
+      }
       return db.updateClientContact(id, data);
     }),
-    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteClientContact(input.id)),
+    delete: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => { await assertPartnerContactScope(ctx, input.id); return db.deleteClientContact(input.id); }),
   }),
 
   // ============================================================
   // ALARM SYSTEMS
   // ============================================================
   alarmSystem: router({
-    list: protectedProcedure.input(z.object({ clientId: z.number().optional() }).optional()).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ clientId: z.number().optional() }).optional()).query(async ({ input, ctx }) => {
       if (ctx.user.role === "partner" && !input?.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o cliente para consultar sistemas" });
       if (input?.clientId) await assertPartnerClientScope(ctx, input.clientId);
-      return db.listAlarmSystems(input?.clientId);
+      const systems = await db.listAlarmSystems(input?.clientId);
+      return ctx.user.role === "partner" ? systems.map(partnerAlarmSystemRecord) : systems;
     }),
-    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    get: partnerDataProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.id);
-      return db.getAlarmSystem(input.id);
+      const system = await db.getAlarmSystem(input.id);
+      return ctx.user.role === "partner" ? partnerAlarmSystemRecord(system) : system;
     }),
-    getByAccount: protectedProcedure.input(z.object({ account: z.string() })).query(async ({ input, ctx }) => {
+    getByAccount: operatorProcedure.input(z.object({ account: z.string() })).query(async ({ input, ctx }) => {
       const system = await db.getAlarmSystemByAccount(input.account);
       if (system) await assertPartnerSystemScope(ctx, system.id);
       return system;
     }),
-    create: operatorProcedure.input(z.object({
+    clientConnectionStatus: partnerDataProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+      await assertPartnerClientScope(ctx, input.clientId);
+      const systems = await db.listSystemsConnectionStatus(new Date(), {
+        clientId: input.clientId,
+        ...(ctx.user.role === "partner" ? { partnerCompanyId: ctx.user.partnerId!, includeInactive: true } : {}),
+      });
+      return systems.map(system => ({ id: system.id, connectionStatus: system.connectionStatus }));
+    }),
+    create: partnerDataProcedure.input(z.object({
       clientId: z.number(),
       account: z.string().min(4),
       brand: z.enum(["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"]),
@@ -493,8 +614,24 @@ export const appRouter = router({
       keepAliveDisconnectAlertEnabled: z.boolean().optional(),
       keepAliveRepeatAlertEnabled: z.boolean().optional(),
       keepAliveRepeatAlertEveryMinutes: z.number().int().min(1).max(10080).optional(),
-    })).mutation(({ input }) => db.createAlarmSystem(input)),
-    update: operatorProcedure.input(z.object({
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerClientScope(ctx, input.clientId);
+      if (ctx.user.role === "partner") {
+        const {
+          keepAliveMonitoringEnabled: _keepAliveMonitoringEnabled,
+          keepAliveExpectedIntervalSeconds: _keepAliveExpectedIntervalSeconds,
+          keepAliveFailureEventEnabled: _keepAliveFailureEventEnabled,
+          keepAliveOfflineAfterMinutes: _keepAliveOfflineAfterMinutes,
+          keepAliveDisconnectAlertEnabled: _keepAliveDisconnectAlertEnabled,
+          keepAliveRepeatAlertEnabled: _keepAliveRepeatAlertEnabled,
+          keepAliveRepeatAlertEveryMinutes: _keepAliveRepeatAlertEveryMinutes,
+          ...registrationData
+        } = input;
+        return db.createAlarmSystem(registrationData);
+      }
+      return db.createAlarmSystem(input);
+    }),
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       account: z.string().optional(),
       brand: z.enum(["JFL", "INTELBRAS", "VETTI", "COMPATEC", "RADIOENGE", "VIAWEB"]).optional(),
@@ -521,8 +658,19 @@ export const appRouter = router({
       keepAliveDisconnectAlertEnabled: z.boolean().optional(),
       keepAliveRepeatAlertEnabled: z.boolean().optional(),
       keepAliveRepeatAlertEveryMinutes: z.number().int().min(1).max(10080).optional(),
-    })).mutation(({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
+      await assertPartnerSystemScope(ctx, id);
+      if (ctx.user.role === "partner" && (
+        input.isActive !== undefined
+        || input.keepAliveMonitoringEnabled !== undefined
+        || input.keepAliveExpectedIntervalSeconds !== undefined
+        || input.keepAliveFailureEventEnabled !== undefined
+        || input.keepAliveOfflineAfterMinutes !== undefined
+        || input.keepAliveDisconnectAlertEnabled !== undefined
+        || input.keepAliveRepeatAlertEnabled !== undefined
+        || input.keepAliveRepeatAlertEveryMinutes !== undefined
+      )) throw new TRPCError({ code: "FORBIDDEN", message: "Parceiros não podem alterar a atividade nem as regras de monitoramento da central" });
       return db.updateAlarmSystem(id, data);
     }),
     startMaintenance: operatorProcedure.input(z.object({
@@ -615,37 +763,37 @@ export const appRouter = router({
   // ALARM ZONES
   // ============================================================
   alarmZone: router({
-    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmZones(input.alarmSystemId);
     }),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       alarmSystemId: z.number(),
       zoneNumber: z.number(),
       name: z.string().min(1),
       type: z.enum(["perimeter", "internal", "24h", "fire", "panic", "medical"]).optional(),
       partition: z.number().optional(),
-    })).mutation(({ input }) => db.createAlarmZone(input)),
-    update: operatorProcedure.input(z.object({
+    })).mutation(async ({ input, ctx }) => { await assertPartnerSystemScope(ctx, input.alarmSystemId); return db.createAlarmZone(input); }),
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       zoneNumber: z.number().optional(),
       name: z.string().optional(),
       type: z.enum(["perimeter", "internal", "24h", "fire", "panic", "medical"]).optional(),
       partition: z.number().optional(),
-    })).mutation(({ input }) => { const { id, ...data } = input; return db.updateAlarmZone(id, data); }),
-    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmZone(input.id)),
+    })).mutation(async ({ input, ctx }) => { const { id, ...data } = input; await assertPartnerZoneScope(ctx, id); return db.updateAlarmZone(id, data); }),
+    delete: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => { await assertPartnerZoneScope(ctx, input.id); return db.deleteAlarmZone(input.id); }),
   }),
 
   // ============================================================
   // ALARM USERS
   // ============================================================
   alarmUser: router({
-    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmUsers(input.alarmSystemId);
     }),
     operationalList: operatorProcedure.query(() => db.listOperationalAlarmUsers()),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       alarmSystemId: z.number(),
       userNumber: z.number().int().min(0),
       name: z.string().min(1),
@@ -658,7 +806,7 @@ export const appRouter = router({
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.createAlarmUser(input);
     }),
-    update: operatorProcedure.input(z.object({
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       userNumber: z.number().int().min(0).optional(),
       name: z.string().optional(),
@@ -667,27 +815,27 @@ export const appRouter = router({
       password: z.string().optional(),
       counterPassword: z.string().optional(),
       coercionPassword: z.string().optional(),
-    })).mutation(({ input }) => { const { id, ...data } = input; return db.updateAlarmUser(id, data); }),
-    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteAlarmUser(input.id)),
+    })).mutation(async ({ input, ctx }) => { const { id, ...data } = input; await assertPartnerAlarmUserScope(ctx, id); return db.updateAlarmUser(id, data); }),
+    delete: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => { await assertPartnerAlarmUserScope(ctx, input.id); return db.deleteAlarmUser(input.id); }),
   }),
 
   // ============================================================
   // CAMERAS
   // ============================================================
   camera: router({
-    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerClientScope(ctx, input.clientId);
       return db.listCameras(input.clientId);
     }),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       clientId: z.number(),
       name: z.string().min(1),
       rtspUrl: z.string().min(1),
       brand: z.string().optional(),
       model: z.string().optional(),
       location: z.string().optional(),
-    })).mutation(({ input }) => db.createCamera(input)),
-    update: operatorProcedure.input(z.object({
+    })).mutation(async ({ input, ctx }) => { await assertPartnerClientScope(ctx, input.clientId); return db.createCamera(input); }),
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       name: z.string().optional(),
       rtspUrl: z.string().optional(),
@@ -695,11 +843,8 @@ export const appRouter = router({
       model: z.string().optional(),
       location: z.string().optional(),
       isActive: z.boolean().optional(),
-    })).mutation(({ input }) => {
-      const { id, ...data } = input;
-      return db.updateCamera(id, data);
-    }),
-    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteCamera(input.id)),
+    })).mutation(async ({ input, ctx }) => { const { id, ...data } = input; await assertPartnerCameraScope(ctx, id); return db.updateCamera(id, data); }),
+    delete: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => { await assertPartnerCameraScope(ctx, input.id); return db.deleteCamera(input.id); }),
   }),
 
   // ============================================================
@@ -707,7 +852,7 @@ export const appRouter = router({
   // ============================================================
   alarmEvent: router({
     list: operatorProcedure.input(z.object({ limit: z.number().optional(), offset: z.number().optional() }).optional()).query(({ input }) => db.listAlarmEvents(input?.limit, input?.offset)),
-    report: protectedProcedure.input(z.object({
+    report: operatorProcedure.input(z.object({
       limit: z.number().optional(), offset: z.number().optional(), account: z.string().optional(), clientId: z.number().optional(),
       partnerCompanyId: z.number().optional(), dateFrom: z.string().optional(), dateTo: z.string().optional(),
       eventGroup: z.enum(["all", "alarm", "arm", "disarm", "test", "system"]).optional(),
@@ -718,7 +863,7 @@ export const appRouter = router({
       }
       return db.listOperationalEventReport(input || {});
     }),
-    connectionReport: protectedProcedure.input(z.object({ clientId: z.number().optional(), partnerCompanyId: z.number().optional(), status: z.enum(["online", "offline"]).optional() }).optional()).query(({ input, ctx }) => {
+    connectionReport: operatorProcedure.input(z.object({ clientId: z.number().optional(), partnerCompanyId: z.number().optional(), status: z.enum(["online", "offline"]).optional() }).optional()).query(({ input, ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
         return db.listOperationalConnectionReport({ ...(input || {}), partnerCompanyId: ctx.user.partnerId });
@@ -1188,10 +1333,7 @@ export const appRouter = router({
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
       return { ...created, status: dispatched.status, payload: dispatched.payload, message: dispatched.message };
     }),
-    compatecZoneSelections: protectedProcedure.input(z.object({ alarmSystemId: z.number().int().positive() })).query(async ({ input, ctx }) => {
-      await assertPartnerSystemScope(ctx, input.alarmSystemId);
-      return db.listCompatecZoneArmSelections(input.alarmSystemId, ctx.user.id);
-    }),
+    compatecZoneSelections: operatorProcedure.input(z.object({ alarmSystemId: z.number().int().positive() })).query(({ input, ctx }) => db.listCompatecZoneArmSelections(input.alarmSystemId, ctx.user.id)),
     selectCompatecZoneForArm: operatorProcedure.input(z.object({
       alarmSystemId: z.number().int().positive(), zoneNumber: z.number().int().min(1).max(23), selected: z.boolean(),
     })).mutation(async ({ input, ctx }) => {
@@ -1286,7 +1428,7 @@ export const appRouter = router({
     }),
   }),
   alarmPgm: router({
-    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmPgms(input.alarmSystemId);
     }),
@@ -1298,11 +1440,11 @@ export const appRouter = router({
     })).mutation(({ input }) => db.createAlarmPgm(input)),
   }),
   alarmSchedule: router({
-    list: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       return db.listAlarmSchedules(input.alarmSystemId);
     }),
-    save: scheduleOperatorProcedure.input(z.object({
+    save: partnerDataProcedure.input(z.object({
       alarmSystemId: z.number(),
       partition: z.number().int().min(1).max(8).default(1),
       name: z.string().max(255).optional(),
@@ -1321,7 +1463,7 @@ export const appRouter = router({
       if (!input.isActive) await db.resolveAlarmScheduleAlerts({ alarmSystemId: input.alarmSystemId });
       return result;
     }),
-    create: scheduleOperatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       alarmSystemId: z.number(),
       partition: z.number().min(1).max(8).optional(),
       name: z.string().optional(),
@@ -1332,8 +1474,8 @@ export const appRouter = router({
       fridayArm: z.string().optional(), fridayDisarm: z.string().optional(),
       saturdayArm: z.string().optional(), saturdayDisarm: z.string().optional(),
       sundayArm: z.string().optional(), sundayDisarm: z.string().optional(),
-    })).mutation(({ input }) => db.createAlarmSchedule(input)),
-    exceptions: protectedProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
+    })).mutation(async ({ input, ctx }) => { await assertPartnerSystemScope(ctx, input.alarmSystemId); return db.createAlarmSchedule(input); }),
+    exceptions: partnerDataProcedure.input(z.object({ alarmSystemId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const [items, audit] = await Promise.all([
         db.listAlarmScheduleOverrides(input.alarmSystemId),
@@ -1353,7 +1495,7 @@ export const appRouter = router({
         partnerCompanyId: ctx.user.role === "partner" ? ctx.user.partnerId! : input.partnerCompanyId,
       });
     }),
-    saveException: scheduleOperatorProcedure.input(z.object({
+    saveException: partnerDataProcedure.input(z.object({
       alarmSystemId: z.number(),
       overrideDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       mode: z.enum(["suspended", "override"]),
@@ -1376,7 +1518,7 @@ export const appRouter = router({
         operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
       });
     }),
-    cancelException: scheduleOperatorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    cancelException: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const override = await db.getAlarmScheduleOverride(input.id);
       if (!override) throw new TRPCError({ code: "NOT_FOUND", message: "Exceção de agenda não encontrada" });
       await assertPartnerSystemScope(ctx, override.alarmSystemId);
@@ -1384,39 +1526,39 @@ export const appRouter = router({
     }),
   }),
   clientProcedure: router({
-    list: protectedProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ clientId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerClientScope(ctx, input.clientId);
       return db.listClientProcedures(input.clientId);
     }),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       clientId: z.number(),
       title: z.string().min(1),
       description: z.string().min(1),
       priority: z.number().optional(),
-    })).mutation(({ input }) => db.createClientProcedure(input)),
+    })).mutation(async ({ input, ctx }) => { await assertPartnerClientScope(ctx, input.clientId); return db.createClientProcedure(input); }),
   }),
   partnerHoliday: router({
-    list: protectedProcedure.input(z.object({ partnerCompanyId: z.number() })).query(async ({ input, ctx }) => {
+    list: partnerDataProcedure.input(z.object({ partnerCompanyId: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerCompanyScope(ctx, input.partnerCompanyId);
       return db.listPartnerHolidays(input.partnerCompanyId);
     }),
-    create: operatorProcedure.input(z.object({
+    create: partnerDataProcedure.input(z.object({
       partnerCompanyId: z.number(),
       name: z.string().min(1),
       date: z.string().min(4),
       type: z.enum(["nacional", "municipal"]).optional(),
       
-    })).mutation(({ input }) => db.createPartnerHoliday(input)),
-    update: operatorProcedure.input(z.object({
+    })).mutation(async ({ input, ctx }) => {
+      await assertPartnerCompanyScope(ctx, input.partnerCompanyId);
+      return db.createPartnerHoliday({ ...input, partnerCompanyId: ctx.user.role === "partner" ? ctx.user.partnerId! : input.partnerCompanyId });
+    }),
+    update: partnerDataProcedure.input(z.object({
       id: z.number(),
       name: z.string().min(1).optional(),
       date: z.string().min(4).optional(),
       type: z.enum(["nacional", "municipal"]).optional(),
-    })).mutation(({ input }) => {
-      const { id, ...data } = input;
-      return db.updatePartnerHoliday(id, data);
-    }),
-    delete: operatorProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deletePartnerHoliday(input.id)),
+    })).mutation(async ({ input, ctx }) => { const { id, ...data } = input; await assertPartnerHolidayRecordScope(ctx, id); return db.updatePartnerHoliday(id, data); }),
+    delete: partnerDataProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => { await assertPartnerHolidayRecordScope(ctx, input.id); return db.deletePartnerHoliday(input.id); }),
   }),
   managingHoliday: router({
     list: adminProcedure.input(z.object({ managingCompanyId: z.number() })).query(({ input }) => db.listManagingHolidays(input.managingCompanyId)),
@@ -1430,14 +1572,14 @@ export const appRouter = router({
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteManagingHoliday(input.id)),
   }),
   occurrence: router({
-    operatorNames: protectedProcedure.query(({ ctx }) => {
+    operatorNames: operatorProcedure.query(({ ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
         return db.listOccurrenceOperatorNames(ctx.user.partnerId);
       }
       return db.listOccurrenceOperatorNames();
     }),
-    list: protectedProcedure.input(z.object({
+    list: operatorProcedure.input(z.object({
       limit: z.number().optional(),
       offset: z.number().optional(),
       account: z.string().optional(),
@@ -1453,7 +1595,7 @@ export const appRouter = router({
       }
       return db.listOccurrences(input || {});
     }),
-    getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    getById: operatorProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       const occurrence = await db.getOccurrenceById(input.id);
       if (ctx.user.role === "partner" && occurrence?.partnerCompanyId !== ctx.user.partnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Ocorrência não pertence à sua empresa parceira" });
@@ -1496,6 +1638,7 @@ export const appRouter = router({
   }),
   operatorShift: router({
     loginScheduleDecision: protectedProcedure.query(({ ctx }) => {
+      if (ctx.user.role === "partner") throw new TRPCError({ code: "FORBIDDEN", message: "Acesso permitido apenas à equipe operacional" });
       if (!ctx.authSessionId || !["admin", "supervisor", "operator"].includes(ctx.user.role)) return { required: false, scheduleStatus: null, reason: null, attendanceId: null };
       return operatorShiftDb.getLoginScheduleDecision({ userId: ctx.user.id, authSessionId: ctx.authSessionId });
     }),

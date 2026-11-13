@@ -17,6 +17,7 @@ import { normalizeBrazilianDocument, validateOptionalBrazilianDocument } from "@
 import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
 import { deferViewTransition } from "@/lib/deferredViewTransition";
 import WorkspaceScreenMenu from "@/components/WorkspaceScreenMenu";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 // Máscaras
 function maskPhone(v: string) {
@@ -114,6 +115,9 @@ const INITIAL_FORM = {
 };
 
 export default function Clients() {
+  const { user } = useAuth();
+  const isPartner = user?.role === "partner";
+  const ownPartnerCompanyId = Number(user?.partnerId || 0);
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [partnerFilter, setPartnerFilter] = useState("all");
@@ -126,11 +130,11 @@ export default function Clients() {
   const [statusConfirmationOpen, setStatusConfirmationOpen] = useState(false);
   const [loadingCep, setLoadingCep] = useState(false);
 
-  const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(statusFilter === "all" ? undefined : { monitoringStatus: statusFilter });
+  const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(!isPartner && statusFilter !== "all" ? { monitoringStatus: statusFilter } : undefined);
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
   const affectedSystemsQuery = trpc.alarmSystem.list.useQuery(
     { clientId: editingClient?.id || 0 },
-    { enabled: view === "create" && Boolean(editingClient?.id) && form.monitoringStatus !== "active" },
+    { enabled: !isPartner && view === "create" && Boolean(editingClient?.id) && form.monitoringStatus !== "active" },
   );
   const affectedSystems = affectedSystemsQuery.data || [];
   const createMutation = trpc.monitoredClient.create.useMutation({
@@ -187,9 +191,11 @@ export default function Clients() {
 
   const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
   const numericSearch = search.replace(/\D/g, "");
+  const effectivePartnerFilter = isPartner ? String(ownPartnerCompanyId) : partnerFilter;
   const filteredClients = clients.filter((c: any) => {
-    if (partnerFilter !== "all" && String(c.partnerCompanyId) !== partnerFilter) return false;
-    if (statusFilter !== "all" && getEffectiveClientMonitoringStatus(c) !== statusFilter) return false;
+    if (isPartner && Number(c.partnerCompanyId) !== ownPartnerCompanyId) return false;
+    if (!isPartner && partnerFilter !== "all" && String(c.partnerCompanyId) !== partnerFilter) return false;
+    if (!isPartner && statusFilter !== "all" && getEffectiveClientMonitoringStatus(c) !== statusFilter) return false;
     if (!normalizedSearch) return true;
     const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood, ...(c.accounts || [])]
       .filter(Boolean)
@@ -199,25 +205,27 @@ export default function Clients() {
       || (c.accounts || []).some((account: string) => account.includes(search.trim()))
       || (numericSearch.length > 0 && String(c.document || "").replace(/\D/g, "").includes(numericSearch));
   });
-  const selectedPartner = partners.find((partner: any) => String(partner.id) === partnerFilter);
+  const selectedPartner = partners.find((partner: any) => String(partner.id) === effectivePartnerFilter);
   const formDocument = normalizeBrazilianDocument(form.document);
   const ownPartnerDocument = form.type === "pj" ? partners.find((partner: any) => Number(partner.id) === Number(form.partnerCompanyId) && normalizeBrazilianDocument(partner.cnpj) === formDocument) : null;
   const ownPartnerDocumentKey = ownPartnerDocument && formDocument ? `${ownPartnerDocument.id}:${formDocument}` : null;
 
   function handleSubmit(skipStatusConfirmation = false) {
-    if (!form.partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
+    const partnerCompanyId = isPartner ? ownPartnerCompanyId : form.partnerCompanyId;
+    if (!partnerCompanyId) { toast.error("Selecione a empresa responsável"); return; }
     if (!form.name.trim()) { toast.error("Informe a Razão Social / Nome"); return; }
-    if (form.monitoringStatus !== "active" && !form.monitoringStatusReason.trim()) { toast.error("Informe o motivo do bloqueio ou da suspensão"); return; }
-    if (form.monitoringStatus === "suspended" && !form.monitoringStatusUntil) { toast.error("Informe até quando o monitoramento ficará suspenso"); return; }
+    if (!isPartner && form.monitoringStatus !== "active" && !form.monitoringStatusReason.trim()) { toast.error("Informe o motivo do bloqueio ou da suspensão"); return; }
+    if (!isPartner && form.monitoringStatus === "suspended" && !form.monitoringStatusUntil) { toast.error("Informe até quando o monitoramento ficará suspenso"); return; }
     const documentCheck = validateOptionalBrazilianDocument(form.document, form.type === "pf" ? "cpf" : "cnpj");
     if (documentCheck.error) { toast.error(documentCheck.error); return; }
     if (ownPartnerDocument && reuseConfirmedKey !== ownPartnerDocumentKey) { setDuplicatePromptPartner(ownPartnerDocument); return; }
-    if (editingClient && form.monitoringStatus !== "active" && !skipStatusConfirmation) {
+    if (!isPartner && editingClient && form.monitoringStatus !== "active" && !skipStatusConfirmation) {
       setStatusConfirmationOpen(true);
       return;
     }
     const values = {
       ...form,
+      partnerCompanyId,
       document: documentCheck.document ?? undefined,
       phone: form.phone.replace(/\D/g, ""),
       whatsapp: form.whatsapp.replace(/\D/g, ""),
@@ -226,6 +234,11 @@ export default function Clients() {
       monitoringStatusUntil: form.monitoringStatus === "suspended" && form.monitoringStatusUntil ? new Date(form.monitoringStatusUntil) : null,
       confirmPartnerDocumentReuse: Boolean(ownPartnerDocumentKey && reuseConfirmedKey === ownPartnerDocumentKey),
     };
+    if (isPartner) {
+      delete (values as Partial<typeof values>).monitoringStatus;
+      delete (values as Partial<typeof values>).monitoringStatusReason;
+      delete (values as Partial<typeof values>).monitoringStatusUntil;
+    }
     if (editingClient) updateMutation.mutate({ id: editingClient.id, ...values });
     else createMutation.mutate(values);
   }
@@ -237,7 +250,7 @@ export default function Clients() {
       setEditingClient(client);
       setReuseConfirmedKey(client.isPartnerHeadquarters && client.document ? `${client.partnerCompanyId}:${normalizeBrazilianDocument(client.document)}` : null);
       setForm({
-        partnerCompanyId: client.partnerCompanyId || 0,
+        partnerCompanyId: isPartner ? ownPartnerCompanyId : (client.partnerCompanyId || 0),
         type: client.type || "pj",
         propertyType: client.propertyType || "residence",
         name: client.name || "",
@@ -254,14 +267,14 @@ export default function Clients() {
         state: client.state || "",
         zipCode: maskCep(client.zipCode || ""),
         notes: client.notes || "",
-        monitoringStatus: client.monitoringStatus || "active",
+        monitoringStatus: isPartner ? "active" : (client.monitoringStatus || "active"),
         monitoringStatusReason: client.monitoringStatusReason || "",
         monitoringStatusUntil: toDateTimeLocalValue(client.monitoringStatusUntil),
       });
     } else {
       setEditingClient(null);
       setReuseConfirmedKey(null);
-      setForm({ ...INITIAL_FORM });
+      setForm({ ...INITIAL_FORM, partnerCompanyId: isPartner ? ownPartnerCompanyId : 0 });
     }
     deferViewTransition(() => setView("create"));
   }
@@ -294,14 +307,16 @@ export default function Clients() {
                       <Building2 className="h-5 w-5 text-primary" />
                       <h3 className="font-bold text-foreground">Empresa Responsável</h3>
                     </div>
-                    <Select value={form.partnerCompanyId ? String(form.partnerCompanyId) : undefined} onValueChange={(v) => { setReuseConfirmedKey(null); setForm({ ...form, partnerCompanyId: Number(v) }); }}>
-                      <SelectTrigger><SelectValue placeholder="Selecione a empresa parceira responsável por este cliente..." /></SelectTrigger>
-                      <SelectContent>
-                        {partners.map((p: any) => (
-                          <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {isPartner ? <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-foreground" aria-label="Empresa responsável fixa">{selectedPartner?.name || user?.name || `Empresa parceira #${ownPartnerCompanyId}`}</div> : (
+                      <Select value={form.partnerCompanyId ? String(form.partnerCompanyId) : undefined} onValueChange={(v) => { setReuseConfirmedKey(null); setForm({ ...form, partnerCompanyId: Number(v) }); }}>
+                        <SelectTrigger><SelectValue placeholder="Selecione a empresa parceira responsável por este cliente..." /></SelectTrigger>
+                        <SelectContent>
+                          {partners.map((p: any) => (
+                            <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -457,8 +472,8 @@ export default function Clients() {
                   </CardContent>
                 </Card>
 
-                {/* Situação do Monitoramento */}
-                <Card>
+                {/* Situação do Monitoramento: somente perfis administrativos */}
+                {!isPartner && <Card>
                   <CardContent className="p-5 space-y-3">
                     <div className="flex items-center gap-2">
                       <Ban className="h-5 w-5 text-amber-400" />
@@ -491,7 +506,7 @@ export default function Clients() {
                         : <p className="mt-2 text-muted-foreground">Nenhum sistema está vinculado atualmente a este cliente.</p>}
                 </div>}
                   </CardContent>
-                </Card>
+                </Card>}
 
                 {/* Observações */}
                 <Card>
@@ -515,7 +530,7 @@ export default function Clients() {
             </div>
           </div>
         </div>
-        <AlertDialog open={statusConfirmationOpen} onOpenChange={setStatusConfirmationOpen}>
+        {!isPartner && <AlertDialog open={statusConfirmationOpen} onOpenChange={setStatusConfirmationOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{requestedStatusLabel}: confirmar cliente e sistemas</AlertDialogTitle>
@@ -538,7 +553,7 @@ export default function Clients() {
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
-        </AlertDialog>
+        </AlertDialog>}
         {duplicatePromptPartner && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="partner-document-prompt-title">
           <div className="w-full max-w-md rounded-xl border border-primary/40 bg-card p-5 text-card-foreground shadow-2xl">
             <h2 id="partner-document-prompt-title" className="text-lg font-semibold">CNPJ CADASTRADO. DESEJA CONTINUAR?</h2>
@@ -586,7 +601,7 @@ export default function Clients() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Buscar por conta, nome, fantasia ou documento..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <div className="w-full sm:w-72">
+          {!isPartner && <div className="w-full sm:w-72">
             <Label className="mb-1 block text-xs font-medium text-muted-foreground">Empresa parceira</Label>
             <Select value={partnerFilter} onValueChange={setPartnerFilter}>
               <SelectTrigger><SelectValue placeholder="Todas as parceiras" /></SelectTrigger>
@@ -597,8 +612,8 @@ export default function Clients() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="w-full sm:w-52">
+          </div>}
+          {!isPartner && <div className="w-full sm:w-52">
             <Label className="mb-1 block text-xs font-medium text-muted-foreground">Status de monitoramento</Label>
             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
               <SelectTrigger aria-label="Filtrar por status de monitoramento"><SelectValue /></SelectTrigger>
@@ -609,7 +624,7 @@ export default function Clients() {
                 <SelectItem value="blocked">Bloqueado</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </div>}
           <div className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
             {filteredClients.length} {filteredClients.length === 1 ? "cliente encontrado" : "clientes encontrados"}{selectedPartner ? ` · ${selectedPartner.name}` : ""}
           </div>
@@ -617,14 +632,14 @@ export default function Clients() {
 
         {/* TABELA DE CLIENTES - Layout Desktop */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+          <div className={isPartner ? "grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase" : "grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 bg-secondary/50 border-b border-border text-xs font-bold text-muted-foreground uppercase"}>
             <span>Conta</span>
             <span>Razão Social / Nome</span>
             <span>Nome Fantasia</span>
             <span>CPF/CNPJ</span>
             <span>Telefone / WhatsApp</span>
             <span>Cidade/UF</span>
-            <span>Status</span>
+            {!isPartner && <span>Status</span>}
             <span>Ações</span>
           </div>
           {filteredClients.length === 0 ? (
@@ -635,7 +650,7 @@ export default function Clients() {
             filteredClients.map((client: any) => (
               <div
                 key={client.id}
-                className="grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"
+                className={isPartner ? "grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center" : "grid grid-cols-[156px_1fr_1fr_140px_180px_140px_80px_80px] gap-4 px-6 py-3 border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer items-center"}
                 onClick={() => navigate(`/clients/${client.id}`)}
               >
                 <span className="inline-flex w-fit max-w-full rounded-md border border-primary/25 bg-primary/10 px-3 py-1.5 font-mono text-base font-bold tracking-[0.18em] tabular-nums text-primary shadow-sm truncate" title={(client.accounts || []).join(", ")}>
@@ -652,20 +667,20 @@ export default function Clients() {
                   {client.whatsapp && <span className="block text-green-400">{client.whatsapp}</span>}
                 </div>
                 <span className="text-xs text-muted-foreground">{client.city ? `${client.city}/${client.state}` : "—"}</span>
-                <Badge variant={getEffectiveClientMonitoringStatus(client) !== "active" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
+                {!isPartner && <Badge variant={getEffectiveClientMonitoringStatus(client) !== "active" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
                   {!client.isActive ? "Inativo" : getEffectiveClientMonitoringStatus(client) === "blocked" ? "Bloqueado" : getEffectiveClientMonitoringStatus(client) === "suspended" ? "Suspenso" : "Ativo"}
-                </Badge>
+                </Badge>}
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => openClientForm(client)} title="Editar cliente">
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
+                  {!isPartner && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
                     if (confirm("Excluir este cliente permanentemente?")) {
                       deleteMut.mutate({ id: client.id });
                     }
                   }}>
                     <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  </Button>}
                 </div>
               </div>
             ))

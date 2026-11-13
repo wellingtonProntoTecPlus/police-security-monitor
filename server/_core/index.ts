@@ -19,6 +19,7 @@ import { hashAuthSessionToken } from "./localSession";
 import { setAuthSessionRevocationHandler } from "./authSessionRuntime";
 import { setIncidentStateEventEmitter } from "./socketEvents";
 import { emitOperatorShiftNotice, registerOperatorSocket, setOperatorShiftNoticeEmitter, unregisterOperatorSocket } from "./operatorShiftRuntime";
+import { emitToStaffOperations, getSocketRooms, resolveSocketAudience } from "./socketAudience";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -61,8 +62,13 @@ async function startServer() {
     try {
       const session = await getActiveAuthSessionByTokenHash(hashAuthSessionToken(token));
       if (!session) return next(new Error("unauthorized-session"));
+      const audience = resolveSocketAudience(session.user.role, session.user.partnerId);
+      if (!audience) return next(new Error("unauthorized-session"));
       socket.data.authSessionId = Number(session.sessionId);
       socket.data.authUserId = session.user.id;
+      socket.data.role = session.user.role;
+      socket.data.partnerId = audience.partnerId;
+      socket.data.isOperational = audience.isOperational;
       next();
     } catch {
       next(new Error("unauthorized-session"));
@@ -72,17 +78,21 @@ async function startServer() {
   io.on("connection", (socket) => {
     const sessionId = Number(socket.data.authSessionId);
     const userId = Number(socket.data.authUserId);
-    socket.join(`auth-session:${sessionId}`);
-    socket.join(`operator-user:${userId}`);
-    registerOperatorSocket(sessionId);
+    const audience = resolveSocketAudience(socket.data.role, socket.data.partnerId);
+    if (!audience) {
+      socket.disconnect(true);
+      return;
+    }
+    for (const room of getSocketRooms(audience, sessionId, userId)) socket.join(room);
+    if (audience.isOperational) registerOperatorSocket(sessionId);
     console.log(`[Socket.IO] Cliente conectado: ${socket.id}`);
     socket.on("disconnect", () => {
-      unregisterOperatorSocket(sessionId);
+      if (audience.isOperational) unregisterOperatorSocket(sessionId);
       console.log(`[Socket.IO] Cliente desconectado: ${socket.id}`);
     });
   });
 
-  setIncidentStateEventEmitter((event) => io.emit("incident:state", event));
+  setIncidentStateEventEmitter((event) => emitToStaffOperations(io, "incident:state", event));
   setOperatorShiftNoticeEmitter((notice) => {
     if (notice.kind === "shift_reminder") io.to(`auth-session:${notice.authSessionId}`).emit("operator:shift", notice);
     else io.to(`operator-user:${notice.userId}`).emit("operator:shift", notice);
@@ -94,7 +104,7 @@ async function startServer() {
 
   // Conectar receptor de eventos ao Socket.IO
   setEventCallback((event) => {
-    io.emit("alarm:event", event);
+    emitToStaffOperations(io, "alarm:event", event);
     if (event.kind === "keepalive") {
       console.log(`[Socket.IO] Supervisão emitida: ${event.brand} conta ${event.account}`);
     } else if (event.kind === "remote_command_confirmation") {
@@ -123,11 +133,11 @@ async function startServer() {
       const dispatchesMarkedUnknown = await expireStaleRemoteCommandDispatches(new Date());
       const result = await sweepKeepAliveDisconnects(new Date());
       for (const event of result.opened) {
-        io.emit("alarm:event", { ...event, timestamp: event.receivedAt.getTime() });
+        emitToStaffOperations(io, "alarm:event", { ...event, timestamp: event.receivedAt.getTime() });
       }
       const scheduleResult = await sweepAlarmScheduleCompliance(new Date());
       for (const alert of scheduleResult.opened) {
-        io.emit("alarm:event", {
+        emitToStaffOperations(io, "alarm:event", {
           kind: "alarm_schedule_alert",
           ...alert,
           timestamp: new Date().toISOString(),
