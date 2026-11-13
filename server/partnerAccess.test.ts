@@ -20,7 +20,7 @@ const ownClientInput = { partnerCompanyId: 99, type: "pf" as const, name: "Clien
 afterEach(() => vi.restoreAllMocks());
 
 describe("partner tenant access", () => {
-  it("partner lists only its clients and create forces own partnerId and active status", async () => {
+  it("partner reads complete status of its own clients, while create forces own partnerId and active status", async () => {
     const list = vi.spyOn(db, "listClients").mockResolvedValue([{
       id: 101,
       partnerCompanyId: 99,
@@ -44,15 +44,9 @@ describe("partner tenant access", () => {
     const listed = await caller.monitoredClient.list({ partnerCompanyId: 200, monitoringStatus: "active" });
     const fetched = await caller.monitoredClient.get({ id: 101 });
     await caller.monitoredClient.create(ownClientInput);
-    expect(list).toHaveBeenCalledWith(99);
-    expect(listed[0]).not.toHaveProperty("isActive");
-    expect(listed[0]).not.toHaveProperty("monitoringStatus");
-    expect(listed[0]).not.toHaveProperty("monitoringStatusReason");
-    expect(listed[0]).not.toHaveProperty("monitoringStatusUntil");
-    expect(fetched).not.toHaveProperty("isActive");
-    expect(fetched).not.toHaveProperty("monitoringStatus");
-    expect(fetched).not.toHaveProperty("monitoringStatusReason");
-    expect(fetched).not.toHaveProperty("monitoringStatusUntil");
+    expect(list).toHaveBeenCalledWith(99, "active");
+    expect(listed[0]).toMatchObject({ isActive: false, monitoringStatus: "suspended", monitoringStatusReason: "motivo interno" });
+    expect(fetched).toMatchObject({ isActive: false, monitoringStatus: "blocked", monitoringStatusReason: "motivo interno" });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ partnerCompanyId: 99, monitoringStatus: "active", monitoringStatusReason: null, monitoringStatusUntil: null, isActive: true }), { confirmPartnerDocumentReuse: undefined });
   });
 
@@ -117,7 +111,7 @@ describe("partner tenant access", () => {
     expect(create.mock.calls[0][0]).not.toHaveProperty("keepAliveOfflineAfterMinutes");
   });
 
-  it("returns registration-only system fields and rejects every Keep Alive update", async () => {
+  it("returns complete system records in its own carteira and rejects changes to Keep Alive policy", async () => {
     vi.spyOn(db, "getClient").mockResolvedValue({ id: 301, partnerCompanyId: 99 } as any);
     const internalSystem = {
       id: 401,
@@ -140,13 +134,16 @@ describe("partner tenant access", () => {
     const listed = await partner.alarmSystem.list({ clientId: 301 });
     const fetched = await partner.alarmSystem.get({ id: 401 });
     for (const system of [listed[0], fetched]) {
-      expect(system).toMatchObject({ id: 401, account: "0123", brand: "COMPATEC" });
-      expect(system).not.toHaveProperty("isActive");
-      expect(system).not.toHaveProperty("isOnline");
-      expect(system).not.toHaveProperty("lastCommunication");
-      expect(system).not.toHaveProperty("keepAliveExpectedIntervalSeconds");
-      expect(system).not.toHaveProperty("maintenanceNotes");
-      expect(system).not.toHaveProperty("remoteCommandLabEnabled");
+      expect(system).toMatchObject({
+        id: 401,
+        account: "0123",
+        brand: "COMPATEC",
+        isActive: false,
+        isOnline: true,
+        keepAliveExpectedIntervalSeconds: 60,
+        maintenanceNotes: "nota interna",
+        remoteCommandLabEnabled: true,
+      });
     }
     await expect(partner.alarmSystem.update({ id: 401, keepAliveExpectedIntervalSeconds: 300 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(update).not.toHaveBeenCalled();
@@ -176,6 +173,26 @@ describe("partner tenant access", () => {
     expect(camera).toHaveBeenCalledTimes(1);
     expect(schedule).toHaveBeenCalledTimes(1);
     expect(holiday).toHaveBeenCalledWith(expect.objectContaining({ partnerCompanyId: 99, name: "Feriado local" }));
+  });
+
+  it("reveals full credentials and camera URLs only inside the partner's own carteira", async () => {
+    vi.spyOn(db, "getClient").mockImplementation(async (id) => ({ id, partnerCompanyId: id === 301 ? 99 : 200 } as any));
+    vi.spyOn(db, "getAlarmSystem").mockImplementation(async (id) => ({ id, clientId: id === 401 ? 301 : 302 } as any));
+    vi.spyOn(db, "listClientContacts").mockResolvedValue([{ id: 501, password: "senha-contato", counterPassword: "contra", coercionPassword: "coacao" }] as any);
+    vi.spyOn(db, "listAlarmUsers").mockResolvedValue([{ id: 502, password: "senha-painel", counterPassword: "contra-painel", coercionPassword: "coacao-painel" }] as any);
+    vi.spyOn(db, "listCameras").mockResolvedValue([{ id: 503, rtspUrl: "rtsp://user:pass@camera.example.invalid/live" }] as any);
+    const partner = appRouter.createCaller(context("partner", 99));
+
+    const contacts = await partner.clientContact.list({ clientId: 301, alarmSystemId: 401 });
+    const panelUsers = await partner.alarmUser.list({ alarmSystemId: 401 });
+    const cameras = await partner.camera.list({ clientId: 301 });
+    expect(contacts[0]).toMatchObject({ password: "senha-contato", counterPassword: "contra", coercionPassword: "coacao" });
+    expect(panelUsers[0]).toMatchObject({ password: "senha-painel", counterPassword: "contra-painel", coercionPassword: "coacao-painel" });
+    expect(cameras[0].rtspUrl).toBe("rtsp://user:pass@camera.example.invalid/live");
+
+    await expect(partner.clientContact.list({ clientId: 302 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.alarmUser.list({ alarmSystemId: 402 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.camera.list({ clientId: 302 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("rejects alarm schedule creation for a system belonging to partner B before the write", async () => {

@@ -16,6 +16,8 @@ const clientFixtures = [
   { id: 3, partnerCompanyId: 1, type: "pj", name: "Bloqueado Válido", isActive: true, monitoringStatus: "blocked", accounts: [] },
   { id: 4, partnerCompanyId: 1, type: "pj", name: "Suspensão Expirada", isActive: true, monitoringStatus: "suspended", monitoringStatusUntil: "2000-01-01T00:00:00.000Z", accounts: [] },
   { id: 5, partnerCompanyId: 1, type: "pj", name: "Cliente Dois Sistemas", isActive: true, monitoringStatus: "active", accounts: ["0101", "0102"] },
+  { id: 6, partnerCompanyId: 2, type: "pj", name: "Cliente de Outra Parceira", isActive: true, monitoringStatus: "active", accounts: [] },
+  { id: 7, partnerCompanyId: 1, type: "pj", name: "Cadastro Inativo", isActive: false, monitoringStatus: "active", accounts: [] },
 ];
 const systemsForClient = [
   { id: 51, clientId: 5, account: "0101", brand: "JFL", model: "Active 8W" },
@@ -88,13 +90,22 @@ describe("Clientes — Novo Cliente", () => {
     expect(screen.getByRole("button", { name: /cadastrar cliente/i })).toBeTruthy();
   });
 
-  it("parceiro vê apenas sua empresa fixa e não pode escolher status de monitoramento", async () => {
+  it("parceiro vê os dados e status da própria carteira, mas não pode alterar status nem escolher outra empresa", async () => {
     authState.user = { id: 4, role: "partner", partnerId: 1, name: "Police Electronics" };
     const user = userEvent.setup();
     render(<Clients />);
 
-    expect(screen.queryByText("Status de monitoramento")).toBeNull();
+    expect(screen.getByText("Status de monitoramento")).toBeTruthy();
     expect(screen.queryByText("Empresa parceira")).toBeNull();
+    expect(screen.getByText("Suspenso Válido")).toBeTruthy();
+    expect(screen.getByText("Bloqueado Válido")).toBeTruthy();
+    expect(screen.queryByText("Cliente de Outra Parceira")).toBeNull();
+    await user.selectOptions(screen.getByRole("combobox"), "blocked");
+    expect(screen.getByText("Bloqueado Válido")).toBeTruthy();
+    expect(screen.queryByText("Suspenso Válido")).toBeNull();
+    await user.selectOptions(screen.getByRole("combobox"), "inactive");
+    expect(screen.getByText("Cadastro Inativo")).toBeTruthy();
+    expect(screen.queryByText("Bloqueado Válido")).toBeNull();
     await user.click(screen.getByRole("button", { name: /novo cliente/i }));
     await screen.findByRole("heading", { name: /cadastrar novo cliente/i });
     expect(screen.getByLabelText("Empresa responsável fixa").textContent).toContain("Police Electronics");

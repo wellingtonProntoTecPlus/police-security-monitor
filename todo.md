@@ -927,9 +927,8 @@
 ## Acesso de empresa parceira ao PoliceCentral
 - [x] Permitir perfil Parceiro consultar e cadastrar clientes exclusivamente na empresa vinculada à sessão; o backend força a empresa própria e impede alteração de status/bloqueio/suspensão
 - [x] Liberar abas cadastrais de centrais, contatos, usuários do painel, zonas/setores, câmeras e agenda com validação de escopo no registro-pai
-- [x] Exibir Online/Offline somente para centrais ativas dos próprios clientes, por consulta mínima e atualização periódica; regras Keep Alive e credenciais técnicas continuam reservadas à equipe operacional
+- [x] Exibir situação e dados cadastrais completos dos próprios clientes, incluindo senhas/códigos e URLs RTSP; Keep Alive aparece em modo somente leitura e alterações de política/credenciais técnicas de comando remoto permanecem restritas à equipe
 - [x] Remover do parceiro relatórios, atendimento, fila e comandos físicos; bloquear acessos diretos fora de Clientes e segregar eventos operacionais Socket.IO
 - [x] Confirmar que o cadastro de usuário já permite criar role Parceiro e vinculá-lo a uma empresa parceira
 - [ ] Publicar e homologar com um usuário parceiro de teste, comprovando que IDs de outra parceira são negados e que nenhum evento operacional é recebido
 - [ ] Desenvolver relatórios filtrados por cliente/parceira como etapa futura, mantendo proibição de relatórios globais
-- [ ] Antes de provisionar credenciais de parceiro, confirmar se ele pode ler senhas/códigos dos contatos e usuários do painel e URLs RTSP dos clientes próprios; hoje essas telas retornam esses campos da própria carteira

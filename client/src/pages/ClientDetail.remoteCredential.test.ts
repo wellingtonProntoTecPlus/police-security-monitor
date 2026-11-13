@@ -12,9 +12,16 @@ describe("ClientDetail — persistência de credencial técnica", () => {
     expect(source).toContain('setRemoteCredential.isPending ? "Salvando credencial..." : "Concluir"');
   });
 
-  it("usa status por cliente no perfil parceiro sem liberar credenciais ou regras de Keep Alive", () => {
+  it("exibe os dados da própria central e Keep Alive em leitura, sem liberar credenciais técnicas ou edição operacional", () => {
     expect(source).toContain("trpc.alarmSystem.clientConnectionStatus.useQuery({ clientId }");
     expect(source).toContain("refetchInterval: 15000");
+    expect(source).toContain("Situação no monitoramento:");
+    expect(source).toContain("Motivo registrado:");
+    expect(source).toContain("Ver ficha completa da central");
+    expect(source).toContain("<strong>Endereço IP:</strong>");
+    expect(source).toContain("<strong>Última comunicação:</strong>");
+    expect(source).toContain("<strong>Observação da manutenção:</strong>");
+    expect(source).toContain("<strong>Frequência esperada:</strong>");
     expect(source).toContain("!isPartner && <Button variant=\"ghost\" size=\"sm\" className=\"h-7 w-7 p-0 text-amber-300\"");
     expect(source).toContain("if (!isPartner) Object.assign(payload");
   });

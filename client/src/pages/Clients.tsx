@@ -121,7 +121,7 @@ export default function Clients() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [partnerFilter, setPartnerFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended" | "blocked">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended" | "blocked" | "inactive">("all");
   const [view, setView] = useState<"list" | "create">("list");
   const [form, setForm] = useState({ ...INITIAL_FORM });
   const [editingClient, setEditingClient] = useState<any>(null);
@@ -130,7 +130,7 @@ export default function Clients() {
   const [statusConfirmationOpen, setStatusConfirmationOpen] = useState(false);
   const [loadingCep, setLoadingCep] = useState(false);
 
-  const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(!isPartner && statusFilter !== "all" ? { monitoringStatus: statusFilter } : undefined);
+  const { data: clients = [], refetch } = trpc.monitoredClient.list.useQuery(statusFilter !== "all" && statusFilter !== "inactive" ? { monitoringStatus: statusFilter } : undefined);
   const { data: partners = [] } = trpc.partnerCompany.list.useQuery(undefined);
   const affectedSystemsQuery = trpc.alarmSystem.list.useQuery(
     { clientId: editingClient?.id || 0 },
@@ -195,7 +195,8 @@ export default function Clients() {
   const filteredClients = clients.filter((c: any) => {
     if (isPartner && Number(c.partnerCompanyId) !== ownPartnerCompanyId) return false;
     if (!isPartner && partnerFilter !== "all" && String(c.partnerCompanyId) !== partnerFilter) return false;
-    if (!isPartner && statusFilter !== "all" && getEffectiveClientMonitoringStatus(c) !== statusFilter) return false;
+    if (statusFilter === "inactive" && c.isActive) return false;
+    if (statusFilter !== "all" && statusFilter !== "inactive" && (!c.isActive || getEffectiveClientMonitoringStatus(c) !== statusFilter)) return false;
     if (!normalizedSearch) return true;
     const textFields = [c.name, c.fantasyName, c.phone, c.whatsapp, c.email, c.address, c.city, c.neighborhood, ...(c.accounts || [])]
       .filter(Boolean)
@@ -613,7 +614,7 @@ export default function Clients() {
               </SelectContent>
             </Select>
           </div>}
-          {!isPartner && <div className="w-full sm:w-52">
+          <div className="w-full sm:w-52">
             <Label className="mb-1 block text-xs font-medium text-muted-foreground">Status de monitoramento</Label>
             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
               <SelectTrigger aria-label="Filtrar por status de monitoramento"><SelectValue /></SelectTrigger>
@@ -622,9 +623,10 @@ export default function Clients() {
                 <SelectItem value="active">Ativo</SelectItem>
                 <SelectItem value="suspended">Suspenso</SelectItem>
                 <SelectItem value="blocked">Bloqueado</SelectItem>
+                <SelectItem value="inactive">Inativo</SelectItem>
               </SelectContent>
             </Select>
-          </div>}
+          </div>
           <div className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
             {filteredClients.length} {filteredClients.length === 1 ? "cliente encontrado" : "clientes encontrados"}{selectedPartner ? ` · ${selectedPartner.name}` : ""}
           </div>
@@ -667,9 +669,9 @@ export default function Clients() {
                   {client.whatsapp && <span className="block text-green-400">{client.whatsapp}</span>}
                 </div>
                 <span className="text-xs text-muted-foreground">{client.city ? `${client.city}/${client.state}` : "—"}</span>
-                {!isPartner && <Badge variant={getEffectiveClientMonitoringStatus(client) !== "active" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
+                <Badge title={[client.monitoringStatusReason, client.monitoringStatusUntil ? `Até ${new Date(client.monitoringStatusUntil).toLocaleString("pt-BR")}` : null].filter(Boolean).join(" · ") || undefined} variant={getEffectiveClientMonitoringStatus(client) !== "active" || !client.isActive ? "destructive" : "default"} className="text-xs justify-center">
                   {!client.isActive ? "Inativo" : getEffectiveClientMonitoringStatus(client) === "blocked" ? "Bloqueado" : getEffectiveClientMonitoringStatus(client) === "suspended" ? "Suspenso" : "Ativo"}
-                </Badge>}
+                </Badge>
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400" onClick={() => openClientForm(client)} title="Editar cliente">
                     <Pencil className="h-3.5 w-3.5" />

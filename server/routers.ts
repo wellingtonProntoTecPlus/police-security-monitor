@@ -130,37 +130,6 @@ async function assertPartnerHolidayRecordScope(ctx: any, holidayId: number) {
   return holiday;
 }
 
-function partnerClientRecord<T extends Record<string, any> | null | undefined>(client: T): T {
-  if (!client) return client;
-  const { isActive: _isActive, monitoringStatus: _monitoringStatus, monitoringStatusReason: _monitoringStatusReason, monitoringStatusUntil: _monitoringStatusUntil, ...registration } = client;
-  return registration as T;
-}
-
-function partnerAlarmSystemRecord<T extends Record<string, any> | null | undefined>(system: T): T {
-  if (!system) return system;
-  const {
-    isActive: _isActive,
-    remoteCommandLabEnabled: _remoteCommandLabEnabled,
-    isOnline: _isOnline,
-    lastCommunication: _lastCommunication,
-    lastKeepAliveAt: _lastKeepAliveAt,
-    lastKeepAliveIntervalMs: _lastKeepAliveIntervalMs,
-    keepAliveMonitoringEnabled: _keepAliveMonitoringEnabled,
-    keepAliveExpectedIntervalSeconds: _keepAliveExpectedIntervalSeconds,
-    keepAliveFailureEventEnabled: _keepAliveFailureEventEnabled,
-    keepAliveOfflineAfterMinutes: _keepAliveOfflineAfterMinutes,
-    keepAliveDisconnectAlertEnabled: _keepAliveDisconnectAlertEnabled,
-    keepAliveRepeatAlertEnabled: _keepAliveRepeatAlertEnabled,
-    keepAliveRepeatAlertEveryMinutes: _keepAliveRepeatAlertEveryMinutes,
-    maintenanceStartAt: _maintenanceStartAt,
-    maintenanceEndAt: _maintenanceEndAt,
-    maintenanceNotes: _maintenanceNotes,
-    maintenanceOperatorId: _maintenanceOperatorId,
-    ...registration
-  } = system;
-  return registration as T;
-}
-
 async function assertIncidentPartnerScope(ctx: any, incidentId: number) {
   const incident = await db.getIncident(incidentId);
   if (!incident) throw new TRPCError({ code: "NOT_FOUND", message: "Atendimento não encontrado" });
@@ -422,8 +391,7 @@ export const appRouter = router({
     list: partnerDataProcedure.input(z.object({ partnerCompanyId: z.number().optional(), monitoringStatus: z.enum(["active", "blocked", "suspended"]).optional() }).optional()).query(async ({ input, ctx }) => {
       if (ctx.user.role === "partner") {
         if (!ctx.user.partnerId) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário Parceiro sem empresa vinculada" });
-        const clients = await db.listClients(ctx.user.partnerId);
-        return clients.map(partnerClientRecord);
+        return db.listClients(ctx.user.partnerId, input?.monitoringStatus);
       }
       return db.listClients(input?.partnerCompanyId, input?.monitoringStatus);
     }),
@@ -432,7 +400,7 @@ export const appRouter = router({
       if (ctx.user.role === "partner" && client?.partnerCompanyId !== ctx.user.partnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence à sua empresa parceira" });
       }
-      return ctx.user.role === "partner" ? partnerClientRecord(client) : client;
+      return client;
     }),
     create: partnerDataProcedure.input(z.object({
       partnerCompanyId: z.number(),
@@ -567,13 +535,11 @@ export const appRouter = router({
     list: partnerDataProcedure.input(z.object({ clientId: z.number().optional() }).optional()).query(async ({ input, ctx }) => {
       if (ctx.user.role === "partner" && !input?.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o cliente para consultar sistemas" });
       if (input?.clientId) await assertPartnerClientScope(ctx, input.clientId);
-      const systems = await db.listAlarmSystems(input?.clientId);
-      return ctx.user.role === "partner" ? systems.map(partnerAlarmSystemRecord) : systems;
+      return db.listAlarmSystems(input?.clientId);
     }),
     get: partnerDataProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.id);
-      const system = await db.getAlarmSystem(input.id);
-      return ctx.user.role === "partner" ? partnerAlarmSystemRecord(system) : system;
+      return db.getAlarmSystem(input.id);
     }),
     getByAccount: operatorProcedure.input(z.object({ account: z.string() })).query(async ({ input, ctx }) => {
       const system = await db.getAlarmSystemByAccount(input.account);

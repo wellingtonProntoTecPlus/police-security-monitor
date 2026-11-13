@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { User, Users, Phone, Mail, Shield, Camera, MapPin, Plus, Trash2, Layers, Pencil, Building2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/masks";
+import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
 import { applyAlarmSystemBrandProfile, getAlarmSystemIdentifierValidationError, getAlarmSystemProfile, isJflVersion5OrLater, type AlarmSystemBrand } from "@shared/alarmSystemProfiles";
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { getRemoteCommandCredentialProfiles, INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
@@ -147,6 +148,15 @@ export default function ClientDetail() {
     );
   }
 
+  const effectiveMonitoringStatus = getEffectiveClientMonitoringStatus(client);
+  const monitoringStatusLabel = !client.isActive
+    ? "Inativo"
+    : effectiveMonitoringStatus === "blocked"
+      ? "Bloqueado"
+      : effectiveMonitoringStatus === "suspended"
+        ? "Suspenso"
+        : "Ativo";
+
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6 overflow-auto h-full">
@@ -156,9 +166,9 @@ export default function ClientDetail() {
             <h1 className="text-2xl font-bold text-foreground">{client.name}</h1>
             <p className="text-muted-foreground">{client.type === "pf" ? "CPF" : "CNPJ"}: {client.document} {client.fantasyName ? `| ${client.fantasyName}` : ""}</p>
           </div>
-          {!isPartner && <Badge variant={client.isActive ? "default" : "destructive"} className="text-sm">
-            {client.isActive ? "Ativo" : "Inativo"}
-          </Badge>}
+          <Badge variant={monitoringStatusLabel === "Ativo" ? "default" : "destructive"} className="text-sm">
+            {monitoringStatusLabel}
+          </Badge>
         </div>
 
         <Tabs defaultValue="info" className="w-full">
@@ -194,6 +204,14 @@ export default function ClientDetail() {
                 <div className="flex items-center gap-2 col-span-3">
                   <MapPin className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm"><strong>Endereço:</strong> {client.address || "—"}{client.number ? `, ${client.number}` : ""} - {client.neighborhood || ""} - {client.city}/{client.state} CEP: {client.zipCode || "—"}</span>
+                </div>
+                <div className="flex items-start gap-2 col-span-3 rounded-md border border-border bg-secondary/20 p-3">
+                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="text-sm">
+                    <p><strong>Situação no monitoramento:</strong> {monitoringStatusLabel}</p>
+                    {client.monitoringStatusReason && <p className="text-muted-foreground"><strong>Motivo registrado:</strong> {client.monitoringStatusReason}</p>}
+                    {client.monitoringStatusUntil && <p className="text-muted-foreground"><strong>Prazo registrado:</strong> {new Date(client.monitoringStatusUntil).toLocaleString("pt-BR")}</p>}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -405,7 +423,8 @@ export default function ClientDetail() {
                   const isAwaitingInitialCommunication = !isPartner && connectionStatus === "offline" && !system.lastCommunication && !system.lastKeepAliveAt;
                   return (
                   <Card key={system.id} className={`border-l-4 ${isOnline ? 'border-l-green-500' : isStatusLoading || isStatusUnavailable || isNotMonitored || isAwaitingInitialCommunication ? 'border-l-amber-500' : 'border-l-red-500'}`}>
-                    <CardContent className="p-4 flex items-center justify-between">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <Shield className="h-5 w-5 text-primary" />
                         <div>
@@ -429,6 +448,33 @@ export default function ClientDetail() {
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>}
                       </div>
+                      </div>
+                      {isPartner && <div className="mt-3 border-t border-border pt-3">
+                        <details>
+                          <summary className="cursor-pointer text-xs font-medium text-primary">Ver ficha completa da central</summary>
+                          <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+                            <p><strong>Comunicação:</strong> {system.communicationType === "both" ? "Ethernet + GPRS" : system.communicationType === "gprs" ? "GPRS" : "Ethernet"}</p>
+                            <p><strong>Endereço IP:</strong> {system.ipAddress || "—"}</p>
+                            <p><strong>Partições:</strong> {system.partitions ?? "—"}</p>
+                            <p><strong>Código ViaWeb:</strong> {system.viawebCode || "—"}</p>
+                            <p><strong>Sistema ativo:</strong> {system.isActive ? "Sim" : "Não"}</p>
+                            <p><strong>Instalação:</strong> {system.installDate ? new Date(system.installDate).toLocaleDateString("pt-BR") : "—"}</p>
+                            <p><strong>Troca da bateria:</strong> {system.batteryDate ? new Date(system.batteryDate).toLocaleDateString("pt-BR") : "—"}</p>
+                            <p><strong>Última comunicação:</strong> {system.lastCommunication ? new Date(system.lastCommunication).toLocaleString("pt-BR") : "—"}</p>
+                            <p><strong>Último Keep Alive:</strong> {system.lastKeepAliveAt ? new Date(system.lastKeepAliveAt).toLocaleString("pt-BR") : "—"}</p>
+                            <p><strong>Intervalo observado:</strong> {system.lastKeepAliveIntervalMs ? `${Math.round(system.lastKeepAliveIntervalMs / 1000)} segundos` : "—"}</p>
+                            <p><strong>Monitoramento Keep Alive:</strong> {system.keepAliveMonitoringEnabled === false ? "Desativado" : "Ativo"}</p>
+                            <p><strong>Frequência esperada:</strong> {system.keepAliveExpectedIntervalSeconds ?? "—"} segundos</p>
+                            <p><strong>Prazo para Offline:</strong> {system.keepAliveOfflineAfterMinutes ?? "—"} minutos</p>
+                            <p><strong>Evento de falha:</strong> {system.keepAliveFailureEventEnabled ? "Ativo" : "Inativo"}</p>
+                            <p><strong>Alerta de desconexão:</strong> {system.keepAliveDisconnectAlertEnabled === false ? "Inativo" : "Ativo"}</p>
+                            <p><strong>Repetição de alerta:</strong> {system.keepAliveRepeatAlertEnabled ? `A cada ${system.keepAliveRepeatAlertEveryMinutes ?? "—"} minutos` : "Desativada"}</p>
+                            {system.maintenanceStartAt && <p><strong>Início da manutenção:</strong> {new Date(system.maintenanceStartAt).toLocaleString("pt-BR")}</p>}
+                            {system.maintenanceEndAt && <p><strong>Fim da manutenção:</strong> {new Date(system.maintenanceEndAt).toLocaleString("pt-BR")}</p>}
+                            {system.maintenanceNotes && <p className="sm:col-span-2 lg:col-span-3"><strong>Observação da manutenção:</strong> {system.maintenanceNotes}</p>}
+                          </div>
+                        </details>
+                      </div>}
                     </CardContent>
                   </Card>
                   );
@@ -471,6 +517,17 @@ export default function ClientDetail() {
                     {editingSystem.brand === "VIAWEB" && <div><Label>ID ISEP (ViaWeb)</Label><Input className={editingSystem.isepId && !/^[0-9A-F]{4}$/i.test(editingSystem.isepId) ? "border-amber-400 text-amber-200" : ""} value={editingSystem.isepId || "Será gerado ao salvar"} disabled />{editingSystem.isepId && !/^[0-9A-F]{4}$/i.test(editingSystem.isepId) && <p className="mt-1 text-[11px] text-amber-300">ID legado inválido. Ao salvar, será gerado um novo código hexadecimal de 4 caracteres para programar na central.</p>}</div>}
                     <div><Label>Porta receptora</Label><Select value={String(editingSystem.receiverPort || portsForBrand(editingSystem.brand)[0] || "")} onValueChange={(value) => setEditingSystem({ ...editingSystem, receiverPort: Number(value) })}><SelectTrigger><SelectValue placeholder="Seleção de porta" /></SelectTrigger><SelectContent>{portsForBrand(editingSystem.brand).map((port) => <SelectItem key={port} value={String(port)}>{port}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-[11px] text-muted-foreground">A porta é sugerida ao selecionar a central e pode ser ajustada manualmente.</p></div>
                   </div>
+                  {isPartner && <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
+                    <p className="mb-2 text-sm font-semibold">Configurações de Keep Alive — somente leitura</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <p><strong>Monitoramento:</strong> {editingSystem.keepAliveMonitoringEnabled === false ? "Desativado" : "Ativo"}</p>
+                      <p><strong>Frequência esperada:</strong> {editingSystem.keepAliveExpectedIntervalSeconds ?? "Não informada"} segundos</p>
+                      <p><strong>Marcar Offline após:</strong> {editingSystem.keepAliveOfflineAfterMinutes ?? "Não informado"} minutos</p>
+                      <p><strong>Evento de falha:</strong> {editingSystem.keepAliveFailureEventEnabled ? "Sim" : "Não"}</p>
+                      <p><strong>Alerta de desconexão:</strong> {editingSystem.keepAliveDisconnectAlertEnabled === false ? "Não" : "Sim"}</p>
+                      <p><strong>Repetir alerta:</strong> {editingSystem.keepAliveRepeatAlertEnabled ? `Sim, a cada ${editingSystem.keepAliveRepeatAlertEveryMinutes ?? "—"} minutos` : "Não"}</p>
+                    </div>
+                  </div>}
                   {!isPartner && <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
