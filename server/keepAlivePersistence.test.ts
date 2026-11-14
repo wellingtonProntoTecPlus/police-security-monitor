@@ -9,7 +9,9 @@ function makeKeepAliveFakeDb(system: Record<string, unknown>, updates: unknown[]
       const query: any = {
         from: () => query,
         innerJoin: () => { hasJoinedClient = true; return query; },
+        leftJoin: () => query,
         where: () => query,
+        orderBy: () => query,
         for: () => query,
         limit: async () => hasJoinedClient ? [{ system }] : [],
         then: (resolve: (value: unknown[]) => unknown, reject: (error: unknown) => unknown) => Promise.resolve([]).then(resolve, reject),

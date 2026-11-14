@@ -20,6 +20,9 @@ describe("bloqueio de monitoramento no processamento de evento", () => {
     vi.mocked(db.getClientOperationalProfile).mockResolvedValue(profile);
     vi.mocked(db.createAlarmEvent).mockResolvedValue({ id: 400 });
     vi.mocked(db.createAlarmEventWithOpenIncident).mockResolvedValue({ eventId: 400, incidentId: 500 });
+    vi.mocked(db.finalizeKeepAliveDisconnectsOnPanelEvent).mockResolvedValue([]);
+    vi.mocked(db.finalizeRadioengeKeepAliveFailureWithRestoration).mockResolvedValue(undefined);
+    vi.mocked(db.findRadioengeKeepAliveObservationForRestoration).mockResolvedValue(undefined);
     vi.mocked(db.isSystemInMaintenance).mockReturnValue(false);
   });
   afterEach(() => vi.restoreAllMocks());
@@ -39,6 +42,15 @@ describe("bloqueio de monitoramento no processamento de evento", () => {
     expect(db.createAlarmEvent).toHaveBeenCalled();
     expect(db.createOccurrence).toHaveBeenCalled();
     expect(db.createAlarmEventWithOpenIncident).not.toHaveBeenCalled();
+  });
+
+  it("ao receber Contact ID real da central identificada, chama o fechamento da falha KOFF", async () => {
+    expect(await processEvent(alarmEvent, "127.0.0.1")).toBe(true);
+    expect(db.finalizeKeepAliveDisconnectsOnPanelEvent).toHaveBeenCalledWith({
+      alarmSystemId: 42,
+      panelEventId: 400,
+      receivedAt: expect.any(Date),
+    });
   });
 
   it("suspensão expirada permite novo atendimento normalmente", async () => {

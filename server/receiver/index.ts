@@ -4,7 +4,7 @@
  * Suporta: JFL, Intelbras, Vetti, Compatec, Radioenge
  */
 import net from 'net';
-import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClientOperationalProfile, getContactIdDescription, getOperationalAlarmSystem, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
+import { createAlarmEvent, createAlarmEventWithOpenIncident, createAlarmScheduleComplianceAlert, createConfirmedVettiDisarmEventWithOpenIncident, createOccurrence, ensureSystemTechnicalAccount, finalizeIncidentWithRestoration, finalizeKeepAliveDisconnectsOnPanelEvent, finalizeRadioengeKeepAliveFailureWithRestoration, findIncidentForRestoration, findOpenTrackedIncident, findRadioengeKeepAliveObservationForRestoration, getAlarmRemoteCredentialForTransport, getAlarmRemoteCredentialTechnicalUserCode, getAlarmScheduleContext, getAlarmSystem, getAlarmSystemByCapturedPanelIdentifier, getAlarmSystemByReceivedAccount, getAlarmSystemByPanelIdentifier, getClientOperationalProfile, getContactIdDescription, getOperationalAlarmSystem, getPendingCompatecBenchQuery, getPendingVettiBenchStatusQuery, isSystemInMaintenance, promoteExpiredRadioengeKeepAliveObservations, recordRemoteCommandConfirmation, recordSystemKeepAlive, resolveAlarmScheduleAlerts, updateAlarmRemoteCommandDelivery } from '../db';
 import { getAutomaticEventAction } from './autoFinalization';
 import { hasPersistedOpenIncident } from './persistenceContract';
 import { formatSafeCaptureLog, getSafeCaptureFrames, getSafeCaptureSummary, isSafeCaptureEnabled, parseJflConnectionIdentity, recordSafeCaptureFrame, shouldResolveSystemByCapturedPanelIdentifier } from './safeCapture';
@@ -134,6 +134,30 @@ function rememberSystem(socket: net.Socket, system: any, receiverPort?: number) 
   if (isConfirmedVettiBenchSystem(system)) rememberActiveVettiBenchSession(socket, system);
 }
 
+function emitRestoredKeepAliveAlerts(input: { restored?: any[]; system: { id: number; account: string; brand: string }; receiverPort: number; timestamp: string }) {
+  for (const restored of input.restored || []) {
+    eventCallback?.({
+      id: restored.eventId,
+      kind: "restoration_closed",
+      originalEventId: restored.eventId,
+      incidentId: restored.incidentId,
+      alarmSystemId: input.system.id,
+      account: restored.account || input.system.account,
+      brand: restored.brand || input.system.brand,
+      qualifier: "R",
+      eventCode: "KOFF",
+      partition: "00",
+      zoneUser: "000",
+      description: "Falha de Keep Alive restaurada",
+      restorationDescription: restored.description,
+      priority: "high",
+      remoteIp: "SYSTEM",
+      receiverPort: input.receiverPort,
+      timestamp: input.timestamp,
+    });
+  }
+}
+
 async function recordKeepAlive(socket: net.Socket, brand: string, port: number, signal: string) {
   let known = identifiedSystemBySocket.get(socket);
   if (!known && brand === "JFL") {
@@ -172,13 +196,15 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
     console.log(`[KEEPALIVE] ${brand} | Conta ${known.account} | ${signal} | ${formatKeepAliveInterval(measurement.intervalMs)}`);
     // Atualização de supervisão somente informativa. O Dashboard usa este
     // sinal para atualizar seus indicadores, sem criar card de ocorrência.
+    const timestamp = measurement.receivedAt.toISOString();
     eventCallback?.({
       kind: "keepalive",
       alarmSystemId: known.id,
       account: known.account,
       brand,
-      timestamp: new Date().toISOString(),
+      timestamp,
     });
+    emitRestoredKeepAliveAlerts({ restored: measurement.finalizedDisconnectAlerts, system: known, receiverPort: port, timestamp });
   }
 }
 
@@ -1063,11 +1089,10 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
     const clientMonitoringStatus = getEffectiveClientMonitoringStatus(client, eventReceivedAt);
     const clientMonitoringBlocked = clientMonitoringStatus !== "active";
     const radioengeObservation = isRadioengeE361 && !systemInMaintenance && !clientMonitoringBlocked && !repeatedTrackedIncident;
-    const radioengeRestorationCandidate = isRadioengeR361 && !systemInMaintenance
+    const radioengeRestorationCandidate = isRadioengeR361 && !systemInMaintenance && system?.id
       ? await findRadioengeKeepAliveObservationForRestoration({
-        alarmSystemId: system?.id,
+        alarmSystemId: system.id,
         account: effectiveAccount,
-        now: eventReceivedAt,
       })
       : undefined;
     // Eventos internos ViaWeb já associados ao ISEP são auditáveis, mas não são
@@ -1230,40 +1255,64 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
       }
     }
 
-    if (radioengeRestorationCandidate) {
-      cancelRadioengeObservationTimer(radioengeRestorationCandidate.incident.id);
-      await finalizeIncidentWithRestoration({
-        incident: radioengeRestorationCandidate.incident,
-        event: {
-          id: savedEvent.id,
-          account: effectiveAccount,
-          eventCode: evento.eventCode,
-          qualifier: evento.qualifier,
-          partition: evento.partition,
-          zoneUser: evento.zoneUser,
-          description,
-          priority,
-          brand: evento.brand,
-          receivedAt: eventReceivedAt,
-        } as any,
+    // Qualquer Contact ID real, recebido e associado a esta central física,
+    // confirma que ela voltou a comunicar. O KOFF é encerrado sem esperar por
+    // um Keep Alive dedicado; pacotes internos/sintéticos não contam.
+    if (system?.id && !accountResolution.isSystemAccount && !isViawebInternalEvent && remoteIp !== "SYSTEM" && evento.eventCode !== "KOFF") {
+      const restoredKeepAliveDisconnects = await finalizeKeepAliveDisconnectsOnPanelEvent({
+        alarmSystemId: system.id,
+        panelEventId: savedEvent.id,
+        receivedAt: eventReceivedAt,
       });
-      if (eventCallback) {
+      for (const restored of restoredKeepAliveDisconnects) {
+        if (eventCallback) {
+          eventCallback({
+            id: savedEvent.id,
+            kind: "restoration_closed",
+            originalEventId: restored.eventId,
+            incidentId: restored.incidentId,
+            account: restored.account,
+            brand: restored.brand,
+            qualifier: evento.qualifier,
+            eventCode: evento.eventCode,
+            description: "Falha de Keep Alive restaurada",
+            restorationDescription: restored.description,
+            receiverPort: evento.receiverPort,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    if (radioengeRestorationCandidate && system?.id) {
+      cancelRadioengeObservationTimer(radioengeRestorationCandidate.incident.id);
+      const restored = await finalizeRadioengeKeepAliveFailureWithRestoration({
+        incidentId: radioengeRestorationCandidate.incident.id,
+        failureEventId: radioengeRestorationCandidate.event.id,
+        restorationEventId: savedEvent.id,
+        alarmSystemId: system.id,
+        restoredAt: eventReceivedAt,
+      });
+      if (restored && eventCallback) {
         eventCallback({
           id: savedEvent.id,
           kind: "restoration_closed",
-          originalEventId: radioengeRestorationCandidate.event.id,
+          originalEventId: restored.eventId,
+          incidentId: restored.incidentId,
           account: effectiveAccount,
           brand: evento.brand,
           qualifier: evento.qualifier,
           eventCode: evento.eventCode,
-          description: "Finalizado com a restauração do evento",
+          description: restored.description,
           priority,
           receiverPort: evento.receiverPort,
           timestamp: new Date().toISOString(),
         });
       }
-      console.log(`[RECIP] RADIOENGE | Conta ${effectiveAccount} | R361 recebido dentro de 4 segundos; E361 e R361 fechados juntos.`);
-      return true;
+      if (restored) {
+        console.log(`[RECIP] RADIOENGE | Conta ${effectiveAccount} | R361 recebido; falha E361 finalizada e registrada como restaurada.`);
+        return true;
+      }
     }
 
     if (eventAutomaticAction === "try_restoration") {
@@ -1432,6 +1481,11 @@ export function startReceivers() {
       }
       const measurement = await recordSystemKeepAlive(system.id);
       console.log(`[KEEPALIVE] VIAWEB | Conta ${system.account} | ISEP ${status.isep} autenticado On Line${measurement ? ` | ${formatKeepAliveInterval(measurement.intervalMs)}` : ""}`);
+      if (measurement) {
+        const timestamp = measurement.receivedAt.toISOString();
+        eventCallback?.({ kind: "keepalive", alarmSystemId: system.id, account: system.account, brand: "VIAWEB", timestamp });
+        emitRestoredKeepAliveAlerts({ restored: measurement.finalizedDisconnectAlerts, system, receiverPort: 9111, timestamp });
+      }
     },
     onEvent: async (viawebEvent) => {
       const system = await getAlarmSystemByPanelIdentifier(viawebEvent.isep, "isep", "VIAWEB", 9111);

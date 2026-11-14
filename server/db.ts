@@ -52,7 +52,7 @@ import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepare
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
 import { buildCompatecPhysicalArmWithZonesPayload } from "./remoteCommandContract";
-import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
+import { processKeepAliveDisconnectCandidates, type KeepAliveDisconnectCandidate } from "./keepAliveDisconnectWorkflow";
 import { enrichClientsWithAccounts } from "./clientAccountList";
 import { matchesOperationalEventGroup, resolveOperationalEventCategory, type EventReportGroup } from "./operationalEventReport";
 import { getPublicBrandingOrNull } from "./publicBrandingFallback";
@@ -165,7 +165,7 @@ export async function getUserById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function replaceActiveAuthSession(userId: number, tokenHash: string, expiresAt: Date) {
+export async function replaceActiveAuthSession(userId: number, tokenHash: string, expiresAt: Date, now = new Date()) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível para iniciar sessão");
   return db.transaction(async (tx) => {
@@ -177,7 +177,6 @@ export async function replaceActiveAuthSession(userId: number, tokenHash: string
       eq(authSessions.userId, userId),
       isNull(authSessions.revokedAt),
     ));
-    const now = new Date();
     if (previous.some((row) => new Date(row.expiresAt) > now) && OPERATIONAL_ROLES.includes(user.role as any)) {
       const pending = await tx.select({ id: incidents.id }).from(incidents).where(and(
         eq(incidents.operatorId, userId), inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
@@ -795,8 +794,8 @@ export async function recordSystemKeepAlive(systemId: number, receivedAt = new D
       receivedAt,
       intervalMs: measurement.intervalMs,
     });
-    await markDisconnectAlertsRestored(systemId, receivedAt, tx);
-    return measurement;
+    const finalizedDisconnectAlerts = await markDisconnectAlertsRestored(systemId, receivedAt, tx);
+    return { ...measurement, finalizedDisconnectAlerts };
   });
 }
 
@@ -905,29 +904,188 @@ export async function sweepKeepAliveDisconnects(referenceTime = new Date()) {
   });
 }
 
-/** O retorno do Keep Alive não apaga o histórico: transfere a ocorrência de desconexão para Observação. */
+/** O retorno do Keep Alive finaliza imediatamente o KOFF, preservando evento, ocorrência e trilha de auditoria. */
 export async function markDisconnectAlertsRestored(systemId: number, receivedAt = new Date(), executor?: any) {
   const db = executor || await getDb();
-  if (!db) return 0;
-  const activeAlerts = await db.select().from(systemDisconnectAlerts).where(and(
-    eq(systemDisconnectAlerts.alarmSystemId, systemId),
-    sql`${systemDisconnectAlerts.restoredAt} IS NULL`,
-  ));
-  if (activeAlerts.length === 0) return 0;
+  if (!db) return [];
+  const openStatuses = ["waiting", "attending", "observing", "dispatched"] as const;
+  const pending = await db.select({ alert: systemDisconnectAlerts, incident: incidents, failure: alarmEvents, client: clients })
+    .from(systemDisconnectAlerts)
+    .innerJoin(incidents, eq(systemDisconnectAlerts.incidentId, incidents.id))
+    .innerJoin(alarmEvents, eq(systemDisconnectAlerts.eventId, alarmEvents.id))
+    .leftJoin(clients, eq(incidents.clientId, clients.id))
+    .where(and(
+      eq(systemDisconnectAlerts.alarmSystemId, systemId),
+      eq(incidents.alarmSystemId, systemId),
+      eq(alarmEvents.alarmSystemId, systemId),
+      eq(alarmEvents.eventCode, "KOFF"),
+      eq(alarmEvents.qualifier, "E"),
+      inArray(incidents.status, [...openStatuses]),
+    )).orderBy(desc(incidents.createdAt)).for("update");
 
-  const message = `Keep Alive restabelecido em ${receivedAt.toLocaleString("pt-BR")}. Ocorrência em observação, aguardando finalização do operador.`;
-  return restoreKeepAliveDisconnectAlerts({
-    alerts: activeAlerts,
-    markRestored: async (alertId) => {
-      await db.update(systemDisconnectAlerts).set({ restoredAt: receivedAt, restoredKeepAliveAt: receivedAt }).where(eq(systemDisconnectAlerts.id, alertId));
-    },
-    moveIncidentToObservation: async (incidentId) => {
-      await db.update(incidents).set({
-        status: "observing",
+  const finalized = [];
+  const restoredAtText = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium",
+  }).format(receivedAt);
+  for (const { alert, incident, failure, client } of pending) {
+    const message = `Falha de Keep Alive restaurada — Keep Alive da central recebido em ${restoredAtText}.`;
+    const update = await db.update(incidents).set({
+      status: "closed",
+      resolution: message,
+      observationUntil: null,
+      closedAt: receivedAt,
+      version: sql`${incidents.version} + 1`,
+    }).where(and(eq(incidents.id, incident.id), inArray(incidents.status, [...openStatuses])));
+    if (!update[0]?.affectedRows) continue;
+
+    await db.update(systemDisconnectAlerts).set({ restoredAt: receivedAt, restoredKeepAliveAt: receivedAt }).where(eq(systemDisconnectAlerts.id, alert.id));
+    await db.update(alarmEvents).set({
+      autoFinalized: true,
+      autoFinalizationReason: "Falha de Keep Alive restaurada após retorno do Keep Alive",
+    }).where(eq(alarmEvents.id, failure.id));
+    const elapsedMs = failure.receivedAt ? Math.max(0, receivedAt.getTime() - failure.receivedAt.getTime()) : 0;
+    const reportResult = await db.insert(occurrences).values({
+      incidentId: incident.id,
+      account: failure.account,
+      eventCode: failure.eventCode,
+      qualifier: failure.qualifier,
+      partition: failure.partition,
+      zoneUser: failure.zoneUser,
+      description: failure.description,
+      priority: failure.priority,
+      brand: failure.brand,
+      clientId: incident.clientId || null,
+      systemId: incident.alarmSystemId || null,
+      partnerCompanyId: client?.partnerCompanyId || null,
+      operatorName: "Sistema",
+      status: "finalized",
+      observations: message,
+      logs: JSON.stringify([message, `Restabelecimento confirmado por Keep Alive da central em ${restoredAtText}.`]),
+      attendingTimeMs: elapsedMs,
+      eventReceivedAt: failure.receivedAt,
+      finalizedAt: receivedAt,
+    });
+    await db.insert(incidentHistory).values({
+      incidentId: incident.id,
+      parentIncidentId: incident.parentIncidentId,
+      operatorId: null,
+      operatorName: "Sistema",
+      action: "auto_restored",
+      statusBefore: incident.status,
+      statusAfter: "closed",
+      note: message,
+    });
+    finalized.push({
+      incidentId: incident.id,
+      eventId: failure.id,
+      occurrenceId: Number(reportResult[0].insertId),
+      account: failure.account,
+      brand: failure.brand,
+      description: message,
+    });
+  }
+  return finalized;
+}
+
+/**
+ * KOFF é uma falha sintética de supervisão, não um evento Contact ID do painel.
+ * Só um evento real já persistido e associado ao mesmo sistema pode encerrá-la.
+ * Os eventos são preservados e a falha restaurada aparece no relatório/histórico.
+ */
+export async function finalizeKeepAliveDisconnectsOnPanelEvent(input: {
+  alarmSystemId: number;
+  panelEventId: number;
+  receivedAt?: Date;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  const finalizedAt = input.receivedAt || new Date();
+
+  return db.transaction(async (tx: any) => {
+    const [panelEventRow] = await tx.select({ event: alarmEvents }).from(alarmEvents).where(and(
+      eq(alarmEvents.id, input.panelEventId),
+      eq(alarmEvents.alarmSystemId, input.alarmSystemId),
+      or(isNull(alarmEvents.remoteIp), ne(alarmEvents.remoteIp, "SYSTEM")),
+      ne(alarmEvents.eventCode, "KOFF"),
+    )).for("update").limit(1);
+    if (!panelEventRow) return [];
+
+    const openStatuses = ["waiting", "attending", "observing", "dispatched"] as const;
+    const pending = await tx.select({ alert: systemDisconnectAlerts, incident: incidents, failure: alarmEvents })
+      .from(systemDisconnectAlerts)
+      .innerJoin(incidents, eq(systemDisconnectAlerts.incidentId, incidents.id))
+      .innerJoin(alarmEvents, eq(systemDisconnectAlerts.eventId, alarmEvents.id))
+      .where(and(
+        eq(systemDisconnectAlerts.alarmSystemId, input.alarmSystemId),
+        eq(incidents.alarmSystemId, input.alarmSystemId),
+        eq(alarmEvents.alarmSystemId, input.alarmSystemId),
+        eq(alarmEvents.eventCode, "KOFF"),
+        eq(alarmEvents.qualifier, "E"),
+        inArray(incidents.status, [...openStatuses]),
+      )).orderBy(desc(incidents.createdAt)).for("update");
+
+    const finalized = [];
+    for (const { alert, incident, failure } of pending) {
+      const restoredAtText = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium" }).format(finalizedAt);
+      const message = `Falha de Keep Alive restaurada ao receber o evento real ${panelEventRow.event.qualifier}${panelEventRow.event.eventCode} da central em ${restoredAtText}.`;
+      const update = await tx.update(incidents).set({
+        status: "closed",
+        resolution: message,
         observationUntil: null,
-        notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${message}`})`,
-      }).where(and(eq(incidents.id, incidentId), ne(incidents.status, "closed")));
-    },
+        closedAt: finalizedAt,
+        version: sql`${incidents.version} + 1`,
+      }).where(and(eq(incidents.id, incident.id), inArray(incidents.status, [...openStatuses])));
+      if (!update[0]?.affectedRows) continue;
+
+      await tx.update(systemDisconnectAlerts).set({ restoredAt: finalizedAt }).where(and(
+        eq(systemDisconnectAlerts.id, alert.id),
+        isNull(systemDisconnectAlerts.restoredAt),
+      ));
+      await tx.update(alarmEvents).set({
+        autoFinalized: true,
+        autoFinalizationReason: "Falha de Keep Alive restaurada após evento real da central",
+      }).where(eq(alarmEvents.id, failure.id));
+      const elapsedMs = failure.receivedAt ? Math.max(0, finalizedAt.getTime() - failure.receivedAt.getTime()) : 0;
+      const reportResult = await tx.insert(occurrences).values({
+        incidentId: incident.id,
+        account: failure.account,
+        eventCode: failure.eventCode,
+        qualifier: failure.qualifier,
+        partition: failure.partition,
+        zoneUser: failure.zoneUser,
+        description: failure.description,
+        priority: failure.priority,
+        brand: failure.brand,
+        clientId: incident.clientId || null,
+        systemId: incident.alarmSystemId || null,
+        operatorName: "Sistema",
+        status: "finalized",
+        observations: message,
+        logs: JSON.stringify([message, `Evento que restabeleceu a comunicação: ${panelEventRow.event.qualifier}${panelEventRow.event.eventCode} (${panelEventRow.event.description || "evento recebido da central"})`]),
+        attendingTimeMs: elapsedMs,
+        eventReceivedAt: failure.receivedAt,
+        finalizedAt,
+      });
+      await tx.insert(incidentHistory).values({
+        incidentId: incident.id,
+        parentIncidentId: incident.parentIncidentId,
+        operatorId: null,
+        operatorName: "Sistema",
+        action: "auto_restored",
+        statusBefore: incident.status,
+        statusAfter: "closed",
+        note: message,
+      });
+      finalized.push({
+        incidentId: incident.id,
+        eventId: failure.id,
+        occurrenceId: Number(reportResult[0].insertId),
+        account: failure.account,
+        brand: failure.brand,
+        description: message,
+      });
+    }
+    return finalized;
   });
 }
 
@@ -2371,30 +2529,115 @@ export async function promoteExpiredRadioengeKeepAliveObservationsWithDb(db: any
 }
 
 /** Localiza o E361 ainda dentro da janela automática para parear com o R361. */
+/** Localiza E361 ainda aberto para pareá-lo com R361, mesmo após o prazo de fila. */
 export async function findRadioengeKeepAliveObservationForRestoration(input: {
-  alarmSystemId?: number | null;
+  alarmSystemId: number;
   account: string;
-  now?: Date;
 }) {
   const db = await getDb();
   if (!db) return undefined;
-  const now = input.now || new Date();
   const result = await db
     .select({ incident: incidents, event: alarmEvents })
     .from(incidents)
     .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
     .where(and(
-      eq(incidents.status, "observing"),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]),
       eq(alarmEvents.brand, "RADIOENGE"),
       eq(alarmEvents.qualifier, "E"),
       eq(alarmEvents.eventCode, "361"),
       eq(alarmEvents.account, input.account),
-      input.alarmSystemId ? eq(incidents.alarmSystemId, input.alarmSystemId) : sql`1=1`,
-      sql`${incidents.observationUntil} > ${now}`,
+      eq(incidents.alarmSystemId, input.alarmSystemId),
     ))
     .orderBy(desc(incidents.createdAt))
     .limit(1);
   return result[0];
+}
+
+/** Finaliza E361 somente se R361 real do mesmo sistema foi persistido. */
+export async function finalizeRadioengeKeepAliveFailureWithRestoration(input: {
+  incidentId: number;
+  failureEventId: number;
+  restorationEventId: number;
+  alarmSystemId: number;
+  restoredAt?: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const restoredAt = input.restoredAt || new Date();
+  const openStatuses = ["waiting", "attending", "observing", "dispatched"] as const;
+
+  return db.transaction(async (tx: any) => {
+    const [incident] = await tx.select().from(incidents).where(and(
+      eq(incidents.id, input.incidentId),
+      eq(incidents.alarmSystemId, input.alarmSystemId),
+      inArray(incidents.status, [...openStatuses]),
+    )).for("update").limit(1);
+    if (!incident) return undefined;
+
+    const [failure] = await tx.select().from(alarmEvents).where(and(
+      eq(alarmEvents.id, input.failureEventId),
+      eq(alarmEvents.alarmSystemId, input.alarmSystemId),
+      eq(alarmEvents.brand, "RADIOENGE"),
+      eq(alarmEvents.qualifier, "E"),
+      eq(alarmEvents.eventCode, "361"),
+    )).for("update").limit(1);
+    const [restoration] = await tx.select().from(alarmEvents).where(and(
+      eq(alarmEvents.id, input.restorationEventId),
+      eq(alarmEvents.alarmSystemId, input.alarmSystemId),
+      eq(alarmEvents.brand, "RADIOENGE"),
+      eq(alarmEvents.qualifier, "R"),
+      eq(alarmEvents.eventCode, "361"),
+    )).for("update").limit(1);
+    if (!failure || !restoration || incident.eventId !== failure.id || restoration.account !== failure.account || (restoration.receivedAt && failure.receivedAt && restoration.receivedAt < failure.receivedAt)) return undefined;
+
+    const restoredAtText = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium" }).format(restoredAt);
+    const message = `Falha de Keep Alive restaurada — R361 recebido da central em ${restoredAtText}.`;
+    const updated = await tx.update(incidents).set({
+      status: "closed",
+      resolution: message,
+      observationUntil: null,
+      closedAt: restoredAt,
+      version: sql`${incidents.version} + 1`,
+    }).where(and(eq(incidents.id, incident.id), inArray(incidents.status, [...openStatuses])));
+    if (!updated[0]?.affectedRows) return undefined;
+
+    await tx.update(alarmEvents).set({
+      autoFinalized: true,
+      autoFinalizationReason: "Falha de Keep Alive restaurada por R361",
+    }).where(eq(alarmEvents.id, failure.id));
+    const elapsedMs = failure.receivedAt ? Math.max(0, restoredAt.getTime() - failure.receivedAt.getTime()) : 0;
+    const reportResult = await tx.insert(occurrences).values({
+      incidentId: incident.id,
+      account: failure.account,
+      eventCode: failure.eventCode,
+      qualifier: failure.qualifier,
+      partition: failure.partition,
+      zoneUser: failure.zoneUser,
+      description: failure.description,
+      priority: failure.priority,
+      brand: failure.brand,
+      clientId: incident.clientId || null,
+      systemId: incident.alarmSystemId || null,
+      operatorName: "Sistema",
+      status: "finalized",
+      observations: message,
+      logs: JSON.stringify([message, `Evento de restauração: ${restoration.qualifier}${restoration.eventCode} (${restoration.description || "Restauração do Keep Alive"})`]),
+      attendingTimeMs: elapsedMs,
+      eventReceivedAt: failure.receivedAt,
+      finalizedAt: restoredAt,
+    });
+    await tx.insert(incidentHistory).values({
+      incidentId: incident.id,
+      parentIncidentId: incident.parentIncidentId,
+      operatorId: null,
+      operatorName: "Sistema",
+      action: "auto_restored",
+      statusBefore: incident.status,
+      statusAfter: "closed",
+      note: message,
+    });
+    return { incidentId: incident.id, eventId: failure.id, occurrenceId: Number(reportResult[0].insertId), description: message };
+  });
 }
 
 export async function listAlarmEvents(limit = 50, offset = 0) {

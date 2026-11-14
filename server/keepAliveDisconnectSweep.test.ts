@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
-import { processKeepAliveDisconnectCandidates, restoreKeepAliveDisconnectAlerts } from "./keepAliveDisconnectWorkflow";
+import { processKeepAliveDisconnectCandidates } from "./keepAliveDisconnectWorkflow";
 
 const projectRoot = path.resolve(__dirname, "../");
 
@@ -13,13 +13,15 @@ describe("ocorrência por desconexão de Keep Alive", () => {
     expect(getKeepAliveConnectionStatus({ lastKeepAliveAt, configuredOfflineAfterMinutes: 15, now: new Date("2026-08-22T20:15:00.001Z") }).connectionStatus).toBe("offline");
   });
 
-  it("protege a criação única e transfere a ocorrência restaurada para observação", () => {
+  it("protege a criação única e fecha a falha quando o Keep Alive retorna", () => {
     const dbSource = fs.readFileSync(path.join(projectRoot, "server/db.ts"), "utf8");
     const schemaSource = fs.readFileSync(path.join(projectRoot, "drizzle/schema.ts"), "utf8");
     expect(schemaSource).toContain("system_disconnect_alerts_system_outage_unique");
     expect(dbSource).toContain("export async function sweepKeepAliveDisconnects");
     expect(dbSource).toContain("export async function markDisconnectAlertsRestored");
-    expect(dbSource).toContain('status: "observing"');
+    expect(dbSource).toContain('status: "closed"');
+    expect(dbSource).toContain("Falha de Keep Alive restaurada após retorno do Keep Alive");
+    expect(dbSource).toContain('action: "auto_restored"');
   });
 
   it("abre uma única vez após o prazo e não soma períodos que receberam novo Keep Alive", async () => {
@@ -74,18 +76,5 @@ describe("ocorrência por desconexão de Keep Alive", () => {
     });
     expect(resumed.opened).toEqual([{ incidentId: 12 }]);
     expect(generated).toBe(1);
-  });
-
-  it("mantém a ocorrência restaurada em Observação para finalização manual", async () => {
-    const restored: number[] = [];
-    const observing: number[] = [];
-    const total = await restoreKeepAliveDisconnectAlerts({
-      alerts: [{ id: 4, incidentId: 12 }, { id: 5, incidentId: null }],
-      markRestored: async (id) => { restored.push(id); },
-      moveIncidentToObservation: async (id) => { observing.push(id); },
-    });
-    expect(total).toBe(2);
-    expect(restored).toEqual([4, 5]);
-    expect(observing).toEqual([12]);
   });
 });

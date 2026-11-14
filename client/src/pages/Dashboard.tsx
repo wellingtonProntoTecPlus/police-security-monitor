@@ -599,7 +599,7 @@ export default function Dashboard() {
           processedIds.current.add(closeKey);
           setQueues((prev) => prev.filter((queued: any) => queued.id !== ev.originalEventId));
           if (selectedEvent?.id === ev.originalEventId) setSelectedEvent(null);
-          toast.success("Finalizado com a restauração do evento");
+          toast.success(ev.restorationDescription || ev.description || "Finalizado com a restauração do evento");
         }
         return;
       }

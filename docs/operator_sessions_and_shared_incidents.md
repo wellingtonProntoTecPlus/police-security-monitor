@@ -40,7 +40,7 @@ Atendimentos filhos que já existiam na versão anterior são preservados. Enqua
 
 ### Finalização em massa e observação automática
 
-Alertas KOFF restaurados e E361 Radioenge escalados podem estar em observação ou atendimento sem operador: ninguém os havia atendido ainda. Esses registros raiz agora podem ser reivindicados diretamente e finalizados em massa com os registros do próprio operador. Não é necessário criar atendimento filho para uma observação automática sem responsável.
+Alertas KOFF ainda abertos e E361 Radioenge escalados podem estar em observação ou atendimento sem operador: ninguém os havia atendido ainda. Esses registros raiz agora podem ser reivindicados diretamente e finalizados em massa com os registros do próprio operador. Não é necessário criar atendimento filho para uma observação automática sem responsável. Quando o Keep Alive retorna, o KOFF é finalizado automaticamente e deixa de permanecer na fila.
 
 O lote exige a central identificada, além da conta. Registros de outro sistema com a mesma conta, atendimentos de outro operador, manutenções e filhos sem responsável não são encerrados silenciosamente. O modal conta somente os elegíveis e informa quantos estão protegidos. A gravação do relatório, a auditoria de cada incidente e o fechamento ocorrem na mesma transação; qualquer falha reverte todo o lote.
 

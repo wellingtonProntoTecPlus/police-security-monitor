@@ -228,6 +228,43 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getAllByText("Disparo de alarme")).toHaveLength(1);
   });
 
+  it("mostra ‘Falha de Keep Alive restaurada’ e remove o KOFF da fila ao chegar evento real", async () => {
+    mockedPersistedQueue = [{
+      id: 611,
+      incidentId: 91,
+      incidentStatus: "observing",
+      incidentClientId: 4,
+      incidentSystemId: 6,
+      account: "0041",
+      brand: "RADIOENGE",
+      qualifier: "E",
+      eventCode: "KOFF",
+      description: "Falha de Keep Alive",
+      priority: "high",
+      receivedAt: new Date("2026-11-14T10:00:00.000Z"),
+    }];
+    mockedRealtimeEvents = [{
+      id: 612,
+      kind: "restoration_closed",
+      originalEventId: 611,
+      incidentId: 91,
+      account: "0041",
+      brand: "RADIOENGE",
+      qualifier: "E",
+      eventCode: "130",
+      description: "Falha de Keep Alive restaurada",
+      restorationDescription: "Falha de Keep Alive restaurada ao receber o evento real E130 da central em 14/11/2026, 07:00:00.",
+      timestamp: "2026-11-14T10:00:00.000Z",
+    }];
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Falha de Keep Alive restaurada ao receber o evento real E130 da central em 14/11/2026, 07:00:00.",
+    ));
+    expect(screen.queryByText("Falha de Keep Alive")).toBeNull();
+  });
+
   it("apresenta KA4 como resposta ao quadro, sem confirmar o Arme nem invalidar status final", async () => {
     mockedRealtimeEvents = [{ kind: "remote_command_ack", alarmSystemId: 6, commandId: 90, commandType: "arm", actionLabel: "Arme Compatec", responsePayload: "MB=KA4", timestamp: "2026-11-12T19:00:00Z" }];
     render(<Dashboard />);

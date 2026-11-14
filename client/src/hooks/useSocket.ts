@@ -18,6 +18,7 @@ export interface AlarmEvent {
   alarmSystemId?: number;
   kind?: "restoration_closed" | "keepalive" | "arm_disarm_confirmation" | "remote_command_confirmation" | "remote_command_ack" | "radioenge_observation_escalated" | "alarm_schedule_alert";
   originalEventId?: number;
+  restorationDescription?: string;
   incidentId?: number;
   commandId?: number;
   commandType?: string;

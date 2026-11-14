@@ -955,3 +955,10 @@
 - [x] Aplicar migration aditiva somente no WebDev e preparar inclusão idempotente para VPS
 - [ ] Atualizar a VPS e cadastrar os textos aprovados de cada cliente para os quatro casos solicitados
 - [x] Validação final aprovada: TypeScript, 154 arquivos/708 testes com integrações MariaDB privadas (6 novas de protocolos), build e diff limpo; revisão independente sem bloqueadores
+
+
+## Restauração de falhas Keep Alive
+- [x] Radioenge E361: R361 físico e da mesma central finaliza a falha ainda aberta, inclusive se a janela de observação já venceu; grava “Falha de Keep Alive restaurada” no relatório/histórico e não duplica fechamento
+- [x] KOFF: o retorno do Keep Alive fecha imediatamente a falha aberta; se um Contact ID real do mesmo painel chegar primeiro, também a fecha. Ambos registram “Falha de Keep Alive restaurada” e não criam Contact ID fictício
+- [x] Eventos sintéticos, KOFF, interno ViaWeb, outra central, outra conta ou estado sem central identificada não encerram a falha; todos os eventos originais são preservados
+- [x] Validação: TypeScript, 156 arquivos/717 testes e build aprovados, incluindo teste privado MariaDB do retorno do heartbeat, receiver e mensagem renderizada; nenhuma transmissão física nem atualização da VPS realizada

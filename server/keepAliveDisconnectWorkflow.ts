@@ -43,18 +43,3 @@ export async function processKeepAliveDisconnectCandidates<TOpening>(input: {
   }
   return { opened, skipped };
 }
-
-export type RestorableDisconnectAlert = { id: number; incidentId: number | null };
-
-/** Registra o retorno sem apagar o incidente; ele permanece em Observação para o operador finalizar. */
-export async function restoreKeepAliveDisconnectAlerts(input: {
-  alerts: RestorableDisconnectAlert[];
-  markRestored: (alertId: number) => Promise<void>;
-  moveIncidentToObservation: (incidentId: number) => Promise<void>;
-}) {
-  for (const alert of input.alerts) {
-    await input.markRestored(alert.id);
-    if (alert.incidentId) await input.moveIncidentToObservation(alert.incidentId);
-  }
-  return input.alerts.length;
-}
