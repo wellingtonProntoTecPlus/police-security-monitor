@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import userEvent from "@testing-library/user-event";
@@ -29,6 +29,12 @@ const defaultQueue = [{
 }];
 let mockedPersistedQueue: any[] = defaultQueue;
 let mockedBulkPreview: any = { totalCount: 3, eventCount: 3, eligibleCount: 2, eligibleIncidentIds: [91, 92], protectedCount: 1, protectedRows: [] };
+let mockedClientData: any[] = [
+  { id: 5, name: "Cliente incorreto", partnerCompanyId: 8 },
+  { id: 4, name: "Cliente de Teste", partnerCompanyId: 8 },
+];
+let mockedPartnerCompanyData: any[] = [{ id: 8, name: "Parceira de Teste" }];
+let mockedArmDisarmStatus: { armed: any[]; disarmed: any[] } = { armed: [], disarmed: [] };
 const refetchBulkPreview = vi.fn().mockResolvedValue(undefined);
 const invalidateOpenQueue = vi.fn().mockResolvedValue(undefined);
 const invalidateConnectionStatus = vi.fn().mockResolvedValue(undefined);
@@ -58,11 +64,8 @@ vi.mock("@/lib/trpc", () => ({
       login: { useMutation: () => standardMutation },
       logout: { useMutation: () => standardMutation },
     },
-    monitoredClient: { list: { useQuery: () => ({ data: [
-      { id: 5, name: "Cliente incorreto", partnerCompanyId: 8 },
-      { id: 4, name: "Cliente de Teste", partnerCompanyId: 8 },
-    ] }) } },
-    partnerCompany: { list: { useQuery: () => ({ data: [{ id: 8, name: "Parceira de Teste" }] }) } },
+    monitoredClient: { list: { useQuery: () => ({ data: mockedClientData }) } },
+    partnerCompany: { list: { useQuery: () => ({ data: mockedPartnerCompanyData }) } },
     alarmSystem: {
       list: { useQuery: () => ({ data: [
         { id: 7, account: "0001", clientId: 5, brand: "COMPATEC", model: "Outro" },
@@ -93,7 +96,7 @@ vi.mock("@/lib/trpc", () => ({
       operationalList: { useQuery: () => ({ data: [] }) },
     },
     dashboard: {
-      armDisarmStatus: { useQuery: () => ({ data: { armed: [], disarmed: [] } }) },
+      armDisarmStatus: { useQuery: () => ({ data: mockedArmDisarmStatus }) },
       recentAutoFinalizedArmDisarm: { useQuery: () => ({ data: [{ account: "0336", brand: "VETTI", stateLabel: "ARMADO", description: "Arme", eventCode: "401", receivedAt: new Date("2026-08-13T13:08:00.000Z") }] }) },
       scheduleAlerts: { useQuery: () => ({ data: [] }) },
       acknowledgeScheduleAlert: { useMutation: () => standardMutation },
@@ -157,6 +160,12 @@ describe("Dashboard — Ocorrência Manual", () => {
     invalidateRecentAutoFinalizedArmDisarm.mockClear();
     mockedRealtimeEvents = [];
     mockedPersistedQueue = defaultQueue;
+    mockedClientData = [
+      { id: 5, name: "Cliente incorreto", partnerCompanyId: 8 },
+      { id: 4, name: "Cliente de Teste", partnerCompanyId: 8 },
+    ];
+    mockedPartnerCompanyData = [{ id: 8, name: "Parceira de Teste" }];
+    mockedArmDisarmStatus = { armed: [], disarmed: [] };
     bulkMutation.mutateAsync.mockReset();
     mockedBulkPreview = { totalCount: 3, eventCount: 3, eligibleCount: 2, eligibleIncidentIds: [91, 92], protectedCount: 1, protectedRows: [] };
     refetchBulkPreview.mockClear();
@@ -293,6 +302,44 @@ describe("Dashboard — Ocorrência Manual", () => {
 
     expect(screen.getByText("Última confirmação automática")).toBeTruthy();
     expect(screen.getByText(/ARMADO · Conta 0336 · VETTI · Arme/)).toBeTruthy();
+  });
+
+  it("filtra Armados e Desarmados pelo partnerName mesmo com as listas de clientes e parceiras vazias", async () => {
+    mockedClientData = [];
+    mockedPartnerCompanyData = [];
+    mockedArmDisarmStatus = {
+      armed: [
+        { alarmSystemId: 501, clientId: 51, account: "0501", brand: "COMPATEC", model: "A1", clientName: "Cliente Armado Correspondente", partnerName: "Segurança Águia" },
+        { alarmSystemId: 502, clientId: 52, account: "0502", brand: "COMPATEC", model: "A2", clientName: "Cliente Armado Não Correspondente", partnerName: "Outra Parceira" },
+      ],
+      disarmed: [
+        { alarmSystemId: 503, clientId: 53, account: "0503", brand: "COMPATEC", model: "D1", clientName: "Cliente Desarmado Correspondente", partnerName: "Segurança Águia" },
+        { alarmSystemId: 504, clientId: 54, account: "0504", brand: "COMPATEC", model: "D2", clientName: "Cliente Desarmado Não Correspondente", partnerName: "Outra Parceira" },
+      ],
+    };
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    await user.click(screen.getByRole("button", { name: /^Armados \(2\)$/i }));
+    const armedHeading = await screen.findByRole("heading", { name: "Clientes Armados (2)" });
+    const search = screen.getByPlaceholderText("Buscar por conta, cliente, fantasia ou parceira...");
+    await user.type(search, "aguia");
+
+    expect(screen.getByText("Cliente Armado Correspondente")).toBeTruthy();
+    expect(screen.getByText("Parceira: Segurança Águia")).toBeTruthy();
+    expect(screen.queryByText("Cliente Armado Não Correspondente")).toBeNull();
+    expect(screen.queryByText("Cliente Desarmado Correspondente")).toBeNull();
+
+    await user.click(within(armedHeading.parentElement!).getByRole("button"));
+    await user.click(screen.getByRole("button", { name: /^Desarmados \(2\)$/i }));
+    const disarmedHeading = await screen.findByRole("heading", { name: "Clientes Desarmados (2)" });
+    await user.type(screen.getByPlaceholderText("Buscar por conta, cliente, fantasia ou parceira..."), "aguia");
+
+    expect(screen.getByText("Cliente Desarmado Correspondente")).toBeTruthy();
+    expect(screen.getByText("Parceira: Segurança Águia")).toBeTruthy();
+    expect(screen.queryByText("Cliente Desarmado Não Correspondente")).toBeNull();
+    expect(screen.queryByText("Cliente Armado Correspondente")).toBeNull();
+    expect(disarmedHeading).toBeTruthy();
   });
 
   it.each([

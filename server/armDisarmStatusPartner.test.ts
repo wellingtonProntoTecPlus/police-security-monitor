@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { partnerCompanies } from "../drizzle/schema";
 import { getArmDisarmStatus, setDbForTesting } from "./db";
 
 describe("nome da parceira nas listas Armados/Desarmados", () => {
   afterEach(() => setDbForTesting(null));
 
-  it("retorna o nome da parceira associado diretamente ao último estado do painel", async () => {
+  it.each([
+    { qualifier: "R", state: "armed", list: "armed", otherList: "disarmed" },
+    { qualifier: "E", state: "disarmed", list: "disarmed", otherList: "armed" },
+  ] as const)("retorna a parceira diretamente na lista $list", async ({ qualifier, state, list, otherList }) => {
     const receivedAt = new Date("2026-11-13T18:00:00.000Z");
     const systemRows = [{
       id: 41,
@@ -20,12 +24,12 @@ describe("nome da parceira nas listas Armados/Desarmados", () => {
     const eventRows = [{
       id: 8001,
       account: "0334",
-      qualifier: "R",
+      qualifier,
       eventCode: "401",
       brand: "JFL",
       receivedAt,
       alarmSystemId: 41,
-      description: "Armado",
+      description: state,
     }];
 
     const systemQuery: any = {
@@ -46,15 +50,18 @@ describe("nome da parceira nas listas Armados/Desarmados", () => {
 
     const result = await getArmDisarmStatus();
 
+    expect(select.mock.calls[0][0].partnerName).toBe(partnerCompanies.name);
     expect(systemQuery.leftJoin).toHaveBeenCalledOnce();
-    expect(result.armed).toHaveLength(1);
-    expect(result.armed[0]).toMatchObject({
+    expect(systemQuery.leftJoin.mock.calls[0][0]).toBe(partnerCompanies);
+    expect(result[list]).toHaveLength(1);
+    expect(result[list][0]).toMatchObject({
       account: "0334",
       clientId: 100,
       clientName: "Cliente de teste",
       partnerName: "Parceira São José",
-      state: "armed",
+      state,
     });
-    expect(result.disarmed).toEqual([]);
+    expect(result[otherList]).toEqual([]);
+    expect(select).toHaveBeenCalledTimes(2);
   });
 });
