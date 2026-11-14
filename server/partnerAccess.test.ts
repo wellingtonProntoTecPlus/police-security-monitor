@@ -20,6 +20,24 @@ const ownClientInput = { partnerCompanyId: 99, type: "pf" as const, name: "Clien
 afterEach(() => vi.restoreAllMocks());
 
 describe("partner tenant access", () => {
+  it("keeps audit trails, searches and action writes operational-only and derives actor from session", async () => {
+    const record = vi.spyOn(db, "recordIncidentOperatorAction").mockResolvedValue({ id: 1 } as any);
+    const report = vi.spyOn(db, "listIncidentAuditReport").mockResolvedValue({ items: [], hasMore: false });
+    const trail = vi.spyOn(db, "listIncidentAuditTrail").mockResolvedValue({ items: [], nextCursor: null });
+    const partner = appRouter.createCaller(context("partner", 99));
+    const action = { incidentId: 91, requestId: "37f8d0e1-29b5-4543-a7b8-13751b3cfd83", action: "police_action_registered" as const };
+    await expect(partner.incident.auditTrail({ incidentId: 91 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.incident.auditReport({})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.incident.recordAction(action)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(trail).not.toHaveBeenCalled(); expect(report).not.toHaveBeenCalled(); expect(record).not.toHaveBeenCalled();
+    const operator = appRouter.createCaller(context("operator"));
+    await operator.incident.recordAction(action);
+    expect(record).toHaveBeenCalledWith(action, { id: 2, name: "operator" }, null);
+    await expect(operator.incident.recordAction({ ...action, operatorName: "Outra pessoa", createdAt: new Date(), note: "Falso" } as any)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(record).toHaveBeenCalledTimes(1);
+    await expect(operator.incident.auditReport({ from: new Date("2026-11-14T12:00:00Z"), to: new Date("2026-11-13T12:00:00Z") })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("allows operational staff to query recent events by an open incident and denies partner role", async () => {
     const recent = vi.spyOn(db, "listRecentClientEventsForOpenIncident").mockResolvedValue({
       incidentEventId: 900,

@@ -29,10 +29,10 @@ let pool!: mysql.Pool;
 let orm!: ReturnType<typeof drizzle>;
 
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0051_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0054_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
-    if (!table) throw new Error(`Tabela ${name} ausente no snapshot 0051`);
+    if (!table) throw new Error(`Tabela ${name} ausente no snapshot 0054`);
     const columns = Object.values(table.columns).map((column: any) => {
       let value = `\`${column.name}\` ${column.type}${column.notNull ? " NOT NULL" : " NULL"}${column.autoincrement ? " AUTO_INCREMENT" : ""}`;
       if (Object.hasOwn(column, "default")) value += ` DEFAULT ${typeof column.default === "boolean" ? Number(column.default) : column.default}`;

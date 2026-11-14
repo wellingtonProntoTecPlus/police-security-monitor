@@ -1,0 +1,1 @@
+CREATE INDEX `incident_history_created_idx` ON `incident_history` (`createdAt`,`id`);

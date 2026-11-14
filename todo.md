@@ -974,3 +974,21 @@
 - [x] Sem comandos físicos, sem acesso/alteração da VPS e sem deploy desta entrega
 - [ ] Publicar e homologar a feature na VPS após solicitação do usuário
 - [x] Revisão independente apontou apenas a janela entre checar ocorrência aberta e consultar eventos; corrigida com uma única consulta consistente e coberta pela integração MariaDB
+
+
+## Logs persistentes de auditoria no atendimento — 14/11/2026
+- [x] Coluna Logs da Ocorrência ampliada de 220 para 300 px, texto principal de 14 px com contraste forte, operador e data/hora completos (Brasília); timeline também dentro do atendimento ativo
+- [x] Consulta incident_history persistido, mais recentes primeiro, atualização de 5 segundos/foco e paginação dos anteriores; erro distinto de vazio; a coluna mantém a última ocorrência consultada após fechar o modal
+- [x] Abertura/assunção, retomada, tático, observação e finalização usam transições reais já auditadas; reabertura própria recebe registro sem alterar status
+- [x] Câmeras ativas cadastradas acessíveis no fluxo ativo; registra abertura da tela de cada câmera, sem afirmar reprodução/visualização do vídeo
+- [x] Registra seleção de contato, acionamento da opção telefone/WhatsApp e declaração de acionamento manual da Polícia; não afirma ligação completada, envio/resposta ou chamada automática
+- [x] Status informado do patrulheiro registrado manualmente após encaminhamento ao tático: em deslocamento, chegou ao local, em verificação, verificação concluída; não é telemetria/despacho externo automático
+- [x] Operador/timestamp derivados no servidor; sessão ativa validada sob lock, responsável e ocorrência aberta obrigatórios, câmera/contato validado por cliente/central; input estrito rejeita texto, operador e horário forjados
+- [x] Ações novas gravam somente incident_history, sem Contact ID falso, alarm_events, novos incidents ou comandos físicos; não incluem senha, telefone, RTSP ou payload bruto
+- [x] requestId único nullable preserva registros antigos; UUID seguro compatível com HTTP, idempotência por ação/alvo, outbox local sem credenciais para pendências e retry com a mesma chave; pendência visível bloqueia finalização
+- [x] Telefone/WhatsApp só abrem destino após ACK da auditoria; links diretos substituídos por botões que bloqueiam concorrência/pendência, corrigindo o bloqueador identificado na revisão independente
+- [x] Relatórios → Logs de auditoria: data/hora, operador, conta, cliente, parceira e ocorrência; consulta após finalizar, páginas de 100 e exportação CSV da página; operador/admin/supervisor apenas, parceiros negados
+- [x] Migrações 0053/0054 aditivas e upgrade VPS idempotente para índice cronológico, requestId e unique index; integração executou o bloco duas vezes preservando log legado. Desenvolvimento sincronizado; tabela ausente foi criada sem inserir dados
+- [x] Validação da versão exata: pnpm check, 160 arquivos/749 testes aprovados sem ignorados, pnpm build e git diff --check; 9 testes MariaDB de auditoria/sessão/migração e regressões renderizadas de contatos sem destino externo antes do ACK
+- [x] MariaDB descartável privado somente por socket Unix, sem rede, encerrado; nenhuma VPS acessada/atualizada, nenhum painel recebeu comando. ViaWeb e bloqueios de protocolos preservados
+- [ ] Validar visualmente na VPS após atualização executada pelo usuário. Ações antigas que não eram auditadas não são reconstruídas

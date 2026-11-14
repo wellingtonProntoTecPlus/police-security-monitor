@@ -22,6 +22,11 @@ const standardMutation = {
 };
 
 const bulkMutation = { mutateAsync: vi.fn(), isPending: false };
+const auditMutation = { mutateAsync: vi.fn(), isPending: false };
+const invalidateAuditTrail = vi.fn().mockResolvedValue(undefined);
+let mockedAuditItems: any[] = [];
+let mockedCameras: any[] = [];
+let mockedContacts: any[] = [];
 const defaultQueue = [{
   id: 701, incidentId: 91, incidentStatus: "waiting", incidentClientId: 4, incidentSystemId: 6,
   account: "0001", brand: "COMPATEC", qualifier: "E", eventCode: "130", description: "Disparo de alarme",
@@ -54,6 +59,8 @@ vi.mock("@/lib/trpc", () => ({
       bulkFinalize: { useMutation: () => bulkMutation },
       bulkPreview: { useQuery: () => ({ data: mockedBulkPreview, isFetching: false, error: null, refetch: refetchBulkPreview }) },
       recentClientEvents: { useQuery: (input: any) => { queryRecentClientEvents(input); return { data: mockedRecentClientEvents, isLoading: false, isFetching: false, error: null, refetch: vi.fn() }; } },
+      auditTrail: { useQuery: () => ({ data: { items: mockedAuditItems, nextCursor: null }, isLoading: false, isFetching: false, error: null, refetch: vi.fn() }) },
+      recordAction: { useMutation: () => auditMutation },
       observe: { useMutation: () => standardMutation },
       openQueue: {
         useQuery: () => ({
@@ -91,7 +98,7 @@ vi.mock("@/lib/trpc", () => ({
       queryBenchSectors: { useMutation: () => standardMutation },
       disarmBenchAll: { useMutation: () => standardMutation },
     },
-    clientContact: { list: { useQuery: () => ({ data: [] }) } },
+    clientContact: { list: { useQuery: () => ({ data: mockedContacts }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) }, treatment: { useQuery: () => ({ data: undefined, isLoading: false, error: null, refetch: vi.fn() }) } },
     alarmZone: { list: { useQuery: () => ({ data: [] }) } },
     alarmUser: {
@@ -105,9 +112,9 @@ vi.mock("@/lib/trpc", () => ({
       acknowledgeScheduleAlert: { useMutation: () => standardMutation },
       connectionStatus: { useQuery: () => ({ data: [] }) },
     },
-    camera: { list: { useQuery: () => ({ data: [] }) } },
+    camera: { list: { useQuery: () => ({ data: mockedCameras }) } },
     useUtils: () => ({
-      incident: { openQueue: { invalidate: invalidateOpenQueue }, history: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      incident: { openQueue: { invalidate: invalidateOpenQueue }, history: { invalidate: vi.fn().mockResolvedValue(undefined) }, auditTrail: { invalidate: invalidateAuditTrail } },
       occurrence: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) }, compatecZoneSelections: { invalidate: vi.fn().mockResolvedValue(undefined), fetch: vi.fn().mockResolvedValue([]) } },
@@ -153,6 +160,12 @@ describe("Dashboard — Ocorrência Manual", () => {
   });
 
   beforeEach(() => {
+    localStorage.clear();
+    mockedAuditItems = [];
+    mockedCameras = [];
+    mockedContacts = [];
+    auditMutation.mutateAsync.mockReset().mockResolvedValue({ id: 1001 });
+    invalidateAuditTrail.mockClear();
     manualMutation.mutate.mockReset();
     manualMutation.mutateAsync.mockReset();
     standardMutation.mutate.mockReset();
@@ -329,6 +342,76 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByRole("heading", { name: "Últimos eventos do cliente" })).toBeTruthy();
     expect(screen.getByText("Origem desta ocorrência")).toBeTruthy();
     expect(queryRecentClientEvents).toHaveBeenCalledWith({ incidentId: 91 });
+  });
+
+  it("registra abertura de câmera com ocorrência correta, sem enviar nome/hora/credencial do navegador", async () => {
+    mockedCameras = [{ id: 201, clientId: 4, name: "Entrada", isActive: true, rtspUrl: "" }];
+    mockedContacts = [{ id: 301, clientId: 4, alarmSystemId: 6, name: "Sr Fausto" }];
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.click(screen.getByRole("button", { name: /^Câmeras$/ }));
+    await user.click(screen.getByRole("button", { name: "Abrir Câmera 1 — Entrada" }));
+    await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ incidentId: 91, action: "camera_viewed", targetId: 201, requestId: expect.any(String) })));
+    const cameraPayload = auditMutation.mutateAsync.mock.calls[0][0];
+    expect(cameraPayload.operatorName).toBeUndefined();
+    expect(cameraPayload.createdAt).toBeUndefined();
+    expect(cameraPayload.rtspUrl).toBeUndefined();
+    expect(localStorage.getItem("police-incident-audit-pending-1")).toBeNull();
+  });
+
+  it("seleciona contato e só abre o destino WhatsApp após confirmar o registro, impedindo clique concorrente", async () => {
+    mockedContacts = [{ id: 301, clientId: 4, alarmSystemId: 6, name: "Sr Fausto", phone: "11999999999" }];
+    const externalWindow = { opener: {}, location: { href: "about:blank" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(externalWindow as any);
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.click(screen.getByRole("button", { name: "Contatos (1)" }));
+    await user.click(screen.getByRole("button", { name: "Selecionar contato" }));
+    await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ incidentId: 91, targetId: 301, action: "contact_selected" })));
+    let confirm!: (value: any) => void;
+    auditMutation.mutateAsync.mockImplementationOnce(() => new Promise((resolve) => { confirm = resolve; }));
+    await user.click(screen.getByRole("button", { name: "WhatsApp" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(externalWindow.location.href).toBe("about:blank");
+    await user.click(screen.getByRole("button", { name: "WhatsApp" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    confirm({ id: 1002 });
+    await waitFor(() => expect(externalWindow.location.href).toBe("https://wa.me/5511999999999"));
+    expect(externalWindow.opener).toBeNull();
+    open.mockRestore();
+  });
+
+  it("não abre WhatsApp externo se a auditoria falhar", async () => {
+    mockedContacts = [{ id: 301, clientId: 4, alarmSystemId: 6, name: "Sr Fausto", phone: "11999999999" }];
+    const externalWindow = { opener: {}, location: { href: "about:blank" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(externalWindow as any);
+    auditMutation.mutateAsync.mockRejectedValueOnce(new Error("Rede indisponível"));
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.click(screen.getByRole("button", { name: "Contatos (1)" }));
+    await user.click(screen.getByRole("button", { name: "WhatsApp" }));
+    await waitFor(() => expect(externalWindow.close).toHaveBeenCalledTimes(1));
+    expect(externalWindow.location.href).toBe("about:blank");
+    expect(screen.getByRole("button", { name: "Ligar" })).toHaveProperty("disabled", true);
+    open.mockRestore();
+  });
+
+  it("não perde pedido de auditoria sem resposta e repete com a mesma chave ao tentar novamente", async () => {
+    auditMutation.mutateAsync.mockRejectedValueOnce(new Error("Falha de rede")).mockResolvedValueOnce({ id: 1001 });
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.click(screen.getByRole("button", { name: /^Polícia$/ }));
+    await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledTimes(1));
+    const originalPayload = auditMutation.mutateAsync.mock.calls[0][0];
+    expect(JSON.parse(localStorage.getItem("police-incident-audit-pending-1")!)).toEqual(originalPayload);
+    await user.click(screen.getAllByRole("button", { name: "Tentar gravar novamente" })[0]);
+    await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledTimes(2));
+    expect(auditMutation.mutateAsync.mock.calls[1][0]).toEqual(originalPayload);
+    expect(localStorage.getItem("police-incident-audit-pending-1")).toBeNull();
   });
 
   it("abre o atendimento recebido pelo link da mensagem persistente", async () => {

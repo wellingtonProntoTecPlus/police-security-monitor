@@ -556,8 +556,13 @@ export const incidentHistory = mysqlTable("incident_history", {
   statusBefore: varchar("statusBefore", { length: 24 }),
   statusAfter: varchar("statusAfter", { length: 24 }),
   note: text("note"),
+  requestId: varchar("requestId", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, (table) => [index("incident_history_incident_created_idx").on(table.incidentId, table.createdAt)]);
+}, (table) => [
+  index("incident_history_incident_created_idx").on(table.incidentId, table.createdAt),
+  index("incident_history_created_idx").on(table.createdAt, table.id),
+  uniqueIndex("incident_history_request_unique").on(table.requestId),
+]);
 export type IncidentHistory = typeof incidentHistory.$inferSelect;
 
 // ============================================================

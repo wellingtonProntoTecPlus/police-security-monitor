@@ -1025,6 +1025,23 @@ CREATE TABLE IF NOT EXISTS `incident_history` (
 );
 
 SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `incident_history_created_idx` ON `incident_history` (`createdAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incident_history' AND INDEX_NAME='incident_history_created_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `incident_history` ADD `requestId` varchar(64) NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incident_history' AND COLUMN_NAME='requestId'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE UNIQUE INDEX `incident_history_request_unique` ON `incident_history` (`requestId`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incident_history' AND INDEX_NAME='incident_history_request_unique'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+SET @statement = (
   SELECT IF(COUNT(*) = 0, 'ALTER TABLE `occurrences` ADD `incidentId` int NULL', 'SELECT 1')
   FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='occurrences' AND COLUMN_NAME='incidentId'
 );

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import IncidentAuditReport from "@/components/IncidentAuditReport";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Activity, CalendarDays, Download, FileText, Radio, Search } from "lucide-react";
 import { buildOccurrenceReportCsv, formatReportDate, formatReportDuration } from "./reportExport";
 
-type ReportMode = "occurrences" | "events" | "connections" | "schedule";
+type ReportMode = "occurrences" | "events" | "connections" | "schedule" | "audit";
 type PeriodPreset = "today" | "yesterday" | "week" | "month" | "custom";
 type EventGroup = "all" | "alarm" | "arm" | "disarm" | "test" | "system";
 
@@ -195,6 +196,8 @@ export default function Reports() {
     URL.revokeObjectURL(url);
   }
 
+  if (reportMode === "audit") return <DashboardLayout><div className="h-full space-y-5 overflow-auto p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">Relatórios Operacionais</h1><Button variant="outline" onClick={() => setReportMode("events")}>Voltar aos eventos recebidos</Button></div><IncidentAuditReport /></div></DashboardLayout>;
+
   return <DashboardLayout>
     <div className="p-6 space-y-5 overflow-auto h-full">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -212,6 +215,7 @@ export default function Reports() {
             <Button size="sm" variant={reportMode === "events" ? "default" : "outline"} onClick={() => setReportMode("events")}><Activity className="w-4 h-4 mr-1.5" /> Eventos recebidos</Button>
             <Button size="sm" variant={reportMode === "connections" ? "default" : "outline"} onClick={() => setReportMode("connections")}><Radio className="w-4 h-4 mr-1.5" /> Online e Offline</Button>
             <Button size="sm" variant={reportMode === "schedule" ? "default" : "outline"} onClick={() => setReportMode("schedule")}><CalendarDays className="w-4 h-4 mr-1.5" /> Alertas de agenda</Button>
+            <Button size="sm" variant="outline" onClick={() => setReportMode("audit")}><FileText className="w-4 h-4 mr-1.5" /> Logs de auditoria</Button>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center border-y border-border py-3">

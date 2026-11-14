@@ -985,6 +985,25 @@ export const appRouter = router({
       await assertIncidentPartnerScope(ctx, input.incidentId);
       return db.getIncidentHistory(input.incidentId);
     }),
+    auditTrail: operatorProcedure.input(z.object({ incidentId: z.number().int().positive(), beforeId: z.number().int().positive().optional() })).query(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      return db.listIncidentAuditTrail(input.incidentId, input.beforeId);
+    }),
+    auditReport: operatorProcedure.input(z.object({
+      from: z.date().optional(), to: z.date().optional(), account: z.string().trim().max(30).optional(),
+      clientId: z.number().int().positive().optional(), partnerCompanyId: z.number().int().positive().optional(),
+      operatorName: z.string().trim().max(255).optional(), incidentId: z.number().int().positive().optional(),
+      offset: z.number().int().min(0).max(1000000).optional(),
+    }).refine((input) => !input.from || !input.to || input.from <= input.to, { message: "Data/hora inicial deve ser anterior à final" })).query(({ input }) => db.listIncidentAuditReport(input)),
+    recordAction: operatorProcedure.input(z.discriminatedUnion("action", [
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("attendance_opened") }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("camera_viewed"), targetId: z.number().int().positive() }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.enum(["contact_selected", "contact_call_clicked", "contact_whatsapp_clicked"]), targetId: z.number().int().positive() }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("police_action_registered") }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("tactical_status_updated"), tacticalStatus: z.enum(["en_route", "arrived", "inspection", "completed"]) }).strict(),
+    ])).mutation(async ({ input, ctx }) => {
+      return db.recordIncidentOperatorAction(input, { id: ctx.user.id, name: ctx.user.name || `Operador ${ctx.user.id}` }, ctx.authSessionId);
+    }),
     create: operatorProcedure.input(z.object({
       eventId: z.number(),
       alarmSystemId: z.number().optional(),

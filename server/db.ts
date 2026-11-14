@@ -1,6 +1,7 @@
 import { eq, and, or, desc, sql, like, inArray, gte, gt, lte, ne, isNotNull, isNull, notExists } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
 import { drizzle } from "drizzle-orm/mysql2";
+import { recordIncidentOperatorActionWithDb, listIncidentAuditTrailWithDb, listIncidentAuditReportWithDb, type IncidentAuditActionInput, type IncidentAuditReportInput } from "./incidentAuditPersistence";
 import {
   InsertUser, users, authSessions, operatorAttendanceRecords, operatorShiftMessages,
   managingCompanies, InsertManagingCompany,
@@ -2322,7 +2323,7 @@ export async function createAlarmUser(data: InsertAlarmUser) {
 export async function listCameras(clientId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(cameras).where(eq(cameras.clientId, clientId));
+  return db.select().from(cameras).where(eq(cameras.clientId, clientId)).orderBy(cameras.id);
 }
 
 export async function createCamera(data: InsertCamera) {
@@ -3261,6 +3262,22 @@ export async function getIncidentHistory(incidentId: number) {
     eq(incidentHistory.incidentId, familyRootId),
     eq(incidentHistory.parentIncidentId, familyRootId),
   )).orderBy(incidentHistory.createdAt).limit(200);
+}
+
+export async function recordIncidentOperatorAction(input: IncidentAuditActionInput, actor: { id: number; name: string }, authSessionId?: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return recordIncidentOperatorActionWithDb(db, input, actor, (tx) => lockActiveOperatorSession(tx, actor.id, authSessionId));
+}
+export async function listIncidentAuditTrail(incidentId: number, beforeId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return listIncidentAuditTrailWithDb(db, incidentId, beforeId);
+}
+export async function listIncidentAuditReport(input: IncidentAuditReportInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return listIncidentAuditReportWithDb(db, input);
 }
 
 export async function putIncidentInMaintenance(input: { incidentId: number; endAt: Date; notes?: string }) {

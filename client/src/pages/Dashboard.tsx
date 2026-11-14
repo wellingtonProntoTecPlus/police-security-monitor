@@ -4,6 +4,7 @@ import QuickScheduleExceptionDialog from "@/components/QuickScheduleExceptionDia
 import CompatecZoneArmControls from "@/components/CompatecZoneArmControls";
 import OperationalProcedurePanel from "@/components/OperationalProcedurePanel";
 import RecentClientEventsPanel from "@/components/RecentClientEventsPanel";
+import IncidentAuditTimeline from "@/components/IncidentAuditTimeline";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useSocket, AlarmEvent } from "@/hooks/useSocket";
@@ -32,6 +33,7 @@ import { matchesOperationalStatusSearch } from "@/lib/operationalStatusSearch";
 import { getEffectiveClientMonitoringStatus } from "@shared/clientMonitoringStatus";
 import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, INTELBRAS_PHYSICAL_COMMAND_ENABLED } from "@shared/remoteCommandCredentialProfiles";
 import { getBulkFinalizationFeedback } from "@shared/incidentBulkFinalization";
+import { createIncidentAuditRequestId } from "@shared/incidentAudit";
 import { isConfirmedBulkSetEligible } from "@shared/bulkIncidentSummary";
 import { useSearch, useLocation } from "wouter";
 
@@ -125,7 +127,7 @@ function getPanelUserDisplayText(
 // Modal de câmera expandida
 function CameraModal({ cam, onClose, url, label }: { cam: number; onClose: () => void; url?: string; label?: string }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center" onClick={onClose}>
       <div className="relative w-[80vw] h-[70vh] bg-black border border-border rounded-lg flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-3 right-3 text-white hover:text-red-400 z-10">
           <X className="h-6 w-6" />
@@ -311,6 +313,7 @@ export default function Dashboard() {
   const assumeIncidentMut = trpc.incident.assume.useMutation();
   const bulkFinalizeMut = trpc.incident.bulkFinalize.useMutation();
   const observeIncidentMut = trpc.incident.observe.useMutation();
+  const recordAuditActionMut = trpc.incident.recordAction.useMutation({ retry: false });
   const startMaintenanceMut = trpc.alarmSystem.startMaintenance.useMutation();
   const endMaintenanceMut = trpc.alarmSystem.endMaintenance.useMutation();
   const simulateRemoteCommandMut = trpc.remoteCommand.simulate.useMutation();
@@ -326,9 +329,77 @@ export default function Dashboard() {
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
   const [finalizationSearch, setFinalizationSearch] = useState("");
-  const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | "events" | null>(null);
+  const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | "events" | "cameras" | null>(null);
   const [showProceduresModal, setShowProceduresModal] = useState(false);
+  const [auditIncidentId, setAuditIncidentId] = useState<number | null>(null);
+  const [failedAuditAction, setFailedAuditAction] = useState<Parameters<typeof recordAuditActionMut.mutateAsync>[0] | null>(null);
+  const auditActionInFlight = useRef(false);
+  const auditOutboxKey = `police-incident-audit-pending-${user?.id || 0}`;
   const utils = trpc.useUtils();
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const stored = localStorage.getItem(auditOutboxKey);
+      if (!stored) return;
+      const payload = JSON.parse(stored);
+      if (Number.isSafeInteger(payload.incidentId) && typeof payload.requestId === "string" && typeof payload.action === "string") {
+        setFailedAuditAction(payload);
+        setAuditIncidentId(payload.incidentId);
+      }
+    } catch { toast.error("Não foi possível recuperar o registro de auditoria pendente neste navegador."); }
+  }, [auditOutboxKey, user?.id]);
+  useEffect(() => {
+    if (selectedEvent?.incidentId) setAuditIncidentId(selectedEvent.incidentId);
+  }, [selectedEvent?.incidentId]);
+  async function recordAuditAction(input: Omit<Parameters<typeof recordAuditActionMut.mutateAsync>[0], "incidentId" | "requestId"> & { targetId?: number; tacticalStatus?: "en_route" | "arrived" | "inspection" | "completed" }, incidentId = selectedEvent?.incidentId) {
+    if (!incidentId) return false;
+    if (auditActionInFlight.current || failedAuditAction) {
+      toast.warning("Conclua a gravação da auditoria pendente antes de registrar outra ação.");
+      return false;
+    }
+    let requestId: string;
+    try { requestId = createIncidentAuditRequestId(); }
+    catch { toast.error("Seu navegador não forneceu geração segura do identificador de auditoria; nenhum registro foi enviado."); return false; }
+    const payload = { ...input, incidentId, requestId } as Parameters<typeof recordAuditActionMut.mutateAsync>[0];
+    auditActionInFlight.current = true;
+    try {
+      localStorage.setItem(auditOutboxKey, JSON.stringify(payload));
+      await recordAuditActionMut.mutateAsync(payload);
+      localStorage.removeItem(auditOutboxKey);
+      await utils.incident.auditTrail.invalidate({ incidentId: payload.incidentId });
+      return true;
+    } catch {
+      setFailedAuditAction(payload);
+      toast.error("Não foi possível confirmar a gravação na auditoria. Use Tentar gravar novamente; a mesma chave evita duplicação.");
+      return false;
+    } finally { auditActionInFlight.current = false; }
+  }
+  async function retryFailedAuditAction() {
+    if (!failedAuditAction || auditActionInFlight.current) return;
+    auditActionInFlight.current = true;
+    try {
+      await recordAuditActionMut.mutateAsync(failedAuditAction);
+      localStorage.removeItem(auditOutboxKey);
+      await utils.incident.auditTrail.invalidate({ incidentId: failedAuditAction.incidentId });
+      setFailedAuditAction(null);
+      toast.success("Registro de auditoria salvo.");
+    } catch { toast.error("Auditoria ainda não foi gravada. O aviso foi preservado."); }
+    finally { auditActionInFlight.current = false; }
+  }
+  async function openAuditedContact(action: "contact_call_clicked" | "contact_whatsapp_clicked", targetId: number, url: string) {
+    if (auditActionInFlight.current || failedAuditAction || !selectedEvent?.incidentId) {
+      toast.warning("Conclua a auditoria pendente antes de abrir a opção de contato.");
+      return;
+    }
+    // Reserva uma janela no gesto do usuário; nenhum serviço externo é aberto antes do ACK da auditoria.
+    const externalWindow = action === "contact_whatsapp_clicked" ? window.open("about:blank", "_blank") : null;
+    if (externalWindow) externalWindow.opener = null;
+    const saved = await recordAuditAction({ action, targetId });
+    if (!saved) { externalWindow?.close(); return; }
+    if (action === "contact_call_clicked") window.location.assign(url);
+    else if (externalWindow) externalWindow.location.href = url;
+    else toast.warning("Registro salvo. O navegador bloqueou a janela; permita a abertura e tente novamente.");
+  }
   const reconcileDashboardData = useCallback(() => {
     // Tablets e navegadores em segundo plano podem pausar Socket.IO e timers.
     // Ao voltar à tela, a fila persistida volta a ser imediatamente a fonte de verdade.
@@ -337,6 +408,7 @@ export default function Dashboard() {
     lastDashboardReconciliationAtRef.current = now;
     void Promise.all([
       utils.incident.openQueue.invalidate(),
+      utils.incident.auditTrail.invalidate(),
       utils.dashboard.armDisarmStatus.invalidate(),
       utils.dashboard.recentAutoFinalizedArmDisarm.invalidate(),
       utils.dashboard.connectionStatus.invalidate(),
@@ -676,6 +748,7 @@ export default function Dashboard() {
     if (!update) return;
     void utils.incident.openQueue.invalidate();
     void utils.incident.history.invalidate();
+    void utils.incident.auditTrail.invalidate();
     if (update.incidentStatus === "closed") {
       setSelectedEvent((previous) => previous?.incidentId === update.incidentId ? null : previous);
     }
@@ -846,7 +919,7 @@ export default function Dashboard() {
       setSelectedEvent((previous) => previous && ev.incidentId !== undefined && previous.incidentId === ev.incidentId
         ? { ...previous, queueStatus, incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" }
         : previous);
-      await utils.incident.openQueue.invalidate();
+      await Promise.all([utils.incident.openQueue.invalidate(), utils.incident.auditTrail.invalidate({ incidentId: ev.incidentId })]);
       return result;
     } catch (error: any) {
       toast.error(error?.message || "Outro operador alterou este atendimento. A fila será atualizada.");
@@ -910,10 +983,12 @@ export default function Dashboard() {
       return;
     } else {
       setSelectedEvent(ev);
+      if (ev.incidentOperatorId === user?.id && ev.queueStatus !== "maintenance") void recordAuditAction({ action: "attendance_opened" }, ev.incidentId);
     }
     setAttendStartTime(Date.now());
     setAttendingNotes("");
     setLogs([]);
+    if (ev.incidentId) setAuditIncidentId(ev.incidentId);
     setActiveTab("cameras");
   }
 
@@ -1169,11 +1244,14 @@ export default function Dashboard() {
 
   // Finalizar evento - salvar ocorrência no banco
   const finalizeEvent = useCallback((ev: QueueEvent) => {
+    if (auditActionInFlight.current || failedAuditAction) {
+      toast.error("Aguarde ou tente gravar o registro de auditoria pendente antes de finalizar.");
+      return;
+    }
     if (!attendingNotes.trim()) {
       toast.error("Preencha a descrição da finalização antes de finalizar!");
       return;
     }
-    addLog("Evento FINALIZADO");
     const finalLogs = [`[${new Date().toLocaleTimeString("pt-BR")}] Evento FINALIZADO`, ...logs];
     const attendingTime = Date.now() - attendStartTime;
     const remoteAuditText = selectedRemoteCommandNotes.join("\n").trim();
@@ -1203,6 +1281,7 @@ export default function Dashboard() {
     }, {
       onSuccess: () => {
         void utils.incident.openQueue.invalidate();
+        void utils.incident.auditTrail.invalidate({ incidentId: ev.incidentId });
         setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
         setSelectedEvent(null);
         setAttendingNotes("");
@@ -1215,9 +1294,13 @@ export default function Dashboard() {
         toast.error("Erro ao salvar ocorrência: " + err.message);
       }
     });
-  }, [logs, attendStartTime, attendingNotes, selectedRemoteCommandNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils]);
+  }, [logs, attendStartTime, attendingNotes, selectedRemoteCommandNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils, recordAuditActionMut.isPending, failedAuditAction]);
 
   const finalizeSameClientEvents = async (ev: QueueEvent) => {
+    if (auditActionInFlight.current || failedAuditAction) {
+      toast.error("Conclua a gravação de auditoria pendente antes de finalizar em massa.");
+      return;
+    }
     if (!attendingNotes.trim()) {
       toast.error("Preencha a descrição antes de finalizar os eventos em massa!");
       return;
@@ -1876,12 +1959,13 @@ export default function Dashboard() {
                 </div>
                 <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={openObservation}><Eye className="h-3.5 w-3.5" /> Observação</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setTreatmentPanel("cameras")}><Camera className="h-3.5 w-3.5" /> Câmeras</Button>
                   {selectedSystem?.id && <Button variant="outline" size="sm" className="gap-1.5 border-amber-500/40 text-xs text-amber-200" onClick={() => setQuickScheduleSystem({ id: selectedSystem.id, account: selectedEvent.account, clientName: selectedClient?.fantasyName || selectedClient?.name || selectedEvent.clientName, brand: selectedSystem.brand, model: selectedSystem.model })}><CalendarClock className="h-3.5 w-3.5" /> Alterar agenda</Button>}
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-emerald-400" onClick={() => setTreatmentPanel("contacts")}><Phone className="h-3.5 w-3.5" /> Contatos ({treatmentContacts.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-blue-400" onClick={() => setTreatmentPanel("users")}><Users className="h-3.5 w-3.5" /> Usuários ({treatmentAlarmUsers.length})</Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => { moveEvent(selectedEvent, "tactical"); addLog("Tático despachado"); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => void moveEvent(selectedEvent, "tactical")}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
 	                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
-	                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" disabled={recordAuditActionMut.isPending} onClick={async () => { if (await recordAuditAction({ action: "police_action_registered" })) toast.info("Acionamento manual da Polícia registrado; o sistema não realiza ligação."); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
                   {selectedCompatecAction === "arm" ? (
                     <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" onClick={submitCompatecArmQuick} disabled={armCompatecAllMut.isPending} aria-label="Arme físico da central Compatec">
                       <Shield className="h-3.5 w-3.5" /> {armCompatecAllMut.isPending ? "ENVIANDO..." : "ARMAR"}
@@ -1920,6 +2004,9 @@ export default function Dashboard() {
                   </div>
                   <div className="space-y-3">
                     <OperationalProcedurePanel clientIdentified={!!selectedClient?.id} eventType={treatmentProcedureData?.eventType} procedures={treatmentProcedures} hasSpecificProcedure={treatmentProcedureData?.hasSpecificProcedure} isLoading={treatmentProcedureQuery.isLoading} error={treatmentProcedureQuery.error} onRetry={() => void treatmentProcedureQuery.refetch()} onViewAll={() => setShowProceduresModal(true)} />
+                    {selectedEvent.queueStatus === "tactical" && <div className="rounded-lg border border-orange-400/40 bg-orange-500/5 p-3"><label className="text-sm font-semibold text-foreground" htmlFor="patrol-audit-status">Atualizar status informado do patrulheiro</label><select id="patrol-audit-status" value="" disabled={recordAuditActionMut.isPending} onChange={(event) => void recordAuditAction({ action: "tactical_status_updated", tacticalStatus: event.target.value as "en_route" | "arrived" | "inspection" | "completed" })} className="mt-2 w-full rounded-md border border-input bg-background p-2 text-sm"><option value="">Registrar atualização…</option><option value="en_route">Em deslocamento</option><option value="arrived">Chegou ao local</option><option value="inspection">Em verificação</option><option value="completed">Verificação concluída</option></select><p className="mt-1 text-xs text-foreground">Registro manual informado pelo operador; não é localização ou status automático da viatura.</p></div>}
+                    <div className="max-h-[360px] overflow-y-auto rounded-lg border border-cyan-500/40 bg-card p-4"><IncidentAuditTimeline incidentId={selectedEvent.incidentId} /></div>
+                    {failedAuditAction && <div role="alert" className="rounded border border-red-400 bg-red-500/10 p-3 text-sm text-red-100">Registro de auditoria pendente para ocorrência #{failedAuditAction.incidentId}.<Button className="mt-2" variant="outline" size="sm" onClick={() => void retryFailedAuditAction()} disabled={recordAuditActionMut.isPending}>Tentar gravar novamente</Button></div>}
                     <details className="rounded-lg border border-border bg-black/15 p-3"><summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Registros deste atendimento — não são o protocolo</summary><div className="mt-3 space-y-2">{attendingNotes.trim() && <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 p-3"><p className="text-xs font-bold uppercase tracking-wide text-emerald-300">Registro em andamento</p><p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{attendingNotes}</p></div>}{logs.slice(-3).map((log, index) => <p key={index} className="rounded bg-black/20 px-3 py-2 font-mono text-xs text-muted-foreground">{log}</p>)}</div></details>
                   </div>
                 </div>
@@ -1997,14 +2084,14 @@ export default function Dashboard() {
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Conta {selectedEvent.account} · {selectedEvent.systemModel}</p>
                 <h3 className="mt-1 flex items-center gap-2 text-lg font-bold text-foreground">
-                  {treatmentPanel === "contacts" ? <Phone className="h-5 w-5 text-emerald-400" /> : treatmentPanel === "users" ? <Users className="h-5 w-5 text-blue-400" /> : <History className="h-5 w-5 text-cyan-300" />}
-                  {treatmentPanel === "contacts" ? "Contatos para atendimento" : treatmentPanel === "users" ? "Usuários programados no painel" : "Últimos eventos do cliente"}
+                  {treatmentPanel === "contacts" ? <Phone className="h-5 w-5 text-emerald-400" /> : treatmentPanel === "users" ? <Users className="h-5 w-5 text-blue-400" /> : treatmentPanel === "cameras" ? <Camera className="h-5 w-5 text-cyan-300" /> : <History className="h-5 w-5 text-cyan-300" />}
+                  {treatmentPanel === "contacts" ? "Contatos para atendimento" : treatmentPanel === "users" ? "Usuários programados no painel" : treatmentPanel === "cameras" ? "Câmeras do cliente" : "Últimos eventos do cliente"}
                 </h3>
               </div>
               <button type="button" onClick={() => setTreatmentPanel(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fechar painel"><X className="h-5 w-5" /></button>
             </div>
             <div className="max-h-[68vh] overflow-y-auto p-5">
-              {treatmentPanel === "contacts" ? (
+              {treatmentPanel === "cameras" ? <div className="grid gap-3 sm:grid-cols-2">{(clientCameras || []).filter((camera: any) => camera.isActive !== false).map((camera: any, index: number) => <Button key={camera.id} variant="outline" className="h-auto min-h-24 justify-start whitespace-normal text-left" disabled={recordAuditActionMut.isPending || !!failedAuditAction} onClick={() => { setExpandedCam((clientCameras || []).findIndex((item: any) => item.id === camera.id) + 1); void recordAuditAction({ action: "camera_viewed", targetId: camera.id }); }} aria-label={`Abrir Câmera ${index + 1} — ${camera.name}`}><Camera className="mr-3 h-6 w-6 shrink-0" /><span><strong className="block">Câmera {index + 1}</strong>{camera.name}</span></Button>)}{!clientCameras?.some((camera: any) => camera.isActive !== false) && <p className="text-sm text-foreground">Nenhuma câmera ativa cadastrada para este cliente.</p>}</div> : treatmentPanel === "contacts" ? (
                 <div className="space-y-3">
                   {treatmentContacts.map((contact: any) => {
                     const phone = contact.phone || "";
@@ -2013,7 +2100,7 @@ export default function Dashboard() {
                     const whatsappDigits = String(whatsapp).replace(/\D/g, "");
                     const whatsappInternational = whatsappDigits.startsWith("55") ? whatsappDigits : `55${whatsappDigits}`;
                     return <div key={contact.id} className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-foreground">{contact.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{contact.role || "Contato do sistema"}</p></div><div className="flex flex-wrap gap-2">{phone && <a href={`tel:${digits}`} className="rounded-md border border-emerald-500/45 px-3 py-1.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/15">Ligar</a>}{whatsappDigits && <a href={`https://wa.me/${whatsappInternational}`} target="_blank" rel="noreferrer" className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-emerald-950 hover:bg-emerald-400">WhatsApp</a>}</div></div>
+                      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-foreground">{contact.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{contact.role || "Contato do sistema"}</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={recordAuditActionMut.isPending || !!failedAuditAction} onClick={() => void recordAuditAction({ action: "contact_selected", targetId: contact.id })}>Selecionar contato</Button>{phone && <Button size="sm" variant="outline" disabled={recordAuditActionMut.isPending || !!failedAuditAction} onClick={() => void openAuditedContact("contact_call_clicked", contact.id, `tel:${digits}`)} className="border-emerald-500/45 text-emerald-300">Ligar</Button>}{whatsappDigits && <Button size="sm" disabled={recordAuditActionMut.isPending || !!failedAuditAction} onClick={() => void openAuditedContact("contact_whatsapp_clicked", contact.id, `https://wa.me/${whatsappInternational}`)} className="bg-emerald-500 text-emerald-950 hover:bg-emerald-400">WhatsApp</Button>}</div></div>
                       <div className="mt-3 grid gap-1.5 text-sm"><p className="font-mono text-emerald-300">{phone || whatsapp || "Telefone não informado"}</p>{contact.email && <p className="text-muted-foreground">{contact.email}</p>}</div>
                       {(contact.password || contact.counterPassword || contact.coercionPassword) && <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3"><p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-amber-200"><Shield className="h-3.5 w-3.5" /> Credenciais de segurança</p><div className="grid gap-2 text-xs sm:grid-cols-3"><p>Senha: <strong className="font-mono text-amber-100">{contact.password || "—"}</strong></p><p>Contra senha: <strong className="font-mono text-amber-100">{contact.counterPassword || "—"}</strong></p><p>Coação: <strong className="font-mono text-amber-100">{contact.coercionPassword || "—"}</strong></p></div></div>}
                     </div>;
@@ -2411,20 +2498,10 @@ export default function Dashboard() {
           </div>
 
           {/* COLUNA 3: Logs da Ocorrência */}
-          <div className="w-[220px] min-w-[220px] h-full border-l border-border bg-card flex flex-col">
-            <div className="px-3 py-2 border-b border-border">
-              <h3 className="text-xs font-bold text-muted-foreground uppercase">Logs da Ocorrência</h3>
-            </div>
-            <ScrollArea className="flex-1 px-3 py-2">
-              {logs.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">Selecione um evento para ver os logs</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {logs.map((log, idx) => (
-                    <div key={idx} className="text-[11px] text-muted-foreground font-mono leading-tight">{log}</div>
-                  ))}
-                </div>
-              )}
+          <div className="w-[300px] min-w-[300px] h-full border-l border-cyan-500/30 bg-card text-foreground flex flex-col">
+            <ScrollArea className="flex-1 px-4 py-3">
+              <IncidentAuditTimeline incidentId={selectedEvent?.incidentId || auditIncidentId} active={!selectedEvent} />
+              {failedAuditAction && <div role="alert" className="mt-3 rounded border border-red-400 bg-red-500/10 p-3 text-sm text-red-100">Registro de auditoria pendente para ocorrência #{failedAuditAction.incidentId}.<Button className="mt-2" variant="outline" size="sm" onClick={() => void retryFailedAuditAction()} disabled={recordAuditActionMut.isPending}>Tentar gravar novamente</Button></div>}
             </ScrollArea>
           </div>
         </div>

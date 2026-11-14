@@ -12,9 +12,11 @@ describe("painéis operacionais do tratamento", () => {
     expect(dashboardSource).toContain('setTreatmentPanel("users")');
     expect(dashboardSource).toContain("Contatos para atendimento");
     expect(dashboardSource).toContain("Usuários programados no painel");
-    expect(dashboardSource).toContain('href={`tel:${digits}`}');
-    expect(dashboardSource).toContain('href={`https://wa.me/${whatsappInternational}`}');
-    expect(dashboardSource).toContain(">WhatsApp</a>");
+    expect(dashboardSource).toContain('openAuditedContact("contact_call_clicked", contact.id, `tel:${digits}`)');
+    expect(dashboardSource).toContain('openAuditedContact("contact_whatsapp_clicked", contact.id, `https://wa.me/${whatsappInternational}`)');
+    expect(dashboardSource).toContain('const saved = await recordAuditAction({ action, targetId });');
+    expect(dashboardSource).not.toContain('href={`tel:${digits}`}');
+    expect(dashboardSource).not.toContain('href={`https://wa.me/${whatsappInternational}`}');
     expect(dashboardSource).toContain('fixed inset-0 z-[95]');
   });
 
