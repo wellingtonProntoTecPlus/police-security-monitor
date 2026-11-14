@@ -12,6 +12,11 @@ SET @statement = (
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
 SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_system_received_idx` ON `alarm_events` (`alarmSystemId`,`receivedAt`,`id`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_system_received_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
   SELECT IF(COUNT(*) = 0, 'CREATE INDEX `alarm_events_system_code_received_idx` ON `alarm_events` (`alarmSystemId`,`eventCode`,`receivedAt`)', 'SELECT 1')
   FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='alarm_events' AND INDEX_NAME='alarm_events_system_code_received_idx'
 );

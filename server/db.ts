@@ -1,4 +1,5 @@
 import { eq, and, or, desc, sql, like, inArray, gte, gt, lte, ne, isNotNull, isNull, notExists } from "drizzle-orm";
+import { alias } from "drizzle-orm/mysql-core";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, authSessions, operatorAttendanceRecords, operatorShiftMessages,
@@ -2890,6 +2891,63 @@ export async function listOpenQueueEvents() {
     incidentNotes: incident.notes,
     observationUntil: incident.observationUntil,
   }));
+}
+
+/** Retorna eventos recentes da carteira do cliente associado a uma ocorrência ainda aberta. */
+export async function listRecentClientEventsForOpenIncident(incidentId: number, requestedLimit = 20) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const limit = Math.min(100, Math.max(1, Number.isFinite(requestedLimit) ? Math.trunc(requestedLimit) : 20));
+  const incidentSystem = alias(alarmSystems, "incident_system");
+  const eventSystem = alias(alarmSystems, "event_system");
+  const resolvedClientId = sql<number | null>`COALESCE(${incidents.clientId}, ${incidentSystem.clientId})`;
+  // One SQL statement gives the open-status/scope check and event list the same
+  // database snapshot, so a concurrently closed incident cannot leak a stale list.
+  const rows = await db.select({
+    incidentEventId: incidents.eventId,
+    incidentClientId: incidents.clientId,
+    systemClientId: incidentSystem.clientId,
+    id: alarmEvents.id,
+    alarmSystemId: alarmEvents.alarmSystemId,
+    account: alarmEvents.account,
+    brand: alarmEvents.brand,
+    qualifier: alarmEvents.qualifier,
+    eventCode: alarmEvents.eventCode,
+    partition: alarmEvents.partition,
+    zoneUser: alarmEvents.zoneUser,
+    description: alarmEvents.description,
+    priority: alarmEvents.priority,
+    receivedAt: alarmEvents.receivedAt,
+    systemModel: eventSystem.model,
+  }).from(incidents)
+    .leftJoin(incidentSystem, eq(incidents.alarmSystemId, incidentSystem.id))
+    .leftJoin(eventSystem, eq(eventSystem.clientId, resolvedClientId))
+    .leftJoin(alarmEvents, eq(alarmEvents.alarmSystemId, eventSystem.id))
+    .where(and(
+      eq(incidents.id, incidentId),
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+      isNotNull(resolvedClientId),
+      or(isNull(incidents.clientId), isNull(incidentSystem.clientId), eq(incidents.clientId, incidentSystem.clientId)),
+    ))
+    .orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id))
+    .limit(limit);
+  const scope = rows[0];
+  if (!scope) return undefined;
+  const events = rows.flatMap((row) => row.id === null ? [] : [{
+    id: row.id,
+    alarmSystemId: row.alarmSystemId,
+    account: row.account,
+    brand: row.brand,
+    qualifier: row.qualifier,
+    eventCode: row.eventCode,
+    partition: row.partition,
+    zoneUser: row.zoneUser,
+    description: row.description,
+    priority: row.priority,
+    receivedAt: row.receivedAt,
+    systemModel: row.systemModel,
+  }]);
+  return { incidentEventId: scope.incidentEventId, events };
 }
 
 /** Prévia persistida: a confirmação não deve usar uma contagem local possivelmente antiga. */

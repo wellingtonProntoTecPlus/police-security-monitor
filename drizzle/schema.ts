@@ -492,6 +492,7 @@ export const alarmEvents = mysqlTable("alarm_events", {
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
 }, (table) => [
   index("alarm_events_received_idx").on(table.receivedAt, table.id),
+  index("alarm_events_system_received_idx").on(table.alarmSystemId, table.receivedAt, table.id),
   index("alarm_events_system_code_received_idx").on(table.alarmSystemId, table.eventCode, table.receivedAt),
   index("alarm_events_code_system_received_idx").on(table.eventCode, table.alarmSystemId, table.receivedAt),
   index("alarm_events_auto_event_received_idx").on(table.autoFinalized, table.eventCode, table.receivedAt),

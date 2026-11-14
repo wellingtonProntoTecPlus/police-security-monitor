@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import QuickScheduleExceptionDialog from "@/components/QuickScheduleExceptionDialog";
 import CompatecZoneArmControls from "@/components/CompatecZoneArmControls";
 import OperationalProcedurePanel from "@/components/OperationalProcedurePanel";
+import RecentClientEventsPanel from "@/components/RecentClientEventsPanel";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useSocket, AlarmEvent } from "@/hooks/useSocket";
@@ -10,7 +11,7 @@ import {
   Bell, Phone, PhoneCall, Shield, Camera, FileText, Truck, X, Search,
   CheckCircle2, Ban, AlertTriangle, Users, Eye, Wrench, ChevronLeft,
   ChevronRight, Clock, Wifi, WifiOff, Send, Mail, Plus, MapPin, Maximize2,
-  LogOut, Volume2, VolumeX, CarFront, Headphones, CalendarClock,
+  LogOut, Volume2, VolumeX, CarFront, Headphones, CalendarClock, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -325,7 +326,7 @@ export default function Dashboard() {
   const { data: finalizacoes = [] } = trpc.finalization.list.useQuery(undefined);
   const [selectedFinalization, setSelectedFinalization] = useState<string>("");
   const [finalizationSearch, setFinalizationSearch] = useState("");
-  const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | null>(null);
+  const [treatmentPanel, setTreatmentPanel] = useState<"contacts" | "users" | "events" | null>(null);
   const [showProceduresModal, setShowProceduresModal] = useState(false);
   const utils = trpc.useUtils();
   const reconcileDashboardData = useCallback(() => {
@@ -1820,6 +1821,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-4">
+                {selectedEvent.incidentId && <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 border-cyan-500/40 px-2.5 text-xs text-cyan-200 hover:bg-cyan-500/10 sm:px-3" onClick={() => setTreatmentPanel("events")} aria-label="Consultar últimos eventos do cliente"><History className="h-3.5 w-3.5" /><span>Eventos recentes</span></Button>}
                 <WorkspaceScreenMenu label="Outras telas" className="hidden sm:inline-flex" />
                 <div className="sm:hidden"><WorkspaceScreenMenu compact label="Abrir outra tela sem fechar este atendimento" /></div>
                 <Timer startTime={attendStartTime} />
@@ -1991,12 +1993,12 @@ export default function Dashboard() {
       {treatmentPanel && selectedEvent && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 p-5" onClick={() => setTreatmentPanel(null)}>
           <div className="max-h-[82vh] w-[min(720px,94vw)] overflow-hidden rounded-xl border border-primary/35 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className={`flex items-start justify-between border-b border-border px-5 py-4 ${treatmentPanel === "contacts" ? "bg-emerald-500/10" : "bg-blue-500/10"}`}>
+            <div className={`flex items-start justify-between border-b border-border px-5 py-4 ${treatmentPanel === "contacts" ? "bg-emerald-500/10" : treatmentPanel === "users" ? "bg-blue-500/10" : "bg-cyan-500/10"}`}>
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Conta {selectedEvent.account} · {selectedEvent.systemModel}</p>
                 <h3 className="mt-1 flex items-center gap-2 text-lg font-bold text-foreground">
-                  {treatmentPanel === "contacts" ? <Phone className="h-5 w-5 text-emerald-400" /> : <Users className="h-5 w-5 text-blue-400" />}
-                  {treatmentPanel === "contacts" ? "Contatos para atendimento" : "Usuários programados no painel"}
+                  {treatmentPanel === "contacts" ? <Phone className="h-5 w-5 text-emerald-400" /> : treatmentPanel === "users" ? <Users className="h-5 w-5 text-blue-400" /> : <History className="h-5 w-5 text-cyan-300" />}
+                  {treatmentPanel === "contacts" ? "Contatos para atendimento" : treatmentPanel === "users" ? "Usuários programados no painel" : "Últimos eventos do cliente"}
                 </h3>
               </div>
               <button type="button" onClick={() => setTreatmentPanel(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fechar painel"><X className="h-5 w-5" /></button>
@@ -2018,11 +2020,15 @@ export default function Dashboard() {
                   })}
                   {treatmentContacts.length === 0 && <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhum contato cadastrado para esta central.</p>}
                 </div>
-              ) : (
+              ) : treatmentPanel === "users" ? (
                 <div className="space-y-3">
                   {treatmentAlarmUsers.map((panelUser: any) => <div key={panelUser.id} className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="rounded-md bg-blue-500/15 px-2 py-1 font-mono font-bold tracking-[0.15em] text-blue-300">{String(panelUser.userNumber).padStart(2, "0")}</span><div><p className="font-bold text-foreground">{panelUser.name}</p><p className="mt-0.5 text-sm text-muted-foreground">{panelUser.phone || "Telefone não informado"}</p></div></div><span className={panelUser.isActive === false ? "text-sm text-red-300" : "text-sm text-emerald-300"}>{panelUser.isActive === false ? "Inativo" : "Ativo"}</span></div>{(panelUser.password || panelUser.counterPassword || panelUser.coercionPassword) && <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3"><p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-amber-200"><Shield className="h-3.5 w-3.5" /> Credenciais do usuário</p><div className="grid gap-2 text-xs sm:grid-cols-3"><p>Senha: <strong className="font-mono text-amber-100">{panelUser.password || "—"}</strong></p><p>Contra senha: <strong className="font-mono text-amber-100">{panelUser.counterPassword || "—"}</strong></p><p>Coação: <strong className="font-mono text-amber-100">{panelUser.coercionPassword || "—"}</strong></p></div></div>}</div>)}
                   {treatmentAlarmUsers.length === 0 && <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nenhum usuário programado para esta central.</p>}
                 </div>
+              ) : selectedEvent.incidentId ? (
+                <RecentClientEventsPanel incidentId={selectedEvent.incidentId} currentEventId={selectedEvent.id} />
+              ) : (
+                <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Esta ocorrência não tem um identificador ativo para consultar os eventos do cliente.</p>
               )}
             </div>
           </div>

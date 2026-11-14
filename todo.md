@@ -962,3 +962,15 @@
 - [x] KOFF: o retorno do Keep Alive fecha imediatamente a falha aberta; se um Contact ID real do mesmo painel chegar primeiro, também a fecha. Ambos registram “Falha de Keep Alive restaurada” e não criam Contact ID fictício
 - [x] Eventos sintéticos, KOFF, interno ViaWeb, outra central, outra conta ou estado sem central identificada não encerram a falha; todos os eventos originais são preservados
 - [x] Validação: TypeScript, 156 arquivos/718 testes e build aprovados, incluindo MariaDB privado para Manutenção, timestamp legado preservado e vínculo cliente/parceira; nenhuma transmissão física nem atualização da VPS realizada
+
+
+## Eventos recentes no atendimento de ocorrência
+- [x] Adicionar consulta somente leitura dos até 20 eventos mais recentes de todas as centrais identificadas do cliente, dentro de ocorrência operacional aberta
+- [x] Derivar cliente exclusivamente pelo incidente/central no servidor; negar conflitos de vínculo, ausência de cliente e perfis parceiros; não retornar rawData nem credenciais
+- [x] Fazer validação do status, resolução do escopo e leitura do histórico em uma única consulta consistente; testar cliente derivado da central quando incidents.clientId estiver ausente
+- [x] Integrar botão contextual no tratamento da ocorrência, com atualização manual, foco e intervalo de 15 segundos, sem editar anotações/protocolos nem remover eventos históricos
+- [x] Adicionar índice aditivo (alarmSystemId, receivedAt, id) no schema/migration Drizzle e upgrade VPS idempotente; migration aplicada apenas ao banco WebDev
+- [x] Validação completa local: TypeScript, 157 arquivos/725 testes, integração MariaDB descartável por socket Unix sem rede, build e git diff --check aprovados; aviso de chunk >500 kB não bloqueou build
+- [x] Sem comandos físicos, sem acesso/alteração da VPS e sem deploy desta entrega
+- [ ] Publicar e homologar a feature na VPS após solicitação do usuário
+- [x] Revisão independente apontou apenas a janela entre checar ocorrência aberta e consultar eventos; corrigida com uma única consulta consistente e coberta pela integração MariaDB

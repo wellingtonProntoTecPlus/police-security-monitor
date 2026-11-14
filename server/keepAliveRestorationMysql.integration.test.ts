@@ -6,6 +6,7 @@ import {
   finalizeKeepAliveDisconnectsOnPanelEvent,
   finalizeRadioengeKeepAliveFailureWithRestoration,
   findRadioengeKeepAliveObservationForRestoration,
+  listRecentClientEventsForOpenIncident,
   recordSystemKeepAlive,
   setDbForTesting,
 } from "./db";
@@ -336,5 +337,41 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
     expect((await orm.select().from(incidents))[0]?.status).toBe("waiting");
     expect(await orm.select().from(occurrences)).toHaveLength(0);
     expect(await orm.select().from(alarmEvents)).toHaveLength(3);
+  });
+
+  it("consulta os 20 eventos mais recentes de todas as centrais do cliente e recusa ocorrência fechada", async () => {
+    await pool.query("INSERT INTO alarm_systems (id,clientId,account,brand,model,receiverPort,isActive) VALUES (3,1,'0099','JFL','Central secundária',9061,1)");
+    for (let id = 100; id <= 120; id += 1) {
+      const systemId = id % 2 === 0 ? 1 : 3;
+      await seedEvent({
+        id,
+        systemId,
+        account: systemId === 1 ? "0041" : "0099",
+        brand: "JFL",
+        qualifier: id % 2 === 0 ? "E" : "R",
+        eventCode: "130",
+        receivedAt: new Date(`2026-11-14T10:${String(id - 100).padStart(2, "0")}:00.000Z`),
+      });
+    }
+    await seedEvent({ id: 201, systemId: 2, account: "0042", brand: "JFL", qualifier: "E", eventCode: "130", receivedAt: new Date("2026-11-14T11:00:00.000Z") });
+    await seedIncident({ id: 301, systemId: 1, eventId: 100, status: "attending" });
+
+    const result = await listRecentClientEventsForOpenIncident(301, 20);
+    expect(result?.incidentEventId).toBe(100);
+    expect(result?.events).toHaveLength(20);
+    expect(result?.events[0]).toMatchObject({ id: 120, account: "0041", systemModel: "Painel de teste" });
+    expect(result?.events.at(-1)?.id).toBe(101);
+    expect(result?.events.some((event) => event.id === 201)).toBe(false);
+    expect(Object.keys(result!.events[0])).not.toContain("rawData");
+
+    await pool.query("UPDATE incidents SET status = 'closed' WHERE id = 301");
+    await expect(listRecentClientEventsForOpenIncident(301, 20)).resolves.toBeUndefined();
+    await pool.query("INSERT INTO incidents (id,eventId,alarmSystemId,clientId,status,priority) VALUES (302,100,1,2,'attending','high')");
+    await expect(listRecentClientEventsForOpenIncident(302, 20)).resolves.toBeUndefined();
+    await pool.query("INSERT INTO incidents (id,eventId,alarmSystemId,clientId,status,priority) VALUES (303,100,1,NULL,'attending','high')");
+    const resolvedFromSystem = await listRecentClientEventsForOpenIncident(303, 20);
+    expect(resolvedFromSystem?.events).toHaveLength(20);
+    await pool.query("INSERT INTO incidents (id,eventId,alarmSystemId,clientId,status,priority) VALUES (304,100,NULL,NULL,'attending','high')");
+    await expect(listRecentClientEventsForOpenIncident(304, 20)).resolves.toBeUndefined();
   });
 });

@@ -35,6 +35,8 @@ let mockedClientData: any[] = [
 ];
 let mockedPartnerCompanyData: any[] = [{ id: 8, name: "Parceira de Teste" }];
 let mockedArmDisarmStatus: { armed: any[]; disarmed: any[] } = { armed: [], disarmed: [] };
+let mockedRecentClientEvents: any = { incidentEventId: 701, events: [{ id: 701, alarmSystemId: 6, account: "0001", brand: "COMPATEC", systemModel: "X", qualifier: "E", eventCode: "130", partition: "00", zoneUser: "002", description: "Disparo de alarme", priority: "critical", receivedAt: new Date("2026-08-12T12:00:00.000Z") }] };
+const queryRecentClientEvents = vi.fn();
 const refetchBulkPreview = vi.fn().mockResolvedValue(undefined);
 const invalidateOpenQueue = vi.fn().mockResolvedValue(undefined);
 const invalidateConnectionStatus = vi.fn().mockResolvedValue(undefined);
@@ -51,6 +53,7 @@ vi.mock("@/lib/trpc", () => ({
       update: { useMutation: () => standardMutation },
       bulkFinalize: { useMutation: () => bulkMutation },
       bulkPreview: { useQuery: () => ({ data: mockedBulkPreview, isFetching: false, error: null, refetch: refetchBulkPreview }) },
+      recentClientEvents: { useQuery: (input: any) => { queryRecentClientEvents(input); return { data: mockedRecentClientEvents, isLoading: false, isFetching: false, error: null, refetch: vi.fn() }; } },
       observe: { useMutation: () => standardMutation },
       openQueue: {
         useQuery: () => ({
@@ -159,6 +162,8 @@ describe("Dashboard — Ocorrência Manual", () => {
     invalidateArmDisarmStatus.mockClear();
     invalidateRecentAutoFinalizedArmDisarm.mockClear();
     mockedRealtimeEvents = [];
+    queryRecentClientEvents.mockClear();
+    mockedRecentClientEvents = { incidentEventId: 701, events: [{ id: 701, alarmSystemId: 6, account: "0001", brand: "COMPATEC", systemModel: "X", qualifier: "E", eventCode: "130", partition: "00", zoneUser: "002", description: "Disparo de alarme", priority: "critical", receivedAt: new Date("2026-08-12T12:00:00.000Z") }] };
     mockedPersistedQueue = defaultQueue;
     mockedClientData = [
       { id: 5, name: "Cliente incorreto", partnerCompanyId: 8 },
@@ -314,6 +319,16 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByText("Tratamento de ocorrência")).toBeTruthy();
     expect(screen.getByText("Cliente de Teste")).toBeTruthy();
     expect(screen.queryByText("Cliente incorreto")).toBeNull();
+  });
+
+  it("abre eventos recentes da ocorrência em consulta somente leitura vinculada ao incidentId", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await user.click(screen.getByRole("button", { name: "Consultar últimos eventos do cliente" }));
+    expect(screen.getByRole("heading", { name: "Últimos eventos do cliente" })).toBeTruthy();
+    expect(screen.getByText("Origem desta ocorrência")).toBeTruthy();
+    expect(queryRecentClientEvents).toHaveBeenCalledWith({ incidentId: 91 });
   });
 
   it("abre o atendimento recebido pelo link da mensagem persistente", async () => {

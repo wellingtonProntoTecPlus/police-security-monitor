@@ -20,6 +20,20 @@ const ownClientInput = { partnerCompanyId: 99, type: "pf" as const, name: "Clien
 afterEach(() => vi.restoreAllMocks());
 
 describe("partner tenant access", () => {
+  it("allows operational staff to query recent events by an open incident and denies partner role", async () => {
+    const recent = vi.spyOn(db, "listRecentClientEventsForOpenIncident").mockResolvedValue({
+      incidentEventId: 900,
+      events: [{ id: 900, alarmSystemId: 51, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "KOFF", description: "Falha de Keep Alive", receivedAt: new Date(), systemModel: "CR32" }],
+    } as any);
+    const result = await appRouter.createCaller(context("operator")).incident.recentClientEvents({ incidentId: 77 });
+    expect(result.incidentEventId).toBe(900);
+    expect(result.events).toHaveLength(1);
+    expect(recent).toHaveBeenCalledWith(77, 20);
+
+    await expect(appRouter.createCaller(context("partner", 99)).incident.recentClientEvents({ incidentId: 77 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(recent).toHaveBeenCalledTimes(1);
+  });
+
   it("partner reads complete status of its own clients, while create forces own partnerId and active status", async () => {
     const list = vi.spyOn(db, "listClients").mockResolvedValue([{
       id: 101,

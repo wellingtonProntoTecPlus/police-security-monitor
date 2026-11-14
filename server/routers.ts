@@ -970,6 +970,13 @@ export const appRouter = router({
   incident: router({
     list: operatorProcedure.input(z.object({ status: z.string().optional() }).optional()).query(({ input }) => db.listIncidents(input?.status)),
     openQueue: operatorProcedure.query(() => db.listOpenQueueEvents()),
+    recentClientEvents: operatorProcedure.input(z.object({
+      incidentId: z.number().int().positive(),
+    })).query(async ({ input }) => {
+      const result = await db.listRecentClientEventsForOpenIncident(input.incidentId, 20);
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Ocorrência aberta ou cliente identificado não encontrado" });
+      return result;
+    }),
     get: operatorProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
       await assertIncidentPartnerScope(ctx, input.id);
       return db.getIncident(input.id);

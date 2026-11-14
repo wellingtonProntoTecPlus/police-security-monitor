@@ -1,0 +1,1 @@
+CREATE INDEX `alarm_events_system_received_idx` ON `alarm_events` (`alarmSystemId`,`receivedAt`,`id`);
