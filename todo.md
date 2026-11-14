@@ -992,3 +992,13 @@
 - [x] Validação da versão exata: pnpm check, 160 arquivos/749 testes aprovados sem ignorados, pnpm build e git diff --check; 9 testes MariaDB de auditoria/sessão/migração e regressões renderizadas de contatos sem destino externo antes do ACK
 - [x] MariaDB descartável privado somente por socket Unix, sem rede, encerrado; nenhuma VPS acessada/atualizada, nenhum painel recebeu comando. ViaWeb e bloqueios de protocolos preservados
 - [ ] Validar visualmente na VPS após atualização executada pelo usuário. Ações antigas que não eram auditadas não são reconstruídas
+
+
+## Atendimento dentro da área central do Dashboard — 14/11/2026
+- [x] Ao abrir ocorrência, substituir as filas apenas na área central; preservar os registros laterais em desktop e empilhar seletor/atendimento/logs em telas estreitas
+- [x] Manter Logs da Ocorrência visível à direita durante atendimento, vinculado ao incidente selecionado e com histórico mais recente mantido após fechar o painel
+- [x] Proteger rascunho contra popup periódico de pendências; retomar para Atendimento ao abrir ocorrência em observação atribuída ao mesmo operador
+- [x] Impedir finalização duplicada; ao finalizar, remover somente o incidente selecionado e preservar outras centrais, inclusive conta Contact ID repetida; resposta atrasada não fecha outro painel
+- [x] Testes renderizados: layout inline e responsividade, retorno à fila, retomada própria, finalização por incidente, logs laterais e prévia local com fixture sintética
+- [x] Validação final: TypeScript; 160 arquivos/755 testes aprovados, MariaDB descartável local em socket Unix; build e git diff --check. Aviso de chunk Vite >500 kB permanece não bloqueante
+- [x] Sem comando físico, sem VPS acessada/atualizada e sem deploy desta versão

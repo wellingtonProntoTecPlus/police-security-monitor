@@ -247,6 +247,8 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [queues, setQueues] = useState<QueueEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<QueueEvent | null>(null);
+  const selectedEventRef = useRef<QueueEvent | null>(selectedEvent);
+  const finalizationInFlightRef = useRef(false);
   const [attendingNotes, setAttendingNotes] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"cameras" | "contacts" | "zones">("cameras");
@@ -305,6 +307,8 @@ export default function Dashboard() {
   const [remoteCommandZone, setRemoteCommandZone] = useState("");
   const [remoteCommandPgm, setRemoteCommandPgm] = useState("");
   const [remoteCommandPartition, setRemoteCommandPartition] = useState("1");
+
+  useEffect(() => { selectedEventRef.current = selectedEvent; }, [selectedEvent]);
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
@@ -422,6 +426,10 @@ export default function Dashboard() {
   );
 
   const requestCloseAttendance = useCallback(() => {
+    if (finalizationInFlightRef.current) {
+      toast.warning("Aguarde a confirmação da finalização desta ocorrência antes de sair.");
+      return;
+    }
     if (!selectedEvent || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) {
       setSelectedEvent(null);
     }
@@ -882,6 +890,7 @@ export default function Dashboard() {
   // Popup de pendentes a cada 20 minutos
   useEffect(() => {
     pendingIntervalRef.current = setInterval(() => {
+      if (selectedEvent) return;
       const waitingCount = queues.filter(q => q.queueStatus === 'waiting').length;
       if (waitingCount > 0) {
         setPendingPopup(true);
@@ -896,7 +905,7 @@ export default function Dashboard() {
       if (pendingIntervalRef.current) clearInterval(pendingIntervalRef.current);
       if (pendingPopupTimeoutRef.current) clearTimeout(pendingPopupTimeoutRef.current);
     };
-  }, [queues]);
+  }, [queues, selectedEvent]);
 
   function closePendingPopup() {
     setPendingPopup(false);
@@ -906,6 +915,9 @@ export default function Dashboard() {
       pendingPopupTimeoutRef.current = null;
     }
   }
+  useEffect(() => {
+    if (selectedEvent && pendingPopup) closePendingPopup();
+  }, [selectedEvent?.incidentId, pendingPopup]);
 
   // Reivindicação e transição são atômicas no servidor; só o incidente certo é atualizado.
   const moveEvent = useCallback(async (ev: QueueEvent, newStatus: QueueStatus) => {
@@ -971,6 +983,10 @@ export default function Dashboard() {
   }
 
   async function handleSelectEvent(ev: QueueEvent) {
+    if (finalizationInFlightRef.current) {
+      toast.info("Aguarde a confirmação da finalização em andamento antes de abrir outra ocorrência.");
+      return;
+    }
     // Parar som de alerta ao clicar no evento
     stopAlertSound();
     if (ev.queueStatus === "waiting" || (ev.incidentOperatorId == null && (ev.queueStatus === "observing" || ev.queueStatus === "attending"))) {
@@ -978,6 +994,10 @@ export default function Dashboard() {
       if (!claimed) return;
       setSelectedEvent({ ...ev, queueStatus: "attending", incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" });
       addLog("Atendimento reivindicado pelo operador logado.");
+    } else if (ev.queueStatus === "observing" && user?.id != null && ev.incidentOperatorId === user.id) {
+      const resumed = await moveEvent(ev, "attending");
+      if (!resumed) return;
+      setSelectedEvent({ ...ev, queueStatus: "attending", incidentOperatorId: user.id, incidentOperatorName: user.name || "Operador" });
     } else if (ev.incidentOperatorId && ev.incidentOperatorId !== user?.id && ev.queueStatus !== "observing") {
       toast.info(`Atendimento em ${ev.queueStatus === "tactical" ? "andamento com o tático" : "andamento"} por ${ev.incidentOperatorName || "outro operador"}.`);
       return;
@@ -1009,6 +1029,11 @@ export default function Dashboard() {
       setLocation("/dashboard");
       return;
     }
+    if (finalizationInFlightRef.current || createOccurrenceMut.isPending) {
+      toast.info("Aguarde a confirmação da finalização em andamento antes de abrir outra ocorrência.");
+      setLocation("/dashboard");
+      return;
+    }
     if (selectedEvent?.incidentId === incidentId) { setLocation("/dashboard"); return; }
     if (selectedEvent && !window.confirm("Existe um atendimento em andamento. Deseja abrir o atendimento da mensagem sem finalizar o atual?")) {
       setLocation("/dashboard");
@@ -1016,7 +1041,7 @@ export default function Dashboard() {
     }
     setLocation("/dashboard");
     void handleSelectEvent(target);
-  }, [search, isPersistedQueueLoading, persistedQueueData, queues, setLocation, selectedEvent]);
+  }, [search, isPersistedQueueLoading, persistedQueueData, queues, setLocation, selectedEvent, createOccurrenceMut.isPending]);
 
   const isOtherOperatorObservation = Boolean(selectedEvent?.queueStatus === "observing" && selectedEvent.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id);
   const isOtherOperatorAttendance = Boolean(selectedEvent?.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id && selectedEvent.queueStatus !== "observing");
@@ -1244,6 +1269,10 @@ export default function Dashboard() {
 
   // Finalizar evento - salvar ocorrência no banco
   const finalizeEvent = useCallback((ev: QueueEvent) => {
+    if (finalizationInFlightRef.current || createOccurrenceMut.isPending) {
+      toast.info("A finalização já foi enviada. Aguarde a resposta antes de tentar novamente.");
+      return;
+    }
     if (auditActionInFlight.current || failedAuditAction) {
       toast.error("Aguarde ou tente gravar o registro de auditoria pendente antes de finalizar.");
       return;
@@ -1256,6 +1285,7 @@ export default function Dashboard() {
     const attendingTime = Date.now() - attendStartTime;
     const remoteAuditText = selectedRemoteCommandNotes.join("\n").trim();
     const finalObservations = [attendingNotes.trim(), remoteAuditText].filter(Boolean).join("\n\n");
+    finalizationInFlightRef.current = true;
     createOccurrenceMut.mutate({
       incidentId: ev.incidentId || undefined,
       account: ev.account,
@@ -1282,21 +1312,31 @@ export default function Dashboard() {
       onSuccess: () => {
         void utils.incident.openQueue.invalidate();
         void utils.incident.auditTrail.invalidate({ incidentId: ev.incidentId });
-        setQueues((prev) => prev.filter((q) => !(q.queuedAt === ev.queuedAt && q.account === ev.account)));
-        setSelectedEvent(null);
-        setAttendingNotes("");
-        setLogs([]);
-        setSendEmail(false);
-        setSendPush(false);
+        setQueues((prev) => prev.filter((q) => ev.incidentId ? q.incidentId !== ev.incidentId : q.id !== ev.id));
+        const selected = selectedEventRef.current;
+        const sameIncident = ev.incidentId != null ? selected?.incidentId === ev.incidentId : selected?.id === ev.id;
+        if (sameIncident) {
+          selectedEventRef.current = null;
+          setSelectedEvent(null);
+          setAttendingNotes("");
+          setLogs([]);
+          setSendEmail(false);
+          setSendPush(false);
+        }
         toast.success("Ocorrência finalizada e salva no banco!");
       },
       onError: (err: any) => {
         toast.error("Erro ao salvar ocorrência: " + err.message);
-      }
+      },
+      onSettled: () => { finalizationInFlightRef.current = false; },
     });
-  }, [logs, attendStartTime, attendingNotes, selectedRemoteCommandNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils, recordAuditActionMut.isPending, failedAuditAction]);
+  }, [logs, attendStartTime, attendingNotes, selectedRemoteCommandNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils, recordAuditActionMut.isPending, failedAuditAction, createOccurrenceMut.isPending]);
 
   const finalizeSameClientEvents = async (ev: QueueEvent) => {
+    if (finalizationInFlightRef.current || bulkFinalizeMut.isPending) {
+      toast.info("A finalização está em andamento. Aguarde a resposta antes de tentar novamente.");
+      return;
+    }
     if (auditActionInFlight.current || failedAuditAction) {
       toast.error("Conclua a gravação de auditoria pendente antes de finalizar em massa.");
       return;
@@ -1310,6 +1350,7 @@ export default function Dashboard() {
       return;
     }
 
+    finalizationInFlightRef.current = true;
     try {
       const result = await bulkFinalizeMut.mutateAsync({
         account: ev.account,
@@ -1328,6 +1369,7 @@ export default function Dashboard() {
       const closedIds = new Set(result.closedIncidentIds);
       setQueues((previous) => previous.filter((item) => !item.incidentId || !closedIds.has(item.incidentId)));
       if (ev.incidentId && closedIds.has(ev.incidentId)) {
+        selectedEventRef.current = null;
         setSelectedEvent(null);
         setAttendingNotes("");
         setLogs([]);
@@ -1343,6 +1385,8 @@ export default function Dashboard() {
     } catch (error: any) {
       toast.error("Não foi possível finalizar todos os eventos: " + error.message);
       await Promise.all([utils.incident.openQueue.invalidate(), refreshBulkPreview()]);
+    } finally {
+      finalizationInFlightRef.current = false;
     }
   };
 
@@ -1822,52 +1866,9 @@ export default function Dashboard() {
     );
   }
 
-  // Mantido temporariamente oculto enquanto o novo popup de tratamento substitui o painel lateral.
-  const legacySelectedEvent = selectedEvent as QueueEvent;
-  const legacySelectedClient = selectedClient as any;
-
-  return (
-    <DashboardLayout>
-      <audio ref={audioRef} preload="auto" loop src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" />
-
-      {/* Popup de Ocorrências Pendentes (a cada 20 min) */}
-      {pendingPopup && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center animate-pulse" onClick={closePendingPopup}>
-          <div className="bg-red-900/95 border-2 border-red-500 rounded-lg p-6 w-[500px] max-h-[60vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-red-300 flex items-center gap-2">
-                <Bell className="h-6 w-6 animate-bounce" /> OCORRÊNCIAS PENDENTES ({queues.filter(q => q.queueStatus === 'waiting').length})
-              </h3>
-              <button onClick={closePendingPopup} className="text-white hover:text-red-300">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="space-y-2">
-              {queues.filter(q => q.queueStatus === 'waiting').map((ev, idx) => (
-                <div key={idx} className="bg-black/40 border border-red-500/30 rounded px-3 py-2 cursor-pointer hover:bg-red-800/30" onClick={() => { closePendingPopup(); handleSelectEvent(ev); }}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-bold text-white">{ev.description || 'EVENTO NÃO CADASTRADO'}</span>
-                    <span className="text-xs text-red-300">{new Date(ev.queuedAt).toLocaleTimeString('pt-BR')}</span>
-                  </div>
-                  <div className="text-xs text-red-200">{ev.account} - {ev.clientName}</div>
-                </div>
-              ))}
-            </div>
-            <p className="text-center text-red-300 text-sm mt-4">Clique para fechar ou atender um evento</p>
-          </div>
-        </div>
-      )}
-
-      {expandedCam && <CameraModal
-        cam={expandedCam}
-        onClose={() => setExpandedCam(null)}
-        url={clientCameras?.[expandedCam - 1]?.rtspUrl || undefined}
-        label={clientCameras?.[expandedCam - 1]?.name || `Câmera ${expandedCam}`}
-      />}
-
-      {selectedEvent && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/65 p-2 sm:items-center sm:p-5" onClick={requestCloseAttendance}>
-          <div className="flex h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border border-primary/35 bg-card shadow-2xl sm:h-[min(780px,90dvh)] sm:w-[min(1080px,94vw)] sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
+  const occurrenceTreatmentPanel = selectedEvent && (
+        <div data-testid="active-occurrence-inline" className="flex h-full min-h-0 min-w-0 w-full overflow-hidden border border-primary/35 bg-card">
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-card">
             <div className="flex items-start justify-between border-b border-border bg-card px-5 py-4">
               <div className="flex items-start gap-3">
                 <AlertTriangle className={`mt-0.5 h-6 w-6 shrink-0 ${selectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
@@ -1952,7 +1953,7 @@ export default function Dashboard() {
                   <div className="flex min-w-[180px] flex-col gap-2">
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(event) => setSendEmail(event.target.checked)} /><Mail className="h-3 w-3" /> E-mail</label>
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
-                    <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" onClick={() => finalizeEvent(selectedEvent)}>Finalizar</Button>
+                    <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" disabled={createOccurrenceMut.isPending} onClick={() => finalizeEvent(selectedEvent)}>{createOccurrenceMut.isPending ? "Finalizando..." : "Finalizar"}</Button>
                     <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
                     {selectedEvent.incidentId && countSameClient(selectedEvent) > 0 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa</Button>}
                   </div>
@@ -2005,8 +2006,8 @@ export default function Dashboard() {
                   <div className="space-y-3">
                     <OperationalProcedurePanel clientIdentified={!!selectedClient?.id} eventType={treatmentProcedureData?.eventType} procedures={treatmentProcedures} hasSpecificProcedure={treatmentProcedureData?.hasSpecificProcedure} isLoading={treatmentProcedureQuery.isLoading} error={treatmentProcedureQuery.error} onRetry={() => void treatmentProcedureQuery.refetch()} onViewAll={() => setShowProceduresModal(true)} />
                     {selectedEvent.queueStatus === "tactical" && <div className="rounded-lg border border-orange-400/40 bg-orange-500/5 p-3"><label className="text-sm font-semibold text-foreground" htmlFor="patrol-audit-status">Atualizar status informado do patrulheiro</label><select id="patrol-audit-status" value="" disabled={recordAuditActionMut.isPending} onChange={(event) => void recordAuditAction({ action: "tactical_status_updated", tacticalStatus: event.target.value as "en_route" | "arrived" | "inspection" | "completed" })} className="mt-2 w-full rounded-md border border-input bg-background p-2 text-sm"><option value="">Registrar atualização…</option><option value="en_route">Em deslocamento</option><option value="arrived">Chegou ao local</option><option value="inspection">Em verificação</option><option value="completed">Verificação concluída</option></select><p className="mt-1 text-xs text-foreground">Registro manual informado pelo operador; não é localização ou status automático da viatura.</p></div>}
-                    <div className="max-h-[360px] overflow-y-auto rounded-lg border border-cyan-500/40 bg-card p-4"><IncidentAuditTimeline incidentId={selectedEvent.incidentId} /></div>
-                    {failedAuditAction && <div role="alert" className="rounded border border-red-400 bg-red-500/10 p-3 text-sm text-red-100">Registro de auditoria pendente para ocorrência #{failedAuditAction.incidentId}.<Button className="mt-2" variant="outline" size="sm" onClick={() => void retryFailedAuditAction()} disabled={recordAuditActionMut.isPending}>Tentar gravar novamente</Button></div>}
+
+
                     <details className="rounded-lg border border-border bg-black/15 p-3"><summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Registros deste atendimento — não são o protocolo</summary><div className="mt-3 space-y-2">{attendingNotes.trim() && <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 p-3"><p className="text-xs font-bold uppercase tracking-wide text-emerald-300">Registro em andamento</p><p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{attendingNotes}</p></div>}{logs.slice(-3).map((log, index) => <p key={index} className="rounded bg-black/20 px-3 py-2 font-mono text-xs text-muted-foreground">{log}</p>)}</div></details>
                   </div>
                 </div>
@@ -2014,7 +2015,48 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+  );
+
+  return (
+    <DashboardLayout>
+      <audio ref={audioRef} preload="auto" loop src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" />
+
+      {/* Popup de Ocorrências Pendentes (a cada 20 min) */}
+      {pendingPopup && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center animate-pulse" onClick={closePendingPopup}>
+          <div className="bg-red-900/95 border-2 border-red-500 rounded-lg p-6 w-[500px] max-h-[60vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-red-300 flex items-center gap-2">
+                <Bell className="h-6 w-6 animate-bounce" /> OCORRÊNCIAS PENDENTES ({queues.filter(q => q.queueStatus === 'waiting').length})
+              </h3>
+              <button onClick={closePendingPopup} className="text-white hover:text-red-300">
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {queues.filter(q => q.queueStatus === 'waiting').map((ev, idx) => (
+                <div key={idx} className="bg-black/40 border border-red-500/30 rounded px-3 py-2 cursor-pointer hover:bg-red-800/30" onClick={() => { closePendingPopup(); handleSelectEvent(ev); }}>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-white">{ev.description || 'EVENTO NÃO CADASTRADO'}</span>
+                    <span className="text-xs text-red-300">{new Date(ev.queuedAt).toLocaleTimeString('pt-BR')}</span>
+                  </div>
+                  <div className="text-xs text-red-200">{ev.account} - {ev.clientName}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-red-300 text-sm mt-4">Clique para fechar ou atender um evento</p>
+          </div>
+        </div>
       )}
+
+      {expandedCam && <CameraModal
+        cam={expandedCam}
+        onClose={() => setExpandedCam(null)}
+        url={clientCameras?.[expandedCam - 1]?.rtspUrl || undefined}
+        label={clientCameras?.[expandedCam - 1]?.name || `Câmera ${expandedCam}`}
+      />}
+
+
 
       {remoteCommandOpen && selectedEvent && selectedRemoteSystemId && (
         <div className="fixed inset-0 z-[96] flex items-end justify-center bg-black/75 p-2 sm:items-center sm:p-5" onClick={() => !simulateRemoteCommandMut.isPending && setRemoteCommandOpen(false)}>
@@ -2229,9 +2271,9 @@ export default function Dashboard() {
         </div>
 
         {/* MAIN CONTENT */}
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden max-lg:flex-col">
           {/* SELETOR COMPACTO DAS FILAS RECOLHIDAS */}
-          <div className="flex h-full w-[60px] min-w-[60px] flex-col items-center gap-2 border-r border-border bg-card px-1 py-3 sm:w-[76px] sm:min-w-[76px] sm:px-2">
+          <div className={`flex h-full w-[60px] min-w-[60px] flex-col items-center gap-2 border-r border-border bg-card px-1 py-3 sm:w-[76px] sm:min-w-[76px] sm:px-2 ${selectedEvent ? "max-lg:hidden" : "max-lg:h-12 max-lg:min-h-12 max-lg:w-full max-lg:min-w-0 max-lg:flex-row max-lg:border-b max-lg:border-r-0 max-lg:py-1"}`}>
             <span className="text-[9px] font-bold tracking-[0.15em] text-muted-foreground">FILAS</span>
             {([
               { key: "attending" as const, label: "Atendimento", color: "text-blue-400 border-blue-500/40 bg-blue-500/10", icon: Headphones },
@@ -2245,8 +2287,9 @@ export default function Dashboard() {
             })}
           </div>
 
-          {/* FILA PRINCIPAL: SEMPRE ABERTA */}
-          <div className="flex h-full min-w-0 flex-1 flex-col border-r border-border bg-card">
+          {/* ÁREA CENTRAL: filas ou atendimento, sem sobrepor os logs */}
+          <main aria-label="Área central de atendimento" className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden max-lg:h-auto">
+          {selectedEvent ? occurrenceTreatmentPanel : <div className="flex h-full min-w-0 flex-1 flex-col border-r border-border bg-card">
             <div className="px-3 py-2 border-b border-border flex items-center">
               <div className="flex items-center gap-2">
                 {connected ? (
@@ -2283,227 +2326,16 @@ export default function Dashboard() {
                 {grouped.waiting.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Nenhuma ocorrência</p>}
               </div>
             </div>
-          </div>
-
-          {/* ÁREA DE CONTEXTO: O TRATAMENTO É ABERTO NO POPUP */}
-          <div className="hidden flex-1 h-full flex-col overflow-hidden min-h-0">
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p className="text-lg">Selecione um evento na fila para atender</p>
-                <p className="mt-1 text-sm text-muted-foreground/70">O tratamento será aberto em uma janela operacional segura.</p>
-              </div>
-            </div>
-            {selectedEvent && false && (
-              <div className="flex flex-col h-full">
-                {/* HEADER DO EVENTO */}
-                <div className="px-4 py-3 border-b border-border bg-card">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <AlertTriangle className={`h-5 w-5 ${legacySelectedEvent.qualifier === 'E' ? 'text-red-400' : 'text-green-400'}`} />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-400 font-bold">Conta {legacySelectedEvent.account}</span>
-                          <span className="text-foreground font-bold">{legacySelectedClient?.name || legacySelectedEvent.clientName}</span>
-                          {legacySelectedClient?.fantasyName && <span className="text-cyan-400">- {legacySelectedClient.fantasyName}</span>}
-                        </div>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className={`font-bold text-lg ${PRIORITY_TEXT_COLOR[legacySelectedEvent.priority] || 'text-foreground'}`}>
-                            {legacySelectedEvent.qualifier}{legacySelectedEvent.eventCode} - {legacySelectedEvent.description}
-                          </span>
-                          <span className="text-muted-foreground">- Zona {legacySelectedEvent.zoneUser}</span>
-                          {legacySelectedEvent.zoneName && <span className="text-foreground ml-1">{legacySelectedEvent.zoneName}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <Timer startTime={attendStartTime} />
-                  </div>
-                </div>
-
-                {legacySelectedEvent.queueStatus === "maintenance" && (
-                  <div className="flex-1 flex items-center justify-center p-8">
-                    <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
-                      <Wrench className="mx-auto h-10 w-10 text-yellow-400 mb-3" />
-                      <h3 className="text-lg font-bold text-yellow-200">Sistema em manutenção</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">A ocorrência está preservada exclusivamente na fila de manutenção. Ela não pode ser tratada, finalizada ou duplicada no relatório enquanto o período estiver ativo.</p>
-                      <Button className="mt-5 bg-red-600 hover:bg-red-700" onClick={() => void releaseMaintenance()} disabled={endMaintenanceMut.isPending}>
-                        <Wrench className="mr-2 h-4 w-4" /> {endMaintenanceMut.isPending ? "Retirando..." : "Retirar manutenção agora"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* OBSERVAÇÕES */}
-                <div className={`px-4 py-2 border-b border-border ${legacySelectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
-                  <div className="flex items-start gap-3">
-                    <Textarea
-                      className="flex-1 min-h-[60px] max-h-[80px] text-sm resize-none"
-                      placeholder="Observações..."
-                      value={attendingNotes}
-                      onChange={(e) => setAttendingNotes(e.target.value)}
-                    />
-                    <div className="flex flex-col gap-1.5">
-                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} />
-                        <Mail className="h-3 w-3" /> E-mail
-                      </label>
-                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(e) => setSendPush(e.target.checked)} />
-                        <Send className="h-3 w-3" /> Push
-                      </label>
-                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 mt-1" onClick={() => finalizeEvent(legacySelectedEvent)}>
-                        Finalizar
-                      </Button>
-                      {queues.filter((item) => item.account === legacySelectedEvent.account).length > 1 && (
-                        <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>
-                          Finalizar em massa ({queues.filter((item) => item.account === legacySelectedEvent.account).length})
-                        </Button>
-                      )}
-                      <Button size="sm" variant="outline" className="h-7 text-xs mt-1 w-full border-blue-500/50 text-blue-400" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}>
-                        Finalização Rápida
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* BARRA DE AÇÕES */}
-                <div className={`px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap ${legacySelectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => { setActiveTab("cameras"); toast.info("Providências"); }}>
-                    <FileText className="h-3.5 w-3.5" /> Providências
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setActiveTab("cameras")}>
-                    <Camera className="h-3.5 w-3.5" /> Câmeras
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-red-400" onClick={() => { addLog("Polícia acionada"); toast.info("Polícia acionada"); }}>
-                    <Shield className="h-3.5 w-3.5" /> Polícia
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={openObservation}>
-                    <Eye className="h-3.5 w-3.5" /> Observação
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-orange-400" onClick={() => { moveEvent(legacySelectedEvent, "tactical"); addLog("Tático despachado"); }}>
-                    <Truck className="h-3.5 w-3.5" /> Tático
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`h-8 text-xs gap-1.5 ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`}
-                    onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()}
-                    disabled={endMaintenanceMut.isPending}
-                  >
-                    <Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-green-400" onClick={() => { addLog("Comando DESARMAR enviado"); toast.info("Comando desarmar enviado"); }}>
-                    <Shield className="h-3.5 w-3.5" /> Desarmar
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-cyan-400" onClick={() => { addLog(`Zona ${legacySelectedEvent.zoneUser} isolada`); toast.info("Zona isolada"); }}>
-                    <Ban className="h-3.5 w-3.5" /> Isolar Zona
-                  </Button>
-                </div>
-
-                {/* CÂMERAS / CONTEÚDO */}
-                <div className={`flex-1 px-4 py-2 overflow-hidden flex flex-col ${legacySelectedEvent.queueStatus === "maintenance" ? "hidden" : ""}`}>
-                  {/* Carrossel de Câmeras - logo abaixo dos botões de ação */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <button
-                      onClick={() => setCamPage(Math.max(0, camPage - 1))}
-                      className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                      disabled={camPage === 0}
-                    >
-                      <ChevronLeft className="h-6 w-6" />
-                    </button>
-                    <div className="flex-1 grid grid-cols-4 gap-3">
-                      {Array.from({ length: camsPerPage }, (_, i) => {
-                        const camNum = camPage * camsPerPage + i + 1;
-                        const camData = clientCameras?.[camPage * camsPerPage + i];
-                        return (
-                          <div
-                            key={camNum}
-                            onClick={() => { setExpandedCam(camNum); addLog(`Visualizou Câmera ${camNum}${camData?.name ? ` (${camData.name})` : ''}`); }}
-                            className="border border-border rounded-lg flex flex-col items-center justify-center bg-black/50 cursor-pointer hover:border-primary/50 hover:bg-black/70 transition-colors relative group aspect-[4/3] max-h-[140px]"
-                          >
-                            {camData?.rtspUrl ? (
-                              <HLSPlayer url={camData.rtspUrl} label={camData.name || `Câmera ${camNum}`} className="w-full h-full" />
-                            ) : (
-                              <>
-                                <Camera className="h-8 w-8 text-muted-foreground mb-1" />
-                                <span className="text-muted-foreground text-sm font-medium">{camData?.name || `Câmera ${camNum}`}</span>
-                              </>
-                            )}
-                            <Maximize2 className="h-3.5 w-3.5 text-muted-foreground absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <button
-                      onClick={() => setCamPage(Math.min(Math.ceil(totalCams / camsPerPage) - 1, camPage + 1))}
-                      className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                      disabled={camPage >= Math.ceil(totalCams / camsPerPage) - 1}
-                    >
-                      <ChevronRight className="h-6 w-6" />
-                    </button>
-                  </div>
-
-                  {/* Abas: Contatos / Setor-Zona */}
-                  <div className="mt-3 flex items-center gap-4 border-t border-border pt-3">
-                    <button
-                      onClick={() => setActiveTab("contacts")}
-                      className={`flex items-center gap-1.5 text-sm font-medium pb-1 border-b-2 transition-colors ${activeTab === 'contacts' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    >
-                      <Phone className="h-3.5 w-3.5" /> Contatos
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("zones")}
-                      className={`flex items-center gap-1.5 text-sm font-medium pb-1 border-b-2 transition-colors ${activeTab === 'zones' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    >
-                      <MapPin className="h-3.5 w-3.5" /> Setor/Zona
-                    </button>
-                  </div>
-
-                  {/* Conteúdo da aba */}
-                  {activeTab === "contacts" && (
-                    <div className="mt-2 space-y-1.5 max-h-[100px] overflow-auto">
-                      {legacySelectedClient?.phone ? (
-                        <div className="flex items-center justify-between bg-secondary/30 rounded px-3 py-1.5">
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-sm font-mono">{legacySelectedClient.phone}</span>
-                          </div>
-                          <Button size="sm" variant="ghost" className="h-6 text-xs"><PhoneCall className="h-3 w-3 mr-1" />Ligar</Button>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Nenhum contato cadastrado</p>
-                      )}
-                      {legacySelectedClient?.whatsapp && (
-                        <div className="flex items-center justify-between bg-secondary/30 rounded px-3 py-1.5">
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-3.5 w-3.5 text-green-400" />
-                            <span className="text-sm font-mono text-green-400">{legacySelectedClient.whatsapp}</span>
-                          </div>
-                          <Button size="sm" variant="ghost" className="h-6 text-xs text-green-400">WhatsApp</Button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {activeTab === "zones" && (
-                    <div className="mt-2 space-y-1 max-h-[100px] overflow-auto">
-                      <div className="flex items-center gap-2 bg-secondary/30 rounded px-3 py-1.5">
-                        <span className="text-xs font-mono text-red-400 font-bold">Zona {legacySelectedEvent.zoneUser}</span>
-                        <span className="text-xs text-muted-foreground">- Setor em disparo</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          </div>}
+          </main>
 
           {/* COLUNA 3: Logs da Ocorrência */}
-          <div className="w-[300px] min-w-[300px] h-full border-l border-cyan-500/30 bg-card text-foreground flex flex-col">
+          <aside aria-label="Logs da Ocorrência" className="w-[300px] min-w-[300px] h-full border-l border-cyan-500/30 bg-card text-foreground flex flex-col max-lg:h-[min(34dvh,280px)] max-lg:min-h-[160px] max-lg:w-full max-lg:min-w-0 max-lg:border-l-0 max-lg:border-t">
             <ScrollArea className="flex-1 px-4 py-3">
-              <IncidentAuditTimeline incidentId={selectedEvent?.incidentId || auditIncidentId} active={!selectedEvent} />
+              <IncidentAuditTimeline incidentId={selectedEvent?.incidentId || auditIncidentId} active />
               {failedAuditAction && <div role="alert" className="mt-3 rounded border border-red-400 bg-red-500/10 p-3 text-sm text-red-100">Registro de auditoria pendente para ocorrência #{failedAuditAction.incidentId}.<Button className="mt-2" variant="outline" size="sm" onClick={() => void retryFailedAuditAction()} disabled={recordAuditActionMut.isPending}>Tentar gravar novamente</Button></div>}
             </ScrollArea>
-          </div>
+          </aside>
         </div>
       </div>
 

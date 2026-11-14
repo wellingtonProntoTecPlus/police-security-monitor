@@ -43,11 +43,23 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("Usuários programados no painel");
   });
 
-  it("abre o tratamento em um popup central sem comprimir a fila", () => {
+  it("abre o tratamento no espaço central das filas e mantém os logs fixos à direita", () => {
     expect(source).toContain("Tratamento de ocorrência");
-    expect(source).toContain("fixed inset-0 z-[70]");
+    expect(source).toContain('data-testid="active-occurrence-inline"');
+    expect(source).toContain("{selectedEvent ? occurrenceTreatmentPanel : <div className=");
+    expect(source).toContain('<aside aria-label="Logs da Ocorrência"');
+    expect(source).not.toContain('fixed inset-0 z-[70] flex items-end justify-center bg-black/65');
     expect(source).toContain("Registro do atendimento, contatos realizados e providências");
-    expect(source).toContain("O tratamento será aberto em uma janela operacional segura.");
+    expect(source).toContain("{selectedEvent ? occurrenceTreatmentPanel");
+    expect(source).toContain('<div className="flex min-h-0 flex-1 overflow-hidden max-lg:flex-col">');
+    expect(source).toContain('aria-label="Área central de atendimento" className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden max-lg:h-auto"');
+    expect(source).toContain("max-lg:h-[min(34dvh,280px)]");
+    expect(source).toMatch(/<div className="flex min-h-0 flex-1 overflow-hidden max-lg:flex-col">[\s\S]*?<main aria-label="Área central de atendimento"[\s\S]*?<aside aria-label="Logs da Ocorrência"/);
+  });
+
+  it("não permite que o popup periódico de pendentes cubra o rascunho do atendimento", () => {
+    expect(source).toContain("if (selectedEvent) return;");
+    expect(source).toContain("if (selectedEvent && pendingPopup) closePendingPopup();");
   });
 
   it("reconcilia a fila persistida ao retornar de uma aba ou tablet em segundo plano", () => {
