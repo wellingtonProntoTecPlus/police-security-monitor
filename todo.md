@@ -961,4 +961,4 @@
 - [x] Radioenge E361: R361 físico e da mesma central finaliza a falha ainda aberta, inclusive se a janela de observação já venceu; grava “Falha de Keep Alive restaurada” no relatório/histórico e não duplica fechamento
 - [x] KOFF: o retorno do Keep Alive fecha imediatamente a falha aberta; se um Contact ID real do mesmo painel chegar primeiro, também a fecha. Ambos registram “Falha de Keep Alive restaurada” e não criam Contact ID fictício
 - [x] Eventos sintéticos, KOFF, interno ViaWeb, outra central, outra conta ou estado sem central identificada não encerram a falha; todos os eventos originais são preservados
-- [x] Validação: TypeScript, 156 arquivos/717 testes e build aprovados, incluindo teste privado MariaDB do retorno do heartbeat, receiver e mensagem renderizada; nenhuma transmissão física nem atualização da VPS realizada
+- [x] Validação: TypeScript, 156 arquivos/718 testes e build aprovados, incluindo MariaDB privado para Manutenção, timestamp legado preservado e vínculo cliente/parceira; nenhuma transmissão física nem atualização da VPS realizada

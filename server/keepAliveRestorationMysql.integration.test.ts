@@ -97,7 +97,7 @@ async function seedEvent(input: {
   });
 }
 
-async function seedIncident(input: { id: number; systemId: number; eventId: number; status: "waiting" | "attending" | "observing" | "dispatched" }) {
+async function seedIncident(input: { id: number; systemId: number; eventId: number; status: "waiting" | "attending" | "observing" | "dispatched" | "maintenance" }) {
   await orm.insert(incidents).values({
     id: input.id,
     eventId: input.eventId,
@@ -139,7 +139,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
     const restoredAt = new Date("2026-11-14T10:15:00.000Z");
     await pool.query("UPDATE alarm_systems SET lastKeepAliveAt = ? WHERE id = 1", [failureAt]);
     await seedEvent({ id: 51, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "KOFF", remoteIp: "SYSTEM", receivedAt: failureAt });
-    await seedIncident({ id: 61, systemId: 1, eventId: 51, status: "observing" });
+    await seedIncident({ id: 61, systemId: 1, eventId: 51, status: "maintenance" });
     await orm.insert(systemDisconnectAlerts).values({
       id: 71,
       alarmSystemId: 1,
@@ -161,7 +161,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       id: 51,
       eventCode: "KOFF",
       autoFinalized: true,
-      autoFinalizationReason: "Falha de Keep Alive restaurada após retorno do Keep Alive",
+      autoFinalizationReason: "Falha de Keep Alive restaurada",
     });
     expect((await orm.select().from(systemDisconnectAlerts))[0]).toMatchObject({ restoredAt, restoredKeepAliveAt: restoredAt });
     expect((await orm.select().from(occurrences))[0]).toMatchObject({
@@ -169,15 +169,42 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       eventCode: "KOFF",
       status: "finalized",
       partnerCompanyId: 1,
+      clientName: "Cliente de teste 1",
       observations: expect.stringContaining("Falha de Keep Alive restaurada"),
     });
     expect((await orm.select().from(incidentHistory))[0]).toMatchObject({
       incidentId: 61,
       action: "auto_restored",
-      statusBefore: "observing",
+      statusBefore: "maintenance",
       statusAfter: "closed",
     });
     expect(await orm.select().from(alarmEvents)).toHaveLength(1);
+  });
+
+  it("preserva a hora de restauração já marcada por uma versão anterior", async () => {
+    const failureAt = new Date("2026-11-14T10:00:00.000Z");
+    const originalRestoredAt = new Date("2026-11-14T10:05:00.000Z");
+    const nextHeartbeatAt = new Date("2026-11-14T10:15:00.000Z");
+    await pool.query("UPDATE alarm_systems SET lastKeepAliveAt = ? WHERE id = 1", [failureAt]);
+    await seedEvent({ id: 81, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "KOFF", remoteIp: "SYSTEM", receivedAt: failureAt });
+    await seedIncident({ id: 91, systemId: 1, eventId: 81, status: "observing" });
+    await orm.insert(systemDisconnectAlerts).values({
+      id: 101,
+      alarmSystemId: 1,
+      outageStartedAt: failureAt,
+      detectedAt: failureAt,
+      eventId: 81,
+      incidentId: 91,
+      restoredAt: originalRestoredAt,
+      restoredKeepAliveAt: originalRestoredAt,
+    });
+
+    const result = await recordSystemKeepAlive(1, nextHeartbeatAt);
+    expect(result?.finalizedDisconnectAlerts).toHaveLength(1);
+    expect((await orm.select().from(systemDisconnectAlerts))[0]).toMatchObject({ restoredAt: originalRestoredAt, restoredKeepAliveAt: originalRestoredAt });
+    expect((await orm.select().from(incidents))[0]).toMatchObject({ status: "closed", closedAt: originalRestoredAt });
+    expect((await orm.select().from(occurrences))[0]).toMatchObject({ finalizedAt: originalRestoredAt, attendingTimeMs: 300_000 });
+    expect((await orm.select().from(occurrences))[0]?.observations).toContain("07:05:00");
   });
 
   it("finaliza E361 por R361 mesmo após a janela de 4 segundos e mantém a falha restaurada no histórico", async () => {
@@ -185,7 +212,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
     const restoredAt = new Date("2026-11-14T10:00:08.000Z");
     await seedEvent({ id: 101, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "361", receivedAt: failureAt, description: "Falha de Keep Alive E361" });
     await seedEvent({ id: 102, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "R", eventCode: "361", receivedAt: restoredAt, description: "Restauração de Keep Alive R361" });
-    await seedIncident({ id: 201, systemId: 1, eventId: 101, status: "attending" });
+    await seedIncident({ id: 201, systemId: 1, eventId: 101, status: "maintenance" });
 
     const candidate = await findRadioengeKeepAliveObservationForRestoration({ alarmSystemId: 1, account: "0041" });
     expect(candidate?.incident.id).toBe(201);
@@ -210,11 +237,13 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       status: "finalized",
       observations: expect.stringContaining("Falha de Keep Alive restaurada"),
       logs: expect.stringContaining("Restauração de Keep Alive R361"),
+      clientName: "Cliente de teste 1",
+      partnerCompanyId: 1,
     }]);
     expect(await orm.select().from(incidentHistory)).toMatchObject([{
       incidentId: 201,
       action: "auto_restored",
-      statusBefore: "attending",
+      statusBefore: "maintenance",
       statusAfter: "closed",
       note: expect.stringContaining("R361"),
     }]);
@@ -231,7 +260,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
     await seedEvent({ id: 302, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "130", receivedAt: restoredAt, description: "Alarme de teste recebido da central" });
     await seedEvent({ id: 303, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "KOFF", remoteIp: "SYSTEM", description: "Segundo KOFF de teste" });
     await seedIncident({ id: 401, systemId: 1, eventId: 301, status: "observing" });
-    await seedIncident({ id: 402, systemId: 1, eventId: 303, status: "waiting" });
+    await seedIncident({ id: 402, systemId: 1, eventId: 303, status: "maintenance" });
     await orm.insert(systemDisconnectAlerts).values({
       id: 501,
       alarmSystemId: 1,
@@ -240,6 +269,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       eventId: 301,
       incidentId: 401,
       restoredAt: new Date("2026-11-14T10:10:00.000Z"),
+      restoredKeepAliveAt: new Date("2026-11-14T10:10:00.000Z"),
     });
     await orm.insert(systemDisconnectAlerts).values({
       id: 502,
@@ -252,10 +282,11 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
 
     const restored = await finalizeKeepAliveDisconnectsOnPanelEvent({ alarmSystemId: 1, panelEventId: 302, receivedAt: restoredAt });
     expect(restored).toHaveLength(2);
-    expect(restored[0]?.description).toContain("Falha de Keep Alive restaurada");
-    expect(restored[0]?.description).toContain("E130");
+    expect(restored.find((entry) => entry.incidentId === 401)?.description).toContain("Falha de Keep Alive restaurada");
+    expect(restored.find((entry) => entry.incidentId === 401)?.description).toContain("retorno do Keep Alive");
+    expect(restored.find((entry) => entry.incidentId === 402)?.description).toContain("E130");
     expect(await orm.select().from(incidents)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 401, status: "closed", resolution: expect.stringContaining("evento real E130") }),
+      expect.objectContaining({ id: 401, status: "closed", resolution: expect.stringContaining("retorno do Keep Alive"), closedAt: new Date("2026-11-14T10:10:00.000Z") }),
       expect.objectContaining({ id: 402, status: "closed", resolution: expect.stringContaining("evento real E130") }),
     ]));
     const alerts = await orm.select().from(systemDisconnectAlerts);
@@ -268,15 +299,17 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
         qualifier: "E",
         status: "finalized",
         observations: expect.stringContaining("Falha de Keep Alive restaurada"),
-        logs: expect.stringContaining("E130"),
+        logs: expect.stringContaining("retorno do Keep Alive"),
+        partnerCompanyId: 1,
+        finalizedAt: new Date("2026-11-14T10:10:00.000Z"),
       }),
-      expect.objectContaining({ incidentId: 402, eventCode: "KOFF", status: "finalized" }),
+      expect.objectContaining({ incidentId: 402, eventCode: "KOFF", status: "finalized", partnerCompanyId: 1, clientName: "Cliente de teste 1" }),
     ]));
     expect((await orm.select().from(alarmEvents)).find((event) => event.id === 302)).toMatchObject({ eventCode: "130", autoFinalized: false });
     expect(await orm.select().from(alarmEvents)).toHaveLength(3);
     expect(await orm.select().from(incidentHistory)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ incidentId: 401, action: "auto_restored", statusBefore: "observing", statusAfter: "closed", note: expect.stringContaining("E130") }),
-      expect.objectContaining({ incidentId: 402, action: "auto_restored", statusBefore: "waiting", statusAfter: "closed", note: expect.stringContaining("E130") }),
+      expect.objectContaining({ incidentId: 401, action: "auto_restored", statusBefore: "observing", statusAfter: "closed", note: expect.stringContaining("retorno do Keep Alive") }),
+      expect.objectContaining({ incidentId: 402, action: "auto_restored", statusBefore: "maintenance", statusAfter: "closed", note: expect.stringContaining("E130") }),
     ]));
 
     expect(await finalizeKeepAliveDisconnectsOnPanelEvent({ alarmSystemId: 1, panelEventId: 302, receivedAt: restoredAt })).toEqual([]);
