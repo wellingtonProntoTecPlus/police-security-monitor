@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
-import { getClientProcedureTreatment, listClientProcedures, updateClientProcedure, setDbForTesting } from "./db";
+import { createClientProcedure, getClientProcedureTreatment, listClientProcedures, updateClientProcedure, setDbForTesting } from "./db";
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
 const enabled = Boolean(socket?.startsWith("/tmp/police-shift-db/") && existsSync(socket));
 const database = `police_procedure_test_${process.pid}`;
@@ -13,6 +13,9 @@ const migration = upgrade.slice(upgrade.indexOf("-- Tipo de protocolo de atendim
 function legacyDDL() {
   const snapshot = JSON.parse(readFileSync(new URL("../drizzle/meta/0050_snapshot.json", import.meta.url), "utf8"));
   return tables.map(name => {
+    if (name === "client_procedures") {
+      return "CREATE TABLE `client_procedures` (`id` int NOT NULL AUTO_INCREMENT, `clientId` int NOT NULL, `description` text NOT NULL, `sortOrder` int DEFAULT 0, `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (`id`))";
+    }
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
       let value = `\`${column.name}\` ${column.type}${column.notNull ? " NOT NULL" : " NULL"}${column.autoincrement ? " AUTO_INCREMENT" : ""}`;
@@ -30,10 +33,10 @@ describe.skipIf(!enabled)("client protocols · private MariaDB only", () => {
     pool = mysql.createPool({ socketPath: socket, user: "root", database, connectionLimit: 3, multipleStatements: true });
     await pool.query(legacyDDL());
     // Um registro legado deve sobreviver à adição e à reaplicação.
-    await pool.query("INSERT INTO client_procedures (clientId,title,description) VALUES (99,'Legado','Orientacao existente')");
+    await pool.query("INSERT INTO client_procedures (clientId,description,sortOrder) VALUES (99,'Orientacao existente',7)");
     await pool.query(migration); await pool.query(migration);
-    const [legacy] = await pool.query<any[]>("SELECT procedureType,description FROM client_procedures WHERE clientId = 99");
-    expect(legacy[0]).toMatchObject({ procedureType: "general", description: "Orientacao existente" });
+    const [legacy] = await pool.query<any[]>("SELECT procedureType,title,priority,isActive,description,sortOrder FROM client_procedures WHERE clientId = 99");
+    expect(legacy[0]).toMatchObject({ procedureType: "general", title: "Orientacao existente", priority: 7, isActive: 1, description: "Orientacao existente", sortOrder: 7 });
     setDbForTesting(drizzle(pool));
   });
   beforeEach(async () => {
@@ -48,6 +51,24 @@ describe.skipIf(!enabled)("client protocols · private MariaDB only", () => {
     expect(result.eventType).toBe("alarm"); expect(result.procedures.map(row => row.id)).toEqual([2,1]);
     expect(result.hasSpecificProcedure).toBe(true);
     const [count] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM alarm_events"); expect(count[0].n).toBe(7);
+  });
+  it("saves a new procedure using the current UI fields against the exact legacy VPS schema after upgrade", async () => {
+    const created = await createClientProcedure({
+      clientId: 1,
+      procedureType: "general",
+      title: "Disparo de Alarme",
+      description: "Ligar imediatamente para o responsável.",
+      priority: 1,
+    });
+    expect(created.id).toBeGreaterThan(0);
+    expect((await listClientProcedures(1)).find(row => row.id === created.id)).toMatchObject({
+      clientId: 1,
+      procedureType: "general",
+      title: "Disparo de Alarme",
+      description: "Ligar imediatamente para o responsável.",
+      priority: 1,
+      isActive: true,
+    });
   });
   it("distinguishes panic and KOFF problems from regular alarms", async () => {
     expect((await getClientProcedureTreatment(1,102)).procedures.map(row => row.id)).toEqual([3,1]);

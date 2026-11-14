@@ -1327,6 +1327,60 @@ PREPARE migration_statement FROM @statement;
 EXECUTE migration_statement;
 DEALLOCATE PREPARE migration_statement;
 
+-- Compatibilidade com a tabela legada de providências, que tinha description e
+-- sortOrder, mas ainda não possuía title, priority ou isActive.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE client_procedures ADD COLUMN title VARCHAR(255) NULL AFTER clientId',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'client_procedures' AND COLUMN_NAME = 'title'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+UPDATE client_procedures
+SET title = LEFT(COALESCE(NULLIF(TRIM(title), ''), NULLIF(TRIM(description), ''), 'Orientação legada'), 255)
+WHERE title IS NULL OR title = '';
+ALTER TABLE client_procedures MODIFY COLUMN title VARCHAR(255) NOT NULL;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE client_procedures ADD COLUMN priority INT NULL AFTER description',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'client_procedures' AND COLUMN_NAME = 'priority'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+SET @has_legacy_sort_order = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'client_procedures' AND COLUMN_NAME = 'sortOrder'
+);
+SET @statement = IF(@has_legacy_sort_order > 0,
+  'UPDATE client_procedures SET priority = GREATEST(COALESCE(sortOrder, 1), 1) WHERE priority IS NULL',
+  'UPDATE client_procedures SET priority = 1 WHERE priority IS NULL'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+ALTER TABLE client_procedures MODIFY COLUMN priority INT NOT NULL DEFAULT 1;
+
+SET @statement = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE client_procedures ADD COLUMN isActive BOOLEAN NOT NULL DEFAULT TRUE',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'client_procedures' AND COLUMN_NAME = 'isActive'
+);
+PREPARE migration_statement FROM @statement;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
+
 -- Ficha cadastral de DVRs por cliente. Sem conexão ao equipamento; senha cifrada AES-256-GCM.
 CREATE TABLE IF NOT EXISTS client_dvrs (
   id INT AUTO_INCREMENT PRIMARY KEY,
