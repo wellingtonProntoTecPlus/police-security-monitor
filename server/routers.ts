@@ -666,37 +666,18 @@ export const appRouter = router({
       return db.updateAlarmSystem(id, data);
     }),
     startMaintenance: operatorProcedure.input(z.object({
-      systemId: z.number(),
-      incidentId: z.number().optional(),
-      startAt: z.date(),
-      endAt: z.date(),
-      notes: z.string().max(2000).optional(),
+      systemId: z.number().int().positive(), incidentId: z.number().int().positive(), leaseToken: z.string().uuid(),
+      startAt: z.date(), endAt: z.date(), notes: z.string().trim().min(5, "Informe o motivo da manutenção").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.systemId);
-      if (input.endAt <= input.startAt) throw new TRPCError({ code: "BAD_REQUEST", message: "O fim deve ser posterior ao início da manutenção" });
-      await db.scheduleSystemMaintenance({
-        systemId: input.systemId,
-        startAt: input.startAt,
-        endAt: input.endAt,
-        notes: input.notes,
-        operatorId: ctx.user.id,
-      });
-      await db.putSystemIncidentsInMaintenance({
-        systemId: input.systemId,
-        endAt: input.endAt,
-        notes: `Sistema em manutenção de ${input.startAt.toLocaleString("pt-BR")} até ${input.endAt.toLocaleString("pt-BR")}${input.notes ? ` — ${input.notes}` : ""}`,
-      });
-      const maintenanceIncident = await db.ensureMaintenanceIncident({
-        systemId: input.systemId,
-        endAt: input.endAt,
-        notes: `Sistema em manutenção de ${input.startAt.toLocaleString("pt-BR")} até ${input.endAt.toLocaleString("pt-BR")}${input.notes ? ` — ${input.notes}` : ""}`,
-      });
-      return { success: true, incidentId: maintenanceIncident.id } as const;
+      const result = await db.startSystemMaintenanceForOperator(input, { operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId!, leaseToken: input.leaseToken });
+      emitIncidentStateChanged({ incidentId: 0, incidentStatus: "maintenance", operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "status_changed" });
+      return result;
     }),
-    endMaintenance: operatorProcedure.input(z.object({ systemId: z.number() })).mutation(async ({ input, ctx }) => {
+    endMaintenance: operatorProcedure.input(z.object({ systemId: z.number().int().positive(), incidentId: z.number().int().positive(), leaseToken: z.string().uuid() }).strict()).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.systemId);
-      await db.endSystemMaintenance(input.systemId);
-      await db.releaseMaintenanceIncidents(input.systemId, "Sistema retirado da manutenção pelo operador. Ocorrência retornada para atendimento.");
+      await db.endSystemMaintenanceForOperator(input, { operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId!, leaseToken: input.leaseToken || "" });
+      emitIncidentStateChanged({ incidentId: 0, incidentStatus: "attending", operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "status_changed" });
       return { success: true } as const;
     }),
     delete: adminProcedure.input(z.object({ id: z.number(), confirmation: z.string().trim().min(1) })).mutation(async ({ input }) => {
@@ -970,6 +951,22 @@ export const appRouter = router({
   incident: router({
     list: operatorProcedure.input(z.object({ status: z.string().optional() }).optional()).query(({ input }) => db.listIncidents(input?.status)),
     openQueue: operatorProcedure.query(() => db.listOpenQueueEvents()),
+    openPanel: operatorProcedure.input(z.object({ incidentId: z.number().int().positive(), leaseToken: z.string().uuid(), assume: z.boolean().optional() }).strict()).mutation(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      const result = await db.openIncidentPanel(input, { operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId!, leaseToken: input.leaseToken });
+      emitIncidentStateChanged({ incidentId: result.id, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: input.assume ? "assumed" : "claimed" });
+      return result;
+    }),
+    renewPanel: operatorProcedure.input(z.object({ incidentId: z.number().int().positive(), leaseToken: z.string().uuid() }).strict()).mutation(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      return db.renewIncidentPanel(input.incidentId, { operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId!, leaseToken: input.leaseToken });
+    }),
+    pausePanel: operatorProcedure.input(z.object({ incidentId: z.number().int().positive(), leaseToken: z.string().uuid(), reason: z.string().trim().min(5, "Informe o motivo da pausa").max(2000) }).strict()).mutation(async ({ input, ctx }) => {
+      await assertIncidentPartnerScope(ctx, input.incidentId);
+      const result = await db.pauseIncidentPanel(input.incidentId, input.reason, { operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId!, leaseToken: input.leaseToken });
+      emitIncidentStateChanged({ incidentId: result.id, incidentStatus: result.status, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, action: "status_changed" });
+      return result;
+    }),
     recentClientEvents: operatorProcedure.input(z.object({
       incidentId: z.number().int().positive(),
     })).query(async ({ input }) => {
@@ -996,11 +993,11 @@ export const appRouter = router({
       offset: z.number().int().min(0).max(1000000).optional(),
     }).refine((input) => !input.from || !input.to || input.from <= input.to, { message: "Data/hora inicial deve ser anterior à final" })).query(({ input }) => db.listIncidentAuditReport(input)),
     recordAction: operatorProcedure.input(z.discriminatedUnion("action", [
-      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("attendance_opened") }).strict(),
-      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("camera_viewed"), targetId: z.number().int().positive() }).strict(),
-      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.enum(["contact_selected", "contact_call_clicked", "contact_whatsapp_clicked"]), targetId: z.number().int().positive() }).strict(),
-      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("police_action_registered") }).strict(),
-      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), action: z.literal("tactical_status_updated"), tacticalStatus: z.enum(["en_route", "arrived", "inspection", "completed"]) }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), leaseToken: z.string().uuid(), action: z.literal("attendance_opened") }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), leaseToken: z.string().uuid(), action: z.literal("camera_viewed"), targetId: z.number().int().positive() }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), leaseToken: z.string().uuid(), action: z.enum(["contact_selected", "contact_call_clicked", "contact_whatsapp_clicked"]), targetId: z.number().int().positive() }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), leaseToken: z.string().uuid(), action: z.literal("police_action_registered") }).strict(),
+      z.object({ incidentId: z.number().int().positive(), requestId: z.string().uuid(), leaseToken: z.string().uuid(), action: z.literal("tactical_status_updated"), tacticalStatus: z.enum(["en_route", "arrived", "inspection", "completed"]) }).strict(),
     ])).mutation(async ({ input, ctx }) => {
       return db.recordIncidentOperatorAction(input, { id: ctx.user.id, name: ctx.user.name || `Operador ${ctx.user.id}` }, ctx.authSessionId);
     }),
@@ -1014,6 +1011,8 @@ export const appRouter = router({
     update: operatorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["attending", "dispatched"]),
+      leaseToken: z.string().uuid(),
+      notes: z.string().trim().min(5).max(2000).optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertIncidentPartnerScope(ctx, input.id);
       const result = await db.transitionIncidentForOperator({
@@ -1021,20 +1020,15 @@ export const appRouter = router({
         operatorId: ctx.user.id,
         operatorName: ctx.user.name || `Operador ${ctx.user.id}`,
         authSessionId: ctx.authSessionId,
-        status: input.status,
+        status: input.status, leaseToken: input.leaseToken, notes: input.notes,
       });
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: result.action === "claim" ? "claimed" : "status_changed" });
       return result;
     }),
-    assume: operatorProcedure.input(z.object({ incidentId: z.number() })).mutation(async ({ input, ctx }) => {
+    assume: operatorProcedure.input(z.object({ incidentId: z.number().int().positive(), leaseToken: z.string().uuid() }).strict()).mutation(async ({ input, ctx }) => {
       await assertIncidentPartnerScope(ctx, input.incidentId);
-      const result = await db.assumeObservedIncident({ incidentId: input.incidentId, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId });
+      const result = await db.openIncidentPanel({ incidentId: input.incidentId, assume: true }, { operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId!, leaseToken: input.leaseToken });
       emitIncidentStateChanged({ incidentId: result.id, parentIncidentId: result.parentIncidentId, incidentStatus: result.status, operatorId: result.operatorId, operatorName: result.operatorName, action: "assumed" });
-      if (result.forwardedMessage) emitOperatorShiftNotice({
-        kind: "shift_message", messageId: result.forwardedMessage.id, userId: result.forwardedMessage.toUserId,
-        fromOperatorName: result.forwardedMessage.fromOperatorName, toOperatorName: result.forwardedMessage.toOperatorName,
-        incidentId: result.forwardedMessage.incidentId, account: result.forwardedMessage.account,
-      });
       return result;
     }),
     bulkPreview: operatorProcedure.input(z.object({
@@ -1046,6 +1040,8 @@ export const appRouter = router({
     }),
     bulkFinalize: operatorProcedure.input(z.object({
       account: z.string().trim().min(1).max(20),
+      currentIncidentId: z.number().int().positive(),
+      leaseToken: z.string().uuid(),
       alarmSystemId: z.number().optional(),
       clientId: z.number().optional(),
       clientName: z.string().optional(),
@@ -1062,7 +1058,8 @@ export const appRouter = router({
     observe: operatorProcedure.input(z.object({
       incidentId: z.number(),
       until: z.date(),
-      notes: z.string().max(2000).optional(),
+      notes: z.string().trim().min(5, "Informe o motivo da observação").max(2000),
+      leaseToken: z.string().uuid(),
     })).mutation(async ({ input, ctx }) => {
       await assertIncidentPartnerScope(ctx, input.incidentId);
       const result = await db.putIncidentInObservation({ ...input, operatorId: ctx.user.id, operatorName: ctx.user.name || `Operador ${ctx.user.id}`, authSessionId: ctx.authSessionId });
@@ -1701,6 +1698,7 @@ export const appRouter = router({
     create: operatorProcedure.input(z.object({
       account: z.string(),
       incidentId: z.number().optional(),
+      leaseToken: z.string().uuid().optional(),
       eventCode: z.string(),
       qualifier: z.string().optional(),
       partition: z.string().optional(),
@@ -1723,11 +1721,11 @@ export const appRouter = router({
       eventReceivedAt: z.date().optional(),
       startedAt: z.date().optional(),
     })).mutation(async ({ input, ctx }) => {
-      const { incidentId, ...occurrence } = input;
+      const { incidentId, leaseToken, ...occurrence } = input;
       const operatorName = ctx.user.name || `Operador ${ctx.user.id}`;
       if (incidentId) await assertIncidentPartnerScope(ctx, incidentId);
       if (!incidentId) return db.createOccurrence({ ...occurrence, operatorId: ctx.user.id, operatorName });
-      const result = await db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName, ctx.authSessionId);
+      const result = await db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName, ctx.authSessionId, leaseToken);
       emitIncidentStateChanged({ incidentId, incidentStatus: "closed", operatorId: ctx.user.id, operatorName, action: "status_changed" });
       return result;
     }),

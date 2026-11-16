@@ -89,6 +89,11 @@ interface QueueEvent extends AlarmEvent {
   parentIncidentId?: number | null;
   incidentOperatorId?: number | null;
   incidentOperatorName?: string | null;
+  panelActive?: boolean;
+  panelOperatorId?: number | null;
+  panelOperatorName?: string | null;
+  panelLeaseExpiresAt?: string | Date | null;
+  pauseReason?: string | null;
   incidentVersion?: number;
   incidentClientId?: number | null;
   incidentSystemId?: number | null;
@@ -248,6 +253,23 @@ export default function Dashboard() {
   const [queues, setQueues] = useState<QueueEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<QueueEvent | null>(null);
   const selectedEventRef = useRef<QueueEvent | null>(selectedEvent);
+  // Lease de painel vive somente em memória. Não copiar o token para a fila nem para o storage.
+  const [panelLease, setPanelLease] = useState<{ incidentId: number; leaseToken: string; leaseExpiresAt?: string | Date | null } | null>(null);
+  const panelLeaseRef = useRef<typeof panelLease>(null);
+  const [leaseBlocked, setLeaseBlocked] = useState(false);
+  const [viewOnly, setViewOnly] = useState(false);
+  const [assumeAvailable, setAssumeAvailable] = useState(false);
+  const [panelWarning, setPanelWarning] = useState("");
+  const [openPending, setOpenPending] = useState(false);
+  const openingIncidentRef = useRef<number | null>(null);
+  const [pausePanelOpen, setPausePanelOpen] = useState(false);
+  const [pausePanelReason, setPausePanelReason] = useState("");
+  const [tacticalReasonOpen, setTacticalReasonOpen] = useState(false);
+  const [tacticalReason, setTacticalReason] = useState("");
+  const pendingSelectionRef = useRef<QueueEvent | null>(null);
+  const pendingNavigationRef = useRef<string | null>(null);
+  const panelTransitionInFlightRef = useRef(false);
+  const [panelTransitionBusy, setPanelTransitionBusy] = useState(false);
   const finalizationInFlightRef = useRef(false);
   const [attendingNotes, setAttendingNotes] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
@@ -308,13 +330,21 @@ export default function Dashboard() {
   const [remoteCommandPgm, setRemoteCommandPgm] = useState("");
   const [remoteCommandPartition, setRemoteCommandPartition] = useState("1");
 
-  useEffect(() => { selectedEventRef.current = selectedEvent; }, [selectedEvent]);
+  useEffect(() => {
+    selectedEventRef.current = selectedEvent;
+    if (!selectedEvent && openingIncidentRef.current === null) { panelLeaseRef.current = null; setPanelLease(null); }
+  }, [selectedEvent]);
 
   // Mutations
   const createOccurrenceMut = trpc.occurrence.create.useMutation();
   const createManualEventMut = trpc.alarmEvent.createManual.useMutation();
   const updateIncidentMut = trpc.incident.update.useMutation();
   const assumeIncidentMut = trpc.incident.assume.useMutation();
+  const openPanelMut = trpc.incident.openPanel.useMutation({ retry: false });
+  const renewPanelMut = trpc.incident.renewPanel.useMutation({ retry: false });
+  const pausePanelMut = trpc.incident.pausePanel.useMutation({ retry: false });
+  const renewPanelCallRef = useRef(renewPanelMut.mutateAsync);
+  renewPanelCallRef.current = renewPanelMut.mutateAsync;
   const bulkFinalizeMut = trpc.incident.bulkFinalize.useMutation();
   const observeIncidentMut = trpc.incident.observe.useMutation();
   const recordAuditActionMut = trpc.incident.recordAction.useMutation({ retry: false });
@@ -347,6 +377,8 @@ export default function Dashboard() {
       if (!stored) return;
       const payload = JSON.parse(stored);
       if (Number.isSafeInteger(payload.incidentId) && typeof payload.requestId === "string" && typeof payload.action === "string") {
+        // Tokens de lease nunca são persistidos; a regravação só pode usar a lease atualmente ativa.
+        delete payload.leaseToken;
         setFailedAuditAction(payload);
         setAuditIncidentId(payload.incidentId);
       }
@@ -355,8 +387,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedEvent?.incidentId) setAuditIncidentId(selectedEvent.incidentId);
   }, [selectedEvent?.incidentId]);
-  async function recordAuditAction(input: Omit<Parameters<typeof recordAuditActionMut.mutateAsync>[0], "incidentId" | "requestId"> & { targetId?: number; tacticalStatus?: "en_route" | "arrived" | "inspection" | "completed" }, incidentId = selectedEvent?.incidentId) {
+  async function recordAuditAction(input: Omit<Parameters<typeof recordAuditActionMut.mutateAsync>[0], "incidentId" | "requestId" | "leaseToken"> & { targetId?: number; tacticalStatus?: "en_route" | "arrived" | "inspection" | "completed" }, incidentId = selectedEvent?.incidentId) {
     if (!incidentId) return false;
+    const lease = panelLeaseRef.current;
+    if (!lease || lease.incidentId !== incidentId || leaseBlocked) { toast.warning("Este painel está somente para consulta; abra ou assuma novamente para registrar ações."); return false; }
     if (auditActionInFlight.current || failedAuditAction) {
       toast.warning("Conclua a gravação da auditoria pendente antes de registrar outra ação.");
       return false;
@@ -364,10 +398,11 @@ export default function Dashboard() {
     let requestId: string;
     try { requestId = createIncidentAuditRequestId(); }
     catch { toast.error("Seu navegador não forneceu geração segura do identificador de auditoria; nenhum registro foi enviado."); return false; }
-    const payload = { ...input, incidentId, requestId } as Parameters<typeof recordAuditActionMut.mutateAsync>[0];
+    const payload = { ...input, incidentId, requestId, leaseToken: lease.leaseToken } as Parameters<typeof recordAuditActionMut.mutateAsync>[0];
     auditActionInFlight.current = true;
     try {
-      localStorage.setItem(auditOutboxKey, JSON.stringify(payload));
+      const { leaseToken: _leaseToken, ...persistableAudit } = payload;
+      localStorage.setItem(auditOutboxKey, JSON.stringify(persistableAudit));
       await recordAuditActionMut.mutateAsync(payload);
       localStorage.removeItem(auditOutboxKey);
       await utils.incident.auditTrail.invalidate({ incidentId: payload.incidentId });
@@ -380,9 +415,14 @@ export default function Dashboard() {
   }
   async function retryFailedAuditAction() {
     if (!failedAuditAction || auditActionInFlight.current) return;
+    const lease = panelLeaseRef.current;
+    if (!lease || lease.incidentId !== failedAuditAction.incidentId || leaseBlocked) {
+      toast.warning("Abra ou assuma o painel desta ocorrência antes de tentar gravar a auditoria pendente.");
+      return;
+    }
     auditActionInFlight.current = true;
     try {
-      await recordAuditActionMut.mutateAsync(failedAuditAction);
+      await recordAuditActionMut.mutateAsync({ ...failedAuditAction, leaseToken: lease.leaseToken });
       localStorage.removeItem(auditOutboxKey);
       await utils.incident.auditTrail.invalidate({ incidentId: failedAuditAction.incidentId });
       setFailedAuditAction(null);
@@ -426,14 +466,81 @@ export default function Dashboard() {
   );
 
   const requestCloseAttendance = useCallback(() => {
-    if (finalizationInFlightRef.current) {
+    if (openingIncidentRef.current !== null || finalizationInFlightRef.current || panelTransitionInFlightRef.current) {
       toast.warning("Aguarde a confirmação da finalização desta ocorrência antes de sair.");
       return;
     }
-    if (!selectedEvent || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) {
+    if (selectedEvent && panelLeaseRef.current?.incidentId === selectedEvent.incidentId && !leaseBlocked) {
+      if (auditActionInFlight.current || failedAuditAction) {
+        toast.warning("Conclua ou tente gravar a auditoria pendente antes de pausar o atendimento.");
+        return;
+      }
+      setPausePanelReason(attendingNotes.trim() || selectedEvent.pauseReason || "");
+      setPausePanelOpen(true);
+      return;
+    }
+    if (!selectedEvent || viewOnly || leaseBlocked) {
       setSelectedEvent(null);
     }
-  }, [selectedEvent]);
+  }, [selectedEvent, leaseBlocked, viewOnly, attendingNotes, failedAuditAction]);
+
+  const confirmPausePanel = useCallback(async () => {
+    if (panelTransitionInFlightRef.current || finalizationInFlightRef.current) return;
+    const current = selectedEventRef.current;
+    const lease = panelLeaseRef.current;
+    if (!current?.incidentId || !lease || lease.incidentId !== current.incidentId) return;
+    if (auditActionInFlight.current || failedAuditAction) { toast.warning("Conclua ou tente gravar a auditoria pendente antes de pausar o atendimento."); return; }
+    const reason = pausePanelReason.trim();
+    if (reason.length < 5) { toast.error("Informe o motivo da pausa (mínimo de 5 caracteres)."); return; }
+    panelTransitionInFlightRef.current = true; setPanelTransitionBusy(true);
+    try {
+      await pausePanelMut.mutateAsync({ incidentId: current.incidentId, leaseToken: lease.leaseToken, reason });
+      panelLeaseRef.current = null;
+      setPanelLease(null);
+      setLeaseBlocked(false);
+      setPausePanelOpen(false);
+      setViewOnly(false);
+      setAssumeAvailable(false);
+      setSelectedEvent(null);
+      await utils.incident.openQueue.invalidate();
+      toast.success("Atendimento pausado e liberado para outro operador.");
+      const next = pendingSelectionRef.current;
+      pendingSelectionRef.current = null;
+      panelTransitionInFlightRef.current = false;
+      if (next) void handleSelectEvent(next);
+      const destination = pendingNavigationRef.current;
+      pendingNavigationRef.current = null;
+      if (destination) setLocation(destination);
+    } catch (error: any) { toast.error(error?.message || "Não foi possível confirmar a pausa. O painel continua aberto."); } finally { panelTransitionInFlightRef.current = false; setPanelTransitionBusy(false); }
+  }, [failedAuditAction, pausePanelMut, pausePanelReason, setLocation, utils]);
+
+  useEffect(() => {
+    if (!selectedEvent?.incidentId || !panelLease || panelLease.incidentId !== selectedEvent.incidentId || leaseBlocked) return;
+    const incidentId = selectedEvent.incidentId;
+    let renewing = false;
+    let stopped = false;
+    const interval = window.setInterval(async () => {
+      const lease = panelLeaseRef.current;
+      if (!lease || lease.incidentId !== incidentId || renewing || stopped) return;
+      renewing = true;
+      try {
+        const renewed = await renewPanelCallRef.current({ incidentId, leaseToken: lease.leaseToken });
+        if (stopped || panelLeaseRef.current?.leaseToken !== lease.leaseToken || selectedEventRef.current?.incidentId !== incidentId) return;
+        const next = { ...lease, leaseExpiresAt: renewed.leaseExpiresAt };
+        panelLeaseRef.current = next;
+        setPanelLease(next);
+      } catch (error: any) {
+        if (stopped || panelLeaseRef.current?.leaseToken !== lease.leaseToken || selectedEventRef.current?.incidentId !== incidentId) return;
+        panelLeaseRef.current = null;
+        setPanelLease(null);
+        setLeaseBlocked(true);
+        setViewOnly(true);
+        setPanelWarning("A renovação do painel falhou. Os controles foram bloqueados; feche para consulta ou tente abrir/assumir novamente.");
+        toast.error(error?.message || "Lease do painel expirado ou indisponível. Os controles foram bloqueados.");
+      } finally { renewing = false; }
+    }, 15_000);
+    return () => { stopped = true; window.clearInterval(interval); };
+  }, [selectedEvent?.incidentId, panelLease?.leaseToken, leaseBlocked]);
 
   // A confirmação nativa protege o atendimento contra fechar ou recarregar a aba.
   useEffect(() => {
@@ -466,20 +573,35 @@ export default function Dashboard() {
         shiftKey: event.shiftKey,
         altKey: event.altKey,
       });
-      if (!shouldConfirm || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) return;
+      if (!shouldConfirm) return;
+      if (panelLeaseRef.current?.incidentId === selectedEvent?.incidentId && !leaseBlocked) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (auditActionInFlight.current || failedAuditAction) { toast.warning("Conclua ou tente gravar a auditoria pendente antes de sair do atendimento."); return; }
+        pendingNavigationRef.current = target.pathname + target.search + target.hash;
+        setPausePanelReason(attendingNotes.trim() || selectedEvent?.pauseReason || "");
+        setPausePanelOpen(true);
+        return;
+      }
+      if (viewOnly || leaseBlocked || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) return;
       event.preventDefault();
       event.stopPropagation();
     };
     document.addEventListener("click", handleInternalNavigation, true);
     return () => document.removeEventListener("click", handleInternalNavigation, true);
-  }, [selectedEvent]);
+  }, [selectedEvent, leaseBlocked, viewOnly, failedAuditAction, attendingNotes]);
 
   useEffect(() => {
     if (!selectedEvent) return;
     const currentUrl = window.location.href;
     let restoringUrl = false;
     const handleHistoryNavigation = () => {
-      if (restoringUrl || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) return;
+      if (restoringUrl) return;
+      if (panelLeaseRef.current?.incidentId === selectedEvent?.incidentId && !leaseBlocked) {
+        pendingNavigationRef.current = "/dashboard";
+        setPausePanelReason(attendingNotes.trim() || selectedEvent?.pauseReason || "");
+        setPausePanelOpen(true);
+      } else if (viewOnly || leaseBlocked || window.confirm("Existe um atendimento em andamento. Deseja sair sem finalizar esta ocorrência?")) return;
       restoringUrl = true;
       window.history.pushState(window.history.state, "", currentUrl);
       window.dispatchEvent(new PopStateEvent("popstate"));
@@ -487,7 +609,7 @@ export default function Dashboard() {
     };
     window.addEventListener("popstate", handleHistoryNavigation, true);
     return () => window.removeEventListener("popstate", handleHistoryNavigation, true);
-  }, [selectedEvent]);
+  }, [selectedEvent, leaseBlocked, viewOnly, attendingNotes]);
 
   const { connected, realtimeEvents, incidentUpdates } = useSocket();
   useEffect(() => {
@@ -718,7 +840,7 @@ export default function Dashboard() {
   // A assinatura impede atualização circular sem ocultar mudanças reais de status.
   useEffect(() => {
     if (!isPersistedQueueLoading && persistedQueueData) {
-      const signature = persistedQueue.map((ev: any) => `${ev.incidentId}:${ev.incidentStatus}:${ev.incidentOperatorId ?? ""}:${ev.incidentVersion ?? ""}:${ev.observationUntil || ""}:${ev.incidentNotes || ""}:${ev.receivedAt}`).join("|");
+      const signature = persistedQueue.map((ev: any) => `${ev.incidentId}:${ev.incidentStatus}:${ev.incidentOperatorId ?? ""}:${ev.incidentOperatorName ?? ""}:${ev.panelActive ? 1 : 0}:${ev.panelOperatorId ?? ""}:${ev.panelOperatorName ?? ""}:${ev.panelLeaseExpiresAt || ""}:${ev.pauseReason || ""}:${ev.incidentVersion ?? ""}:${ev.observationUntil || ""}:${ev.incidentNotes || ""}:${ev.receivedAt}`).join("|");
       if (signature === persistedQueueSignatureRef.current) return;
       const initial: QueueEvent[] = persistedQueue.map((ev: any) => {
         const system = resolveQueueEventSystem(ev, systemData || []);
@@ -730,6 +852,11 @@ export default function Dashboard() {
           queueStatus: incidentStatusToQueueStatus(ev.incidentStatus),
           queuedAt: new Date(ev.receivedAt).getTime(),
           observationUntil: ev.observationUntil || null,
+          panelActive: Boolean(ev.panelActive),
+          panelOperatorId: ev.panelOperatorId ?? null,
+          panelOperatorName: ev.panelOperatorName ?? null,
+          panelLeaseExpiresAt: ev.panelLeaseExpiresAt || null,
+          pauseReason: ev.pauseReason || null,
           clientName: client ? (client.fantasyName || client.name) : (ev.account === "0000" ? "CONTA DO SISTEMA (0000)" : (ev.account ? `CONTA NÃO CADASTRADA (${ev.account})` : "CONTA DO SISTEMA (0000)")),
           systemModel: system ? `${system.brand} ${system.model || ''}`.trim() : ev.brand,
           description: ev.description || 'EVENTO NÃO CADASTRADO',
@@ -920,25 +1047,39 @@ export default function Dashboard() {
   }, [selectedEvent?.incidentId, pendingPopup]);
 
   // Reivindicação e transição são atômicas no servidor; só o incidente certo é atualizado.
-  const moveEvent = useCallback(async (ev: QueueEvent, newStatus: QueueStatus) => {
-    if (!ev.incidentId || (newStatus !== "attending" && newStatus !== "tactical")) return null;
+  const canOperateSelected = Boolean(selectedEvent?.incidentId && panelLease?.incidentId === selectedEvent.incidentId && !leaseBlocked && !viewOnly && !panelTransitionBusy);
+
+  function closePanelAfterAck() {
+    selectedEventRef.current = null;
+    panelLeaseRef.current = null;
+    setPanelLease(null);
+    setSelectedEvent(null);
+    setLeaseBlocked(false);
+    setViewOnly(false);
+    setAssumeAvailable(false);
+    setAttendingNotes("");
+    setLogs([]);
+    void utils.incident.openQueue.invalidate();
+  }
+
+  const moveEvent = useCallback(async (ev: QueueEvent, reason: string) => {
+    if (panelTransitionInFlightRef.current || finalizationInFlightRef.current || auditActionInFlight.current || failedAuditAction) { toast.warning("Aguarde a gravação da ação pendente antes de encaminhar."); return null; }
+    const lease = panelLeaseRef.current;
+    if (!ev.incidentId || !lease || lease.incidentId !== ev.incidentId || leaseBlocked) return null;
+    if (reason.trim().length < 5) { toast.error("Informe o motivo obrigatório para encaminhar ao Tático (mínimo de 5 caracteres)."); return null; }
+    panelTransitionInFlightRef.current = true; setPanelTransitionBusy(true);
     try {
-      const result = await updateIncidentMut.mutateAsync({ id: ev.incidentId, status: newStatus === "tactical" ? "dispatched" : "attending" });
-      const queueStatus: QueueStatus = result.status === "dispatched" ? "tactical" : "attending";
-      setQueues((previous) => previous.map((item) => item.incidentId === ev.incidentId
-        ? { ...item, queueStatus, incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" }
-        : item));
-      setSelectedEvent((previous) => previous && ev.incidentId !== undefined && previous.incidentId === ev.incidentId
-        ? { ...previous, queueStatus, incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" }
-        : previous);
+      const result = await updateIncidentMut.mutateAsync({ id: ev.incidentId, status: "dispatched", leaseToken: lease.leaseToken, notes: reason.trim() });
       await Promise.all([utils.incident.openQueue.invalidate(), utils.incident.auditTrail.invalidate({ incidentId: ev.incidentId })]);
+      toast.success("Ocorrência encaminhada ao Tático e painel liberado.");
+      closePanelAfterAck();
       return result;
     } catch (error: any) {
-      toast.error(error?.message || "Outro operador alterou este atendimento. A fila será atualizada.");
+      toast.error(error?.message || "Não foi possível encaminhar a ocorrência ao Tático.");
       await utils.incident.openQueue.invalidate();
       return null;
-    }
-  }, [updateIncidentMut, user?.id, user?.name, utils]);
+    } finally { panelTransitionInFlightRef.current = false; setPanelTransitionBusy(false); }
+  }, [updateIncidentMut, utils, leaseBlocked, failedAuditAction]);
 
   // Finalizar evento
   // finalizeEvent definido abaixo de selectedClient/selectedSystem
@@ -982,34 +1123,73 @@ export default function Dashboard() {
     setLogs((prev) => [`[${time}] ${msg}`, ...prev]);
   }
 
-  async function handleSelectEvent(ev: QueueEvent) {
-    if (finalizationInFlightRef.current) {
+  async function handleSelectEvent(ev: QueueEvent, assume = false) {
+    if (ev.incidentId && panelLeaseRef.current?.incidentId === ev.incidentId && !leaseBlocked) return;
+    if (openingIncidentRef.current !== null) return;
+    if (panelLeaseRef.current && panelLeaseRef.current.incidentId !== ev.incidentId) {
+      pendingSelectionRef.current = ev;
+      requestCloseAttendance();
+      return;
+    }
+    if (finalizationInFlightRef.current || panelTransitionInFlightRef.current) {
       toast.info("Aguarde a confirmação da finalização em andamento antes de abrir outra ocorrência.");
       return;
     }
     // Parar som de alerta ao clicar no evento
     stopAlertSound();
-    if (ev.queueStatus === "waiting" || (ev.incidentOperatorId == null && (ev.queueStatus === "observing" || ev.queueStatus === "attending"))) {
-      const claimed = await moveEvent(ev, "attending");
-      if (!claimed) return;
-      setSelectedEvent({ ...ev, queueStatus: "attending", incidentOperatorId: user?.id, incidentOperatorName: user?.name || "Operador" });
-      addLog("Atendimento reivindicado pelo operador logado.");
-    } else if (ev.queueStatus === "observing" && user?.id != null && ev.incidentOperatorId === user.id) {
-      const resumed = await moveEvent(ev, "attending");
-      if (!resumed) return;
-      setSelectedEvent({ ...ev, queueStatus: "attending", incidentOperatorId: user.id, incidentOperatorName: user.name || "Operador" });
-    } else if (ev.incidentOperatorId && ev.incidentOperatorId !== user?.id && ev.queueStatus !== "observing") {
-      toast.info(`Atendimento em ${ev.queueStatus === "tactical" ? "andamento com o tático" : "andamento"} por ${ev.incidentOperatorName || "outro operador"}.`);
-      return;
-    } else {
-      setSelectedEvent(ev);
-      if (ev.incidentOperatorId === user?.id && ev.queueStatus !== "maintenance") void recordAuditAction({ action: "attendance_opened" }, ev.incidentId);
-    }
-    setAttendStartTime(Date.now());
+    if (!ev.incidentId) { setSelectedEvent(ev); return; }
+    setOpenPending(true);
+    setAuditIncidentId(ev.incidentId);
     setAttendingNotes("");
     setLogs([]);
-    if (ev.incidentId) setAuditIncidentId(ev.incidentId);
     setActiveTab("cameras");
+    openingIncidentRef.current = ev.incidentId;
+    try {
+      if (ev.panelActive && ev.panelOperatorId !== user?.id) {
+        setViewOnly(true);
+        setAssumeAvailable(false);
+        setPanelWarning(`OCORRÊNCIA EM ATENDIMENTO POR ${ev.panelOperatorName || "OUTRO OPERADOR"}`);
+        setSelectedEvent(ev);
+        return;
+      }
+      let leaseToken: string;
+      try { leaseToken = createIncidentAuditRequestId(); }
+      catch { toast.error("Não foi possível gerar o identificador seguro da sessão do painel."); return; }
+      try {
+        const opened = await openPanelMut.mutateAsync({ incidentId: ev.incidentId, leaseToken, ...(assume ? { assume: true } : {}) });
+        const lease = { incidentId: ev.incidentId, leaseToken: opened.leaseToken || leaseToken, leaseExpiresAt: opened.leaseExpiresAt };
+        panelLeaseRef.current = lease;
+        setPanelLease(lease);
+        setLeaseBlocked(false);
+        setViewOnly(false);
+        setAssumeAvailable(false);
+        setPanelWarning("");
+        const updated: QueueEvent = { ...ev, queueStatus: incidentStatusToQueueStatus(opened.status), incidentOperatorId: opened.operatorId, incidentOperatorName: opened.operatorName, incidentNotes: opened.notes, pauseReason: opened.pauseReason, parentIncidentId: opened.parentIncidentId, observationUntil: ev.observationUntil };
+        setSelectedEvent(updated);
+        setQueues((previous) => previous.map((item) => item.incidentId === ev.incidentId ? { ...item, ...updated, panelActive: true, panelOperatorId: user?.id, panelOperatorName: user?.name } : item));
+        if (assume) toast.success("Atendimento assumido; o status da fila foi preservado.");
+        else if (ev.queueStatus === "waiting") addLog("Painel exclusivo aberto; ocorrência recebida para atendimento.");
+        setAttendStartTime(Date.now());
+        setAttendingNotes(opened.pauseReason || "");
+        await Promise.all([utils.incident.openQueue.invalidate(), utils.incident.auditTrail.invalidate({ incidentId: ev.incidentId })]);
+      } catch (error: any) {
+        const livePanel = Boolean(ev.panelActive);
+        setViewOnly(true);
+        setPanelWarning(livePanel
+          ? `OCORRÊNCIA EM ATENDIMENTO POR ${ev.panelOperatorName || "OUTRO OPERADOR"}`
+          : "Não foi possível adquirir o painel exclusivo. Esta tela está somente para consulta; atualize a fila e tente abrir ou assumir novamente.");
+        const canAssume = !livePanel && (ev.incidentOperatorId != null && ev.incidentOperatorId !== user?.id || /assumir atendimento/i.test(error?.message || ""));
+        setAssumeAvailable(canAssume);
+        setSelectedEvent(ev);
+        if (livePanel) toast.info(`Ocorrência em atendimento por ${ev.panelOperatorName || "outro operador"}. Consulta somente leitura.`);
+        else if (canAssume) toast.info("Use Assumir atendimento para transferir a responsabilidade desta ocorrência.");
+        else toast.error(error?.message || "Não foi possível abrir o painel exclusivo. Nenhum controle foi habilitado.");
+      }
+      setAttendStartTime(Date.now());
+    } finally {
+      openingIncidentRef.current = null;
+      setOpenPending(false);
+    }
   }
 
   useEffect(() => {
@@ -1029,7 +1209,7 @@ export default function Dashboard() {
       setLocation("/dashboard");
       return;
     }
-    if (finalizationInFlightRef.current || createOccurrenceMut.isPending) {
+    if (finalizationInFlightRef.current || panelTransitionInFlightRef.current || createOccurrenceMut.isPending) {
       toast.info("Aguarde a confirmação da finalização em andamento antes de abrir outra ocorrência.");
       setLocation("/dashboard");
       return;
@@ -1043,8 +1223,8 @@ export default function Dashboard() {
     void handleSelectEvent(target);
   }, [search, isPersistedQueueLoading, persistedQueueData, queues, setLocation, selectedEvent, createOccurrenceMut.isPending]);
 
-  const isOtherOperatorObservation = Boolean(selectedEvent?.queueStatus === "observing" && selectedEvent.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id);
-  const isOtherOperatorAttendance = Boolean(selectedEvent?.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id && selectedEvent.queueStatus !== "observing");
+  const isOtherOperatorObservation = Boolean(viewOnly && !selectedEvent?.panelActive && selectedEvent?.incidentOperatorId != null && selectedEvent.incidentOperatorId !== user?.id);
+  const isOtherOperatorAttendance = Boolean(viewOnly && selectedEvent?.panelActive && selectedEvent.panelOperatorId !== user?.id);
   const { data: bulkPreview, isFetching: isBulkPreviewFetching, error: bulkPreviewError, refetch: refreshBulkPreview } = trpc.incident.bulkPreview.useQuery({
     account: selectedEvent?.account || "0000",
     alarmSystemId: selectedEvent?.alarmSystemId ?? selectedEvent?.incidentSystemId ?? 0,
@@ -1057,32 +1237,10 @@ export default function Dashboard() {
   });
 
   async function assumeSelectedObservation() {
-    if (!selectedEvent?.incidentId) return;
-    try {
-      const result = await assumeIncidentMut.mutateAsync({ incidentId: selectedEvent.incidentId });
-      const updatedEvent: QueueEvent = {
-        ...selectedEvent,
-        incidentId: result.id,
-        parentIncidentId: result.parentIncidentId,
-        incidentOperatorId: result.operatorId,
-        incidentOperatorName: result.operatorName,
-        incidentNotes: result.notes,
-        queueStatus: incidentStatusToQueueStatus(result.status),
-        observationUntil: null,
-      };
-      setQueues((previous) => previous.some((item) => item.incidentId === result.id)
-        ? previous.map((item) => item.incidentId === result.id ? { ...item, ...updatedEvent } : item)
-        : [...previous, updatedEvent]);
-      setSelectedEvent(updatedEvent);
-      setAttendStartTime(Date.now());
-      setAttendingNotes("");
-      setLogs([`Atendimento #${result.id} assumido de ${result.previousOperatorName || "outro operador"}; a responsabilidade agora é sua.`]);
-      await utils.incident.openQueue.invalidate();
-      toast.success("Atendimento assumido. A mesma ocorrência saiu da observação e agora está sob sua responsabilidade.");
-    } catch (error: any) {
-      toast.error(error?.message || "Não foi possível assumir o atendimento.");
-      await utils.incident.openQueue.invalidate();
-    }
+    if (!selectedEvent?.incidentId || openingIncidentRef.current === selectedEvent.incidentId) return;
+    const target = selectedEvent;
+    setSelectedEvent(null);
+    void handleSelectEvent(target, true);
   }
 
   const selectedCompatecDisarmEnabled = useMemo(() => {
@@ -1170,24 +1328,26 @@ export default function Dashboard() {
   }
 
   async function confirmObservation() {
-    if (!selectedEvent?.incidentId) return;
+    if (panelTransitionInFlightRef.current || finalizationInFlightRef.current || auditActionInFlight.current || failedAuditAction) { toast.warning("Aguarde a gravação da ação pendente antes de encaminhar."); return; }
+    const lease = panelLeaseRef.current;
+    if (!selectedEvent?.incidentId || !lease || lease.incidentId !== selectedEvent.incidentId || leaseBlocked) return;
     const until = new Date(observationUntil);
     if (Number.isNaN(until.getTime()) || until <= new Date()) {
       toast.error("Informe uma data e hora futura para a observação.");
       return;
     }
+    const reason = observationNotes.trim();
+    if (reason.length < 5) { toast.error("Informe o motivo obrigatório da observação (mínimo de 5 caracteres)."); return; }
+    panelTransitionInFlightRef.current = true; setPanelTransitionBusy(true);
     try {
-      await observeIncidentMut.mutateAsync({ incidentId: selectedEvent.incidentId, until, notes: observationNotes || undefined });
-      setQueues((previous) => previous.map((event) => event.incidentId === selectedEvent.incidentId
-        ? { ...event, queueStatus: "observing", observationUntil: until }
-        : event));
-      setSelectedEvent((previous) => previous ? { ...previous, queueStatus: "observing", observationUntil: until } : previous);
+      await observeIncidentMut.mutateAsync({ incidentId: selectedEvent.incidentId, until, notes: reason, leaseToken: lease.leaseToken });
       setObservationOpen(false);
+      closePanelAfterAck();
       await utils.incident.openQueue.invalidate();
-      toast.success("Ocorrência enviada para observação até o horário informado.");
+      toast.success("Ocorrência enviada para observação e painel liberado.");
     } catch (error: any) {
       toast.error(error?.message || "Não foi possível iniciar a observação.");
-    }
+    } finally { panelTransitionInFlightRef.current = false; setPanelTransitionBusy(false); }
   }
 
   function openMaintenance() {
@@ -1202,63 +1362,50 @@ export default function Dashboard() {
   }
 
   async function confirmMaintenance() {
-    if (!selectedSystem) return;
+    if (panelTransitionInFlightRef.current || finalizationInFlightRef.current || auditActionInFlight.current || failedAuditAction) { toast.warning("Aguarde a gravação da ação pendente antes de encaminhar."); return; }
+    const lease = panelLeaseRef.current;
+    if (!selectedSystem || !selectedEvent?.incidentId || !lease || lease.incidentId !== selectedEvent.incidentId || leaseBlocked) return;
     const startAt = new Date(maintenanceStartAt);
     const endAt = new Date(maintenanceEndAt);
     if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt <= startAt) {
       toast.error("Informe um período de manutenção válido.");
       return;
     }
+    const reason = maintenanceNotes.trim();
+    if (reason.length < 5) { toast.error("Informe o motivo obrigatório da manutenção (mínimo de 5 caracteres)."); return; }
+    panelTransitionInFlightRef.current = true; setPanelTransitionBusy(true);
     try {
       const maintenanceResult = await startMaintenanceMut.mutateAsync({
         systemId: selectedSystem.id,
-        incidentId: selectedEvent?.incidentId,
+        incidentId: selectedEvent.incidentId,
+        leaseToken: lease.leaseToken,
         startAt,
         endAt,
-        notes: maintenanceNotes || undefined,
+        notes: reason,
       });
-      setQueues((previous) => {
-        const matching = previous.filter((event) => event.account === selectedSystem.account || (event as any).alarmSystemId === selectedSystem.id);
-        if (matching.length > 0) {
-          return previous.map((event) => event.account === selectedSystem.account || (event as any).alarmSystemId === selectedSystem.id
-            ? { ...event, queueStatus: "maintenance" }
-            : event);
-        }
-        const source = selectedEvent;
-        if (!source) return previous;
-        return [...previous, {
-          ...source,
-          incidentId: maintenanceResult.incidentId,
-          account: selectedSystem.account,
-          clientName: selectedClient ? (selectedClient.fantasyName || selectedClient.name) : source.clientName,
-          systemModel: `${selectedSystem.brand} ${selectedSystem.model || ""}`.trim(),
-          description: "Sistema em manutenção",
-          queueStatus: "maintenance",
-          queuedAt: Date.now(),
-        }];
-      });
-      setSelectedEvent((previous) => previous ? { ...previous, queueStatus: "maintenance" } : previous);
+      void maintenanceResult;
       setMaintenanceOpen(false);
+      closePanelAfterAck();
       await Promise.all([utils.incident.openQueue.invalidate(), utils.alarmSystem.list.invalidate()]);
       toast.success("Sistema colocado em manutenção. Os novos eventos serão finalizados automaticamente no período informado.");
     } catch (error: any) {
       toast.error(error?.message || "Não foi possível programar a manutenção.");
-    }
+    } finally { panelTransitionInFlightRef.current = false; setPanelTransitionBusy(false); }
   }
 
   async function releaseMaintenance() {
-    if (!selectedSystem) return;
+    const lease = panelLeaseRef.current;
+    if (!selectedEvent?.incidentId || !lease || !selectedSystem || !canOperateSelected || panelTransitionInFlightRef.current || finalizationInFlightRef.current || auditActionInFlight.current || failedAuditAction) return;
+    panelTransitionInFlightRef.current = true; setPanelTransitionBusy(true);
     try {
-      await endMaintenanceMut.mutateAsync({ systemId: selectedSystem.id });
-      setQueues((previous) => previous.map((event) => event.account === selectedEvent?.account && event.queueStatus === "maintenance"
-        ? { ...event, queueStatus: "attending" }
-        : event));
-      setSelectedEvent((previous) => previous?.queueStatus === "maintenance" ? { ...previous, queueStatus: "attending" } : previous);
+      await endMaintenanceMut.mutateAsync({ systemId: selectedSystem.id, incidentId: selectedEvent.incidentId, leaseToken: lease.leaseToken });
+      // Retirar a manutenção não finaliza a ocorrência.
+      setSelectedEvent(previous => previous && lease && previous.incidentId === lease.incidentId ? { ...previous, queueStatus: "attending" } : previous);
       await Promise.all([utils.incident.openQueue.invalidate(), utils.alarmSystem.list.invalidate()]);
       toast.success("Sistema retirado da manutenção. Os próximos eventos voltarão a exigir atendimento.");
     } catch (error: any) {
       toast.error(error?.message || "Não foi possível retirar a manutenção.");
-    }
+    } finally { panelTransitionInFlightRef.current = false; setPanelTransitionBusy(false); }
   }
 
   // Buscar câmeras do cliente selecionado
@@ -1269,7 +1416,9 @@ export default function Dashboard() {
 
   // Finalizar evento - salvar ocorrência no banco
   const finalizeEvent = useCallback((ev: QueueEvent) => {
-    if (finalizationInFlightRef.current || createOccurrenceMut.isPending) {
+    const lease = panelLeaseRef.current;
+    if (!ev.incidentId || !lease || lease.incidentId !== ev.incidentId || leaseBlocked) { toast.warning("Abra ou assuma o painel exclusivo antes de finalizar esta ocorrência."); return; }
+    if (finalizationInFlightRef.current || panelTransitionInFlightRef.current || createOccurrenceMut.isPending) {
       toast.info("A finalização já foi enviada. Aguarde a resposta antes de tentar novamente.");
       return;
     }
@@ -1287,6 +1436,7 @@ export default function Dashboard() {
     const finalObservations = [attendingNotes.trim(), remoteAuditText].filter(Boolean).join("\n\n");
     finalizationInFlightRef.current = true;
     createOccurrenceMut.mutate({
+      leaseToken: lease.leaseToken,
       incidentId: ev.incidentId || undefined,
       account: ev.account,
       eventCode: ev.eventCode,
@@ -1317,7 +1467,10 @@ export default function Dashboard() {
         const sameIncident = ev.incidentId != null ? selected?.incidentId === ev.incidentId : selected?.id === ev.id;
         if (sameIncident) {
           selectedEventRef.current = null;
+          panelLeaseRef.current = null;
+          setPanelLease(null);
           setSelectedEvent(null);
+          setLeaseBlocked(false);
           setAttendingNotes("");
           setLogs([]);
           setSendEmail(false);
@@ -1330,10 +1483,12 @@ export default function Dashboard() {
       },
       onSettled: () => { finalizationInFlightRef.current = false; },
     });
-  }, [logs, attendStartTime, attendingNotes, selectedRemoteCommandNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils, recordAuditActionMut.isPending, failedAuditAction, createOccurrenceMut.isPending]);
+  }, [logs, attendStartTime, attendingNotes, selectedRemoteCommandNotes, selectedClient, selectedSystem, user, sendEmail, sendPush, utils, recordAuditActionMut.isPending, failedAuditAction, createOccurrenceMut.isPending, leaseBlocked]);
 
   const finalizeSameClientEvents = async (ev: QueueEvent) => {
-    if (finalizationInFlightRef.current || bulkFinalizeMut.isPending) {
+    const lease = panelLeaseRef.current;
+    if (!ev.incidentId || !lease || lease.incidentId !== ev.incidentId || leaseBlocked) { toast.warning("Abra ou assuma o painel exclusivo antes de finalizar em massa."); return; }
+    if (finalizationInFlightRef.current || panelTransitionInFlightRef.current || bulkFinalizeMut.isPending) {
       toast.info("A finalização está em andamento. Aguarde a resposta antes de tentar novamente.");
       return;
     }
@@ -1360,6 +1515,8 @@ export default function Dashboard() {
         partnerCompanyId: (selectedClient as any)?.partnerCompanyId || undefined,
         observations: attendingNotes,
         confirmedIncidentIds: bulkPreview.eligibleIncidentIds,
+        currentIncidentId: ev.incidentId,
+        leaseToken: lease.leaseToken,
       });
       if (result.count !== bulkPreview.eligibleIncidentIds.length || result.closedIncidentIds.length !== result.count || !isConfirmedBulkSetEligible(bulkPreview.eligibleIncidentIds, result.closedIncidentIds)) {
         toast.error("O resultado do servidor não corresponde ao lote confirmado. Confira a fila antes de repetir a operação.");
@@ -1370,7 +1527,10 @@ export default function Dashboard() {
       setQueues((previous) => previous.filter((item) => !item.incidentId || !closedIds.has(item.incidentId)));
       if (ev.incidentId && closedIds.has(ev.incidentId)) {
         selectedEventRef.current = null;
+        panelLeaseRef.current = null;
+        setPanelLease(null);
         setSelectedEvent(null);
+        setLeaseBlocked(false);
         setAttendingNotes("");
         setLogs([]);
         setSendEmail(false);
@@ -1440,7 +1600,18 @@ export default function Dashboard() {
     }
   }
 
+  function requireSelectedPanelForOperationalAction(expectedIncidentId = selectedEvent?.incidentId) {
+    const current = selectedEventRef.current;
+    if (!current || current.incidentId !== expectedIncidentId) { toast.warning("Este atendimento já não está aberto nesta tela."); return false; }
+    const lease = panelLeaseRef.current;
+    if (!lease || lease.incidentId !== current.incidentId || leaseBlocked || panelTransitionInFlightRef.current || finalizationInFlightRef.current) {
+      toast.warning("Este atendimento está somente para consulta. Abra ou assuma novamente antes de executar uma ação.");
+      return false;
+    }
+    return true;
+  }
   function openRemoteCommand(commandType: RemoteCommandType) {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent || !selectedRemoteSystemId || !selectedRemoteBrand) {
       toast.error("Comandos remotos em simulação estão disponíveis somente para centrais Compatec, Vetti e Intelbras identificadas.");
       return;
@@ -1457,6 +1628,7 @@ export default function Dashboard() {
   }
 
   function submitRemoteCommandSimulation() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent || !selectedRemoteSystemId) return;
     const zoneNumber = Number(remoteCommandZone);
     const pgmNumber = Number(remoteCommandPgm);
@@ -1493,6 +1665,7 @@ export default function Dashboard() {
   }
 
   function submitCompatecZonePhysical() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent || !selectedRemoteSystemId || selectedRemoteBrand !== "COMPATEC") return;
     if (remoteCommandType !== "isolate_zone" && remoteCommandType !== "restore_zone") {
       toast.error("Selecione Inibir Zona ou Restaurar Zona.");
@@ -1572,6 +1745,7 @@ export default function Dashboard() {
     });
   }
   function submitCompatecBenchStatusQuery() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent?.alarmSystemId) return;
     if (remoteCommandReason.trim().length < 5) {
       toast.error("Informe o motivo operacional da consulta.");
@@ -1634,6 +1808,7 @@ export default function Dashboard() {
   }
 
   function submitCompatecBenchSectorsQuery() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent?.alarmSystemId) return;
     if (remoteCommandReason.trim().length < 5) {
       toast.error("Informe o motivo operacional da consulta.");
@@ -1658,6 +1833,7 @@ export default function Dashboard() {
     return rows.filter((item) => !item.armCommandId && new Date(item.expiresAt).getTime() > Date.now());
   }
   async function submitCompatecBenchArmAll() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent?.alarmSystemId || selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false) return;
     if (remoteCommandReason.trim().length < 5) { toast.error("Informe o motivo operacional do Arme."); return; }
     try {
@@ -1700,6 +1876,7 @@ export default function Dashboard() {
   }
 
   function submitCompatecBenchDisarmQuick() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent?.alarmSystemId || !selectedCompatecDisarmEnabled || selectedArmDisarmState !== "armed") {
       toast.error("O Desarme físico está disponível somente para uma central Compatec ativa e cadastrada.");
       return;
@@ -1724,6 +1901,7 @@ export default function Dashboard() {
   }
 
   function submitCompatecArmQuick() {
+    if (!requireSelectedPanelForOperationalAction()) return;
     if (!selectedEvent?.alarmSystemId || !selectedCompatecDisarmEnabled || selectedArmDisarmState !== "disarmed") {
       toast.error("O Arme físico exige uma central Compatec ativa e com estado desarmado confirmado."); return;
     }
@@ -1837,13 +2015,15 @@ export default function Dashboard() {
         <div className="text-[11px] text-cyan-300/90 truncate">Parceira: {eventPartner?.name || "Sem empresa parceira vinculada"}</div>
         {panelUserDisplayText && <div className="text-[11px] text-blue-200 truncate">{panelUserDisplayText}</div>}
         <div className="text-[11px] text-muted-foreground truncate">Central: {ev.systemModel}</div>
-        {ev.incidentOperatorName && ev.queueStatus !== "waiting" && <div className="mt-1 text-[10px] font-semibold text-sky-200">{ev.queueStatus === "observing" ? "Em observação" : "Em atendimento"} por {ev.incidentOperatorName}</div>}
+        {ev.panelActive === true ? <div className="mt-1 text-[10px] font-extrabold uppercase text-amber-200">OCORRÊNCIA EM ATENDIMENTO POR {ev.panelOperatorName || "OUTRO OPERADOR"}</div>
+          : ev.queueStatus !== "waiting" && <div className="mt-1 text-[10px] font-semibold text-sky-200">Pausada · último responsável: {ev.incidentOperatorName || "não informado"}{ev.pauseReason ? ` · Motivo: ${ev.pauseReason}` : ""}</div>}
         {ev.parentIncidentId && <div className="mt-1 text-[10px] text-amber-200">Atendimento independente #{ev.incidentId} · origem #{ev.parentIncidentId}</div>}
         <div className="flex items-center gap-2 mt-1">
           <span className="font-mono text-xs text-muted-foreground">{ev.qualifier === 'E' ? '' : 'R'}{ev.eventCode}</span>
           <Badge className={`text-[10px] px-1.5 py-0 ${pri.color}`}>{pri.label}</Badge>
         </div>
         {ev.observationUntil && ev.queueStatus === "observing" && <div className="mt-1 text-[10px] text-purple-300">Observação até {new Date(ev.observationUntil).toLocaleString("pt-BR")}</div>}
+        {!ev.panelActive && ev.incidentId && ev.queueStatus !== "waiting" && ev.incidentOperatorId != null && ev.incidentOperatorId !== user?.id && <Button type="button" size="sm" variant="outline" className="mt-2 h-7 border-amber-500/50 px-2 text-[10px] text-amber-200" onClick={(event) => { event.stopPropagation(); void handleSelectEvent(ev, true); }} aria-label={`Assumir ocorrência ${ev.incidentId}`}>Assumir atendimento</Button>}
         {sameClientCount > 0 && !groupedCard && (
           <div className="text-[10px] text-cyan-400 mt-1">+ {sameClientCount} atendimentos desta central</div>
         )}
@@ -1912,15 +2092,17 @@ export default function Dashboard() {
                 <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={requestCloseAttendance} aria-label="Fechar tratamento"><X className="h-5 w-5" /></button>
               </div>
             </div>
+            {panelWarning && <div role="alert" className="border-b border-amber-500/40 bg-amber-500/10 px-5 py-2 text-sm font-semibold text-amber-100">{panelWarning}</div>}
             {isOtherOperatorObservation ? (
               <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
                 <div className="w-full max-w-xl rounded-xl border border-amber-400/50 bg-amber-400/5 p-6 text-center">
                   <Users className="mx-auto mb-3 h-10 w-10 text-amber-300" />
                   <h3 className="text-lg font-bold text-amber-100">Atendimento em observação</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">Este atendimento está em observação com <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Ao assumir, a responsabilidade pela mesma ocorrência passa para você; o histórico existente é preservado.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Ocorrência pausada em {selectedEvent.queueStatus} com <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Status e motivo serão preservados ao abrir/assumir o painel; o histórico existente é preservado.</p>
+                  {selectedEvent.pauseReason && <p className="mt-3 rounded bg-black/20 p-3 text-left text-sm text-amber-100">Motivo da pausa: {selectedEvent.pauseReason}</p>}
                   {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
-                  <Button className="mt-5 bg-amber-500 font-bold text-black hover:bg-amber-400" disabled={assumeIncidentMut.isPending} onClick={() => void assumeSelectedObservation()}>
-                    <Users className="mr-2 h-4 w-4" />{assumeIncidentMut.isPending ? "Assumindo..." : "Assumir atendimento"}
+                  <Button className="mt-5 bg-amber-500 font-bold text-black hover:bg-amber-400" disabled={openPending} onClick={() => void assumeSelectedObservation()}>
+                    <Users className="mr-2 h-4 w-4" />{openPending ? "Assumindo..." : "Assumir atendimento"}
                   </Button>
                 </div>
               </div>
@@ -1928,51 +2110,46 @@ export default function Dashboard() {
               <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
                 <div className="w-full max-w-xl rounded-xl border border-sky-400/40 bg-sky-400/5 p-6 text-center">
                   <Users className="mx-auto mb-3 h-10 w-10 text-sky-300" />
-                  <h3 className="text-lg font-bold text-sky-100">Atendimento com outro operador</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">Esta ocorrência está sob responsabilidade de <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Somente o responsável atual pode continuar ou finalizar. O histórico permanece preservado.</p>
+                  <h3 className="text-lg font-bold text-sky-100">OCORRÊNCIA EM ATENDIMENTO POR {selectedEvent.panelOperatorName || "OUTRO OPERADOR"}</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">Esta ocorrência está em atendimento por <strong className="text-foreground">{selectedEvent.panelOperatorName || "outro operador"}</strong>. Você pode consultar contatos, notas e logs; controles operacionais ficam bloqueados até o lease ser liberado.</p>
                   {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
-                </div>
-              </div>
-            ) : selectedEvent.queueStatus === "maintenance" ? (
-              <div className="flex flex-1 items-center justify-center p-8">
-                <div className="max-w-lg rounded-xl border border-yellow-500/40 bg-yellow-500/5 p-6 text-center">
-                  <Wrench className="mx-auto mb-3 h-10 w-10 text-yellow-400" />
-                  <h3 className="text-lg font-bold text-yellow-200">Sistema em manutenção</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">A ocorrência permanece preservada exclusivamente na fila de manutenção durante o período programado.</p>
-                  <Button className="mt-5 bg-red-600 hover:bg-red-700" onClick={() => void releaseMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="mr-2 h-4 w-4" /> {endMaintenanceMut.isPending ? "Retirando..." : "Retirar manutenção agora"}</Button>
+                  {selectedEvent.pauseReason && <p className="mt-3 rounded bg-black/20 p-3 text-left text-sm text-amber-100">Motivo da pausa: {selectedEvent.pauseReason}</p>}
                 </div>
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
+                {selectedEvent.queueStatus === "maintenance" && <div className="border-b border-yellow-500/40 bg-yellow-500/10 px-5 py-3 text-sm text-yellow-100"><strong>Sistema em manutenção.</strong> A ocorrência continua consultável, permite contatos, notas e finalização; retirar a manutenção do sistema é uma ação separada e não finaliza a ocorrência. {selectedEvent.pauseReason && <span className="block mt-1">Motivo: {selectedEvent.pauseReason}</span>}<Button className="mt-2 h-8 bg-red-600 hover:bg-red-700" onClick={() => void releaseMaintenance()} disabled={!canOperateSelected || endMaintenanceMut.isPending}><Wrench className="mr-2 h-4 w-4" />{endMaintenanceMut.isPending ? "Retirando..." : "Retirar manutenção do sistema"}</Button></div>}
                 {selectedEvent.incidentNotes && <details className="shrink-0 border-b border-border bg-muted/20 px-5 py-3">
                   <summary className="cursor-pointer text-xs font-semibold text-sky-200">Registro anterior e transferência do atendimento</summary>
                   <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">{selectedEvent.incidentNotes}</p>
                 </details>}
+                {!canOperateSelected && <div role="status" className="border-b border-sky-500/30 bg-sky-500/5 px-5 py-2 text-xs text-sky-100">Modo consulta: nenhum controle operacional será enviado. Use Assumir atendimento se a ocorrência estiver pausada.</div>}
+                {assumeAvailable && <div className="border-b border-amber-500/30 px-5 py-2"><Button size="sm" disabled={openPending} onClick={() => void assumeSelectedObservation()}><Users className="mr-2 h-4 w-4" />{openPending ? "Assumindo..." : "Assumir atendimento"}</Button></div>}
                 <div className="grid gap-4 border-b border-border px-5 py-4 lg:grid-cols-[1fr_auto]">
-                  <Textarea className="min-h-[108px] resize-none text-sm" placeholder="Registro do atendimento, contatos realizados e providências..." value={attendingNotes} onChange={(event) => setAttendingNotes(event.target.value)} />
+                  <Textarea disabled={!canOperateSelected} className="min-h-[108px] resize-none text-sm" placeholder="Registro do atendimento, contatos realizados e providências..." value={attendingNotes} onChange={(event) => setAttendingNotes(event.target.value)} />
                   <div className="flex min-w-[180px] flex-col gap-2">
-                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(event) => setSendEmail(event.target.checked)} /><Mail className="h-3 w-3" /> E-mail</label>
-                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
-                    <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" disabled={createOccurrenceMut.isPending} onClick={() => finalizeEvent(selectedEvent)}>{createOccurrenceMut.isPending ? "Finalizando..." : "Finalizar"}</Button>
-                    <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
-                    {selectedEvent.incidentId && countSameClient(selectedEvent) > 0 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa</Button>}
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" disabled={!canOperateSelected} className="h-3.5 w-3.5 rounded border-border" checked={sendEmail} onChange={(event) => setSendEmail(event.target.checked)} /><Mail className="h-3 w-3" /> E-mail</label>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" disabled={!canOperateSelected} className="h-3.5 w-3.5 rounded border-border" checked={sendPush} onChange={(event) => setSendPush(event.target.checked)} /><Send className="h-3 w-3" /> Push</label>
+                    <Button size="sm" className="mt-auto bg-green-600 hover:bg-green-700" disabled={!canOperateSelected || createOccurrenceMut.isPending} onClick={() => finalizeEvent(selectedEvent)}>{createOccurrenceMut.isPending ? "Finalizando..." : "Finalizar"}</Button>
+                    <Button size="sm" variant="outline" className="border-blue-500/50 text-blue-300 hover:bg-blue-500/10" disabled={!canOperateSelected} onClick={() => { setFinalizationSearch(""); setSelectedFinalization("open"); }}><FileText className="mr-1 h-3.5 w-3.5" /> Finalização Rápida</Button>
+                    {selectedEvent.incidentId && countSameClient(selectedEvent) > 0 && <Button size="sm" variant="outline" className="border-orange-500/50 text-orange-400" disabled={!canOperateSelected} onClick={() => setBulkFinalizeOpen(true)}>Finalizar em massa</Button>}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1 border-b border-border px-5 py-2.5">
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={openObservation}><Eye className="h-3.5 w-3.5" /> Observação</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs" disabled={!canOperateSelected} onClick={openObservation}><Eye className="h-3.5 w-3.5" /> Observação</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setTreatmentPanel("cameras")}><Camera className="h-3.5 w-3.5" /> Câmeras</Button>
-                  {selectedSystem?.id && <Button variant="outline" size="sm" className="gap-1.5 border-amber-500/40 text-xs text-amber-200" onClick={() => setQuickScheduleSystem({ id: selectedSystem.id, account: selectedEvent.account, clientName: selectedClient?.fantasyName || selectedClient?.name || selectedEvent.clientName, brand: selectedSystem.brand, model: selectedSystem.model })}><CalendarClock className="h-3.5 w-3.5" /> Alterar agenda</Button>}
+                  {selectedSystem?.id && <Button variant="outline" size="sm" className="gap-1.5 border-amber-500/40 text-xs text-amber-200" disabled={!canOperateSelected} onClick={() => setQuickScheduleSystem({ id: selectedSystem.id, account: selectedEvent.account, clientName: selectedClient?.fantasyName || selectedClient?.name || selectedEvent.clientName, brand: selectedSystem.brand, model: selectedSystem.model })}><CalendarClock className="h-3.5 w-3.5" /> Alterar agenda</Button>}
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-emerald-400" onClick={() => setTreatmentPanel("contacts")}><Phone className="h-3.5 w-3.5" /> Contatos ({treatmentContacts.length})</Button>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-blue-400" onClick={() => setTreatmentPanel("users")}><Users className="h-3.5 w-3.5" /> Usuários ({treatmentAlarmUsers.length})</Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" onClick={() => void moveEvent(selectedEvent, "tactical")}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
-	                  <Button variant="ghost" size="sm" className={`gap-1.5 text-xs ${selectedSystemInMaintenance ? "text-red-400" : "text-yellow-400"}`} onClick={() => selectedSystemInMaintenance ? void releaseMaintenance() : openMaintenance()} disabled={endMaintenanceMut.isPending}><Wrench className="h-3.5 w-3.5" /> {selectedSystemInMaintenance ? "Retirar Manutenção" : "Manutenção"}</Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" disabled={recordAuditActionMut.isPending} onClick={async () => { if (await recordAuditAction({ action: "police_action_registered" })) toast.info("Acionamento manual da Polícia registrado; o sistema não realiza ligação."); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-orange-400" disabled={!canOperateSelected} onClick={() => { setTacticalReason(""); setTacticalReasonOpen(true); }}><CarFront className="h-3.5 w-3.5" /> Tático</Button>
+                  {!selectedSystemInMaintenance && <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-yellow-400" onClick={openMaintenance} disabled={!canOperateSelected}><Wrench className="h-3.5 w-3.5" /> Manutenção</Button>}
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-red-400" disabled={!canOperateSelected || recordAuditActionMut.isPending} onClick={async () => { if (await recordAuditAction({ action: "police_action_registered" })) toast.info("Acionamento manual da Polícia registrado; o sistema não realiza ligação."); }}><Shield className="h-3.5 w-3.5" /> Polícia</Button>
                   {selectedCompatecAction === "arm" ? (
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" onClick={submitCompatecArmQuick} disabled={armCompatecAllMut.isPending} aria-label="Arme físico da central Compatec">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" onClick={submitCompatecArmQuick} disabled={!canOperateSelected || armCompatecAllMut.isPending} aria-label="Arme físico da central Compatec">
                       <Shield className="h-3.5 w-3.5" /> {armCompatecAllMut.isPending ? "ENVIANDO..." : "ARMAR"}
                     </Button>
                   ) : selectedCompatecAction === "disarm" ? (
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={submitCompatecBenchDisarmQuick} disabled={disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={submitCompatecBenchDisarmQuick} disabled={!canOperateSelected || disarmBenchAllMut.isPending} aria-label="Desarme físico da central Compatec">
                       <Shield className="h-3.5 w-3.5" /> {disarmBenchAllMut.isPending ? "ENVIANDO..." : "DESARME"}
                     </Button>
                   ) : selectedCompatecDisarmEnabled ? (
@@ -1980,11 +2157,11 @@ export default function Dashboard() {
                       <Shield className="h-3.5 w-3.5" /> ESTADO NÃO CONFIRMADO
                     </Button>
                   ) : selectedIntelbrasAction === "arm" ? (
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" onClick={() => openRemoteCommand("arm")} aria-label="Arme físico da central Intelbras AMT-8000">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-emerald-500/50 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-300 shadow-none hover:bg-emerald-500/20" disabled={!canOperateSelected} onClick={() => openRemoteCommand("arm")} aria-label="Arme físico da central Intelbras AMT-8000">
                       <Shield className="h-3.5 w-3.5" /> ARMAR
                     </Button>
                   ) : selectedIntelbrasAction === "disarm" ? (
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" onClick={() => openRemoteCommand("disarm")} aria-label="Desarme físico da central Intelbras AMT-8000">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 border-red-500/50 bg-red-500/10 px-2.5 text-xs font-semibold text-red-300 shadow-none hover:bg-red-500/20" disabled={!canOperateSelected} onClick={() => openRemoteCommand("disarm")} aria-label="Desarme físico da central Intelbras AMT-8000">
                       <Shield className="h-3.5 w-3.5" /> DESARME
                     </Button>
                   ) : selectedIntelbrasPhysicalEnabled ? (
@@ -1992,7 +2169,7 @@ export default function Dashboard() {
                       <Shield className="h-3.5 w-3.5" /> COMANDO FÍSICO BLOQUEADO
                     </Button>
                   ) : selectedRemoteSystemId && selectedRemoteBrand ? (
-                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedRemoteBrand === "VETTI" ? "Vetti" : selectedRemoteBrand === "INTELBRAS" ? "Intelbras" : "Compatec"}</Button>
+                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-cyan-300" disabled={!canOperateSelected} onClick={() => openRemoteCommand("arm")}><Shield className="h-3.5 w-3.5" /> Comandos {selectedRemoteBrand === "VETTI" ? "Vetti" : selectedRemoteBrand === "INTELBRAS" ? "Intelbras" : "Compatec"}</Button>
 	                  ) : (
 	                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground" onClick={() => toast.info("Comandos remotos dependem do protocolo homologado para cada fabricante.")}><Ban className="h-3.5 w-3.5" /> Isolar Zona</Button>
 	                  )}
@@ -2000,12 +2177,12 @@ export default function Dashboard() {
                 <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[0.82fr_1.18fr]">
                   <div className="space-y-4">
                     {selectedRemoteCommandNotes.length > 0 && <div className="rounded-lg border border-cyan-400/30 bg-cyan-400/5 p-4"><h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-cyan-100"><Shield className="h-4 w-4 text-cyan-300" /> {selectedRemoteCommandNotes.includes("[COMANDO REMOTO CONFIRMADO]") ? "Ação remota confirmada" : "Ação remota registrada"}</h3><div className="space-y-1 text-xs text-cyan-50">{selectedRemoteCommandNotes.map((line, index) => <p key={index}>{line}</p>)}</div></div>}
-                    {selectedRemoteBrand === "COMPATEC" && selectedRemoteSystemId ? <CompatecZoneArmControls alarmSystemId={selectedRemoteSystemId} /> : (<div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-red-100"><MapPin className="h-4 w-4 text-red-400" /> Zonas e setores</h3><div className="max-h-48 space-y-1.5 overflow-y-auto">{treatmentZones.filter((zone: any) => zone.isActive !== false).map((zone: any) => <div key={zone.id} className={`flex items-center justify-between rounded px-2.5 py-1.5 text-xs ${String(zone.zoneNumber) === String(selectedEvent.zoneUser).replace(/^0+/, "") ? "bg-red-500/15 text-red-100" : "bg-black/20 text-muted-foreground"}`}><span><strong className="font-mono">Zona {String(zone.zoneNumber).padStart(3, "0")}</strong> · {zone.name}</span><span className="uppercase text-[10px]">{zone.type}</span></div>)}{treatmentZones.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma zona cadastrada neste sistema.</p>}</div></div>)}
+                    {selectedRemoteBrand === "COMPATEC" && selectedRemoteSystemId ? <fieldset disabled={!canOperateSelected}><CompatecZoneArmControls alarmSystemId={selectedRemoteSystemId} /></fieldset> : (<div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-red-100"><MapPin className="h-4 w-4 text-red-400" /> Zonas e setores</h3><div className="max-h-48 space-y-1.5 overflow-y-auto">{treatmentZones.filter((zone: any) => zone.isActive !== false).map((zone: any) => <div key={zone.id} className={`flex items-center justify-between rounded px-2.5 py-1.5 text-xs ${String(zone.zoneNumber) === String(selectedEvent.zoneUser).replace(/^0+/, "") ? "bg-red-500/15 text-red-100" : "bg-black/20 text-muted-foreground"}`}><span><strong className="font-mono">Zona {String(zone.zoneNumber).padStart(3, "0")}</strong> · {zone.name}</span><span className="uppercase text-[10px]">{zone.type}</span></div>)}{treatmentZones.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma zona cadastrada neste sistema.</p>}</div></div>)}
                     <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Dados do sistema</h3><div className="grid gap-1 text-sm text-muted-foreground"><p>Central: <span className="text-foreground">{selectedEvent.systemModel}</span></p><p>Porta: <span className="font-mono text-foreground">{selectedEvent.receiverPort || "Não informada"}</span></p><p>Detalhe do evento: <span className="font-mono text-foreground">{selectedEventArgument}</span></p><p>Prioridade: <span className={PRIORITY_TEXT_COLOR[selectedEvent.priority] || "text-foreground"}>{PRIORITY_LABELS[selectedEvent.priority]?.label || "Média"}</span></p></div></div>
                   </div>
                   <div className="space-y-3">
                     <OperationalProcedurePanel clientIdentified={!!selectedClient?.id} eventType={treatmentProcedureData?.eventType} procedures={treatmentProcedures} hasSpecificProcedure={treatmentProcedureData?.hasSpecificProcedure} isLoading={treatmentProcedureQuery.isLoading} error={treatmentProcedureQuery.error} onRetry={() => void treatmentProcedureQuery.refetch()} onViewAll={() => setShowProceduresModal(true)} />
-                    {selectedEvent.queueStatus === "tactical" && <div className="rounded-lg border border-orange-400/40 bg-orange-500/5 p-3"><label className="text-sm font-semibold text-foreground" htmlFor="patrol-audit-status">Atualizar status informado do patrulheiro</label><select id="patrol-audit-status" value="" disabled={recordAuditActionMut.isPending} onChange={(event) => void recordAuditAction({ action: "tactical_status_updated", tacticalStatus: event.target.value as "en_route" | "arrived" | "inspection" | "completed" })} className="mt-2 w-full rounded-md border border-input bg-background p-2 text-sm"><option value="">Registrar atualização…</option><option value="en_route">Em deslocamento</option><option value="arrived">Chegou ao local</option><option value="inspection">Em verificação</option><option value="completed">Verificação concluída</option></select><p className="mt-1 text-xs text-foreground">Registro manual informado pelo operador; não é localização ou status automático da viatura.</p></div>}
+                    {selectedEvent.queueStatus === "tactical" && <div className="rounded-lg border border-orange-400/40 bg-orange-500/5 p-3"><label className="text-sm font-semibold text-foreground" htmlFor="patrol-audit-status">Atualizar status informado do patrulheiro</label><select id="patrol-audit-status" value="" disabled={!canOperateSelected || recordAuditActionMut.isPending} onChange={(event) => void recordAuditAction({ action: "tactical_status_updated", tacticalStatus: event.target.value as "en_route" | "arrived" | "inspection" | "completed" })} className="mt-2 w-full rounded-md border border-input bg-background p-2 text-sm"><option value="">Registrar atualização…</option><option value="en_route">Em deslocamento</option><option value="arrived">Chegou ao local</option><option value="inspection">Em verificação</option><option value="completed">Verificação concluída</option></select><p className="mt-1 text-xs text-foreground">Registro manual informado pelo operador; não é localização ou status automático da viatura.</p></div>}
 
 
                     <details className="rounded-lg border border-border bg-black/15 p-3"><summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Registros deste atendimento — não são o protocolo</summary><div className="mt-3 space-y-2">{attendingNotes.trim() && <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 p-3"><p className="text-xs font-bold uppercase tracking-wide text-emerald-300">Registro em andamento</p><p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{attendingNotes}</p></div>}{logs.slice(-3).map((log, index) => <p key={index} className="rounded bg-black/20 px-3 py-2 font-mono text-xs text-muted-foreground">{log}</p>)}</div></details>
@@ -2360,8 +2537,30 @@ export default function Dashboard() {
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setObservationOpen(false)}>Cancelar</Button>
-              <Button className="bg-purple-600 hover:bg-purple-700" disabled={observeIncidentMut.isPending} onClick={() => void confirmObservation()}>{observeIncidentMut.isPending ? "Salvando..." : "Confirmar observação"}</Button>
+              <Button className="bg-purple-600 hover:bg-purple-700" disabled={!canOperateSelected || observeIncidentMut.isPending} onClick={() => void confirmObservation()}>{observeIncidentMut.isPending ? "Salvando..." : "Confirmar observação"}</Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {tacticalReasonOpen && selectedEvent && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/70 p-4" onClick={() => setTacticalReasonOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="tactical-reason-title" className="w-full max-w-lg rounded-lg border border-orange-500/40 bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <h3 id="tactical-reason-title" className="text-lg font-bold text-orange-200">Encaminhar ao Tático</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Informe o motivo. O envio libera o painel após a confirmação do servidor.</p>
+            <Textarea className="mt-3 min-h-24" value={tacticalReason} onChange={(event) => setTacticalReason(event.target.value)} placeholder="Motivo do acionamento tático (mínimo de 5 caracteres)" />
+            <div className="mt-4 flex justify-end gap-2"><Button variant="outline" onClick={() => setTacticalReasonOpen(false)}>Cancelar</Button><Button className="bg-orange-600 hover:bg-orange-700" disabled={!canOperateSelected || tacticalReason.trim().length < 5 || updateIncidentMut.isPending} onClick={async () => { const result = await moveEvent(selectedEvent, tacticalReason); if (result) setTacticalReasonOpen(false); }}>Confirmar Tático</Button></div>
+          </div>
+        </div>
+      )}
+
+      {pausePanelOpen && selectedEvent && (
+        <div className="fixed inset-0 z-[86] flex items-center justify-center bg-black/70 p-4" onClick={() => setPausePanelOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="pause-panel-title" className="w-full max-w-md rounded-lg border border-amber-500/40 bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <h3 id="pause-panel-title" className="text-lg font-bold text-amber-200">Pausar atendimento</h3>
+            <p className="mt-1 text-sm text-muted-foreground">O painel só será fechado após o servidor confirmar a pausa. O motivo ficará registrado e a ocorrência seguirá na mesma fila.</p>
+            <Textarea className="mt-3 min-h-24" autoFocus value={pausePanelReason} onChange={(event) => setPausePanelReason(event.target.value)} placeholder="Motivo da pausa (obrigatório, mínimo de 5 caracteres)" />
+            <div className="mt-4 flex justify-end gap-2"><Button variant="outline" onClick={() => setPausePanelOpen(false)}>Continuar no painel</Button><Button className="bg-amber-600 text-black hover:bg-amber-500" disabled={pausePanelMut.isPending || pausePanelReason.trim().length < 5} onClick={() => void confirmPausePanel()}>{pausePanelMut.isPending ? "Pausando..." : "Confirmar pausa"}</Button></div>
           </div>
         </div>
       )}
@@ -2393,7 +2592,7 @@ export default function Dashboard() {
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setMaintenanceOpen(false)}>Cancelar</Button>
-              <Button className="bg-yellow-600 hover:bg-yellow-700 text-black" disabled={startMaintenanceMut.isPending} onClick={() => void confirmMaintenance()}>{startMaintenanceMut.isPending ? "Salvando..." : "Iniciar manutenção"}</Button>
+              <Button className="bg-yellow-600 hover:bg-yellow-700 text-black" disabled={!canOperateSelected || startMaintenanceMut.isPending} onClick={() => void confirmMaintenance()}>{startMaintenanceMut.isPending ? "Salvando..." : "Iniciar manutenção"}</Button>
             </div>
           </div>
         </div>

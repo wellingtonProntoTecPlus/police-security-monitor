@@ -37,6 +37,12 @@ export function incidentAuditActionLabel(entry: Pick<IncidentAuditRow, "action" 
     case "claimed": return "Abriu e assumiu o atendimento";
     case "resumed": return "Retomou o atendimento";
     case "assumed": return "Assumiu o atendimento";
+    case "paused": return "Pausou o atendimento e registrou o motivo";
+    case "maintenance": return "Colocou a ocorrência em manutenção";
+    case "maintenance_scheduled": return "Agendou a manutenção";
+    case "maintenance_released": return "Retirou a central da manutenção";
+    case "maintenance_expired": return "Período de manutenção encerrado";
+    case "observation_expired": return "Prazo de observação encerrado";
     case "status_changed":
       if (entry.statusAfter === "dispatched") return "Encaminhou o atendimento ao tático";
       if (entry.statusAfter === "attending") return "Retomou o atendimento";

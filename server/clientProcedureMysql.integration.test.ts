@@ -11,7 +11,7 @@ let pool: mysql.Pool;
 const upgrade = readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
 const migration = upgrade.slice(upgrade.indexOf("-- Tipo de protocolo de atendimento;"), upgrade.indexOf("-- Ficha cadastral de DVRs"));
 function legacyDDL() {
-  const snapshot = JSON.parse(readFileSync(new URL("../drizzle/meta/0050_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
   return tables.map(name => {
     if (name === "client_procedures") {
       return "CREATE TABLE `client_procedures` (`id` int NOT NULL AUTO_INCREMENT, `clientId` int NOT NULL, `description` text NOT NULL, `sortOrder` int DEFAULT 0, `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (`id`))";

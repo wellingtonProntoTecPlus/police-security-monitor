@@ -4,11 +4,11 @@ import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
-import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, assumeObservedIncident, getActiveAuthSessionByTokenHash, createClient, createPartnerCompany, updatePartnerCompany, getAlarmSystemByPanelIdentifier, getOperationalAlarmSystem, recordSystemKeepAlive, listSystemsConnectionStatus, deleteClient, deleteAlarmSystem, createAlarmSystem, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches } from "./db";
-import { endOperatorSessionWithHandoff, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException } from "./operatorShiftDb";
+import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, putIncidentInObservation, assumeObservedIncident, openIncidentPanel, pauseIncidentPanel, getActiveAuthSessionByTokenHash, createOccurrenceAndCloseIncident, finalizeIncidentWithRestoration, createClient, createPartnerCompany, updatePartnerCompany, getAlarmSystemByPanelIdentifier, getOperationalAlarmSystem, recordSystemKeepAlive, listSystemsConnectionStatus, deleteClient, deleteAlarmSystem, createAlarmSystem, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches } from "./db";
+import { endOperatorSessionWithHandoff, getOperatorLogoutPreview, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException } from "./operatorShiftDb";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
-import { authSessions, incidents, incidentHistory, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, clients, partnerCompanies, registrationDocuments, alarmSystems, alarmEvents, alarmRemoteCommands, systemKeepAliveSamples } from "../drizzle/schema";
+import { authSessions, incidents, incidentHistory, incidentPanelLeases, occurrences, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, clients, partnerCompanies, registrationDocuments, alarmSystems, alarmEvents, alarmRemoteCommands, systemKeepAliveSamples } from "../drizzle/schema";
 
 // Explicit opt-in, Unix socket only. Never reads DATABASE_URL or connects to a VPS.
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
@@ -18,9 +18,9 @@ const until = new Date("2026-11-04T16:30:00Z");
 let pool: mysql.Pool;
 let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
-const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_history", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts", "client_procedures"];
+const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_panel_leases", "incident_history", "occurrences", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts", "client_procedures"];
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0054_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
@@ -43,6 +43,10 @@ async function fixture() {
 }
 const handoff = { incidentId: 401, toUserId: 2, message: "Cliente de teste está sem energia; aguarda retorno.", observationUntil: until };
 const logoff = (handoffs: any[] = [handoff]) => endOperatorSessionWithHandoff({ userId: 1, authSessionId: 101, operatorName: "Amanda", handoffs, now });
+const leaseTokens = {
+  amanda: "11111111-1111-4111-8111-111111111111",
+  yasmin: "22222222-2222-4222-8222-222222222222",
+};
 
 // These tests are intentionally not runnable against a network database.
 describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () => {
@@ -63,7 +67,7 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     if (pool) { await pool.query(`DROP DATABASE \`${database}\``); await pool.end(); }
   });
 
-  it("mantém recado lido até finalizar e o encaminha a cada operador que assume ou recebe passagem", async () => {
+  it("preserva mensagem de passagem vinculada ao assumir; pausa antes do logoff e envia recado privado separadamente", async () => {
     const firstHandoff = await logoff();
     expect(firstHandoff.messages).toHaveLength(1);
     let inbox = await listOperatorShiftInbox(2);
@@ -74,30 +78,113 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(inbox).toHaveLength(1);
 
     await orm.insert(authSessions).values({ id: 102, userId: 2, tokenHash: "b".repeat(64), createdAt: now, expiresAt: new Date("2027-01-01T00:00:00Z") });
-    const assumed = await assumeObservedIncident({ incidentId: 401, operatorId: 2, operatorName: "Yasmin", authSessionId: 102 });
-    expect(assumed).toMatchObject({ id: 401, status: "attending", forwardedMessage: { toUserId: 2, toOperatorName: "Yasmin", incidentId: 401 } });
+    const assumed = await assumeObservedIncident({ incidentId: 401, operatorId: 2, operatorName: "Yasmin", authSessionId: 102, leaseToken: leaseTokens.yasmin });
+    expect(assumed).toMatchObject({ id: 401, status: "observing", operatorId: 2, leaseToken: leaseTokens.yasmin });
     inbox = await listOperatorShiftInbox(2);
     expect(inbox).toHaveLength(1);
-    expect(inbox[0]).toMatchObject({ isCurrent: true, readAt: null, fromOperatorName: "Amanda", toOperatorName: "Yasmin" });
+    expect(inbox[0]).toMatchObject({ isCurrent: true, readAt: expect.any(Date), incidentId: 401, fromOperatorName: "Amanda", toOperatorName: "Yasmin" });
 
-    const secondHandoff = await endOperatorSessionWithHandoff({
-      userId: 2, authSessionId: 102, operatorName: "Yasmin",
-      handoffs: [{ incidentId: 401, toUserId: 3, message: "A equipe tática confirmou que o local está normal; manter observação.", observationUntil: until }], now,
-    });
-    expect(secondHandoff.messages[0]).toMatchObject({ toUserId: 3, toOperatorName: "Stephane", incidentId: 401 });
-    expect(await listOperatorShiftInbox(2)).toHaveLength(0);
+    const pauseReason = "Aguardar retorno do responsável local";
+    await pauseIncidentPanel(401, pauseReason, { operatorId: 2, operatorName: "Yasmin", authSessionId: 102, leaseToken: leaseTokens.yasmin });
+    const [paused] = await orm.select().from(incidents).where(eq(incidents.id, 401));
+    expect(paused).toMatchObject({ id: 401, status: "observing", operatorId: 2, pauseReason });
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
+
+    const privateMessage = await sendOperatorShiftMessage({ userId: 2, authSessionId: 102, toUserId: 3, message: "A equipe tática confirmou que o local está normal." });
+    expect(privateMessage).toMatchObject({ fromUserId: 2, toUserId: 3 });
+    expect((await orm.select().from(operatorShiftMessages).where(eq(operatorShiftMessages.id, privateMessage.id)))[0].incidentId).toBeNull();
+    const secondLogoff = await endOperatorSessionWithHandoff({ userId: 2, authSessionId: 102, operatorName: "Yasmin", handoffs: [], now });
+    expect(secondLogoff.messages).toEqual([]);
+    const [afterLogoff] = await orm.select().from(incidents).where(eq(incidents.id, 401));
+    expect(afterLogoff).toMatchObject({ id: 401, status: "observing", operatorId: 2, pauseReason, version: paused.version, notes: paused.notes });
+    expect(await listOperatorShiftInbox(2)).toMatchObject([expect.objectContaining({ incidentId: 401, isCurrent: true, readAt: expect.any(Date) })]);
     const nextInbox = await listOperatorShiftInbox(3);
     expect(nextInbox).toHaveLength(1);
-    expect(nextInbox[0]).toMatchObject({ isCurrent: true, incidentStatus: "observing", fromOperatorName: "Yasmin", toOperatorName: "Stephane" });
+    expect(nextInbox[0]).toMatchObject({ incidentId: null, fromOperatorName: "Yasmin", toOperatorName: "Stephane", message: "A equipe tática confirmou que o local está normal." });
 
     await orm.update(incidents).set({ status: "closed" }).where(eq(incidents.id, 401));
-    expect(await listOperatorShiftInbox(3)).toHaveLength(0);
+    expect(await listOperatorShiftInbox(2)).toHaveLength(0);
     const messages = await orm.select().from(operatorShiftMessages).orderBy(operatorShiftMessages.id);
-    expect(messages).toHaveLength(3);
-    expect(messages[0]).toMatchObject({ isCurrent: false, fromOperatorName: "Amanda", toOperatorName: "Yasmin", message: handoff.message });
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ isCurrent: true, fromOperatorName: "Amanda", toOperatorName: "Yasmin", message: handoff.message });
     expect(messages[0].readAt).not.toBeNull();
-    expect(messages[1].isCurrent).toBe(false);
-    expect(messages[2]).toMatchObject({ isCurrent: true, fromOperatorName: "Yasmin", toOperatorName: "Stephane" });
+    expect(messages[1]).toMatchObject({ incidentId: null, isCurrent: true, fromOperatorName: "Yasmin", toOperatorName: "Stephane" });
+  });
+
+  it("assume preserva id, status dispatched, anotação e registra auditoria sem criar filho", async () => {
+    const note = "Despachado; manter contato com a equipe no local.";
+    await orm.update(incidents).set({ status: "dispatched", operatorId: 1, notes: note }).where(eq(incidents.id, 401));
+
+    await orm.insert(authSessions).values({ id: 102, userId: 2, tokenHash: "b".repeat(64), createdAt: now, expiresAt: new Date("2027-01-01T00:00:00Z") });
+    const assumed = await assumeObservedIncident({ incidentId: 401, operatorId: 2, operatorName: "Yasmin", authSessionId: 102, leaseToken: leaseTokens.yasmin });
+
+    expect(assumed).toMatchObject({ id: 401, status: "dispatched", operatorId: 2, notes: note, leaseToken: leaseTokens.yasmin });
+    expect(await orm.select().from(incidents)).toHaveLength(1);
+    expect(await orm.select().from(incidentPanelLeases)).toMatchObject([expect.objectContaining({ incidentId: 401, operatorId: 2, authSessionId: 102, leaseToken: leaseTokens.yasmin })]);
+    expect((await orm.select().from(incidentHistory))[0]).toMatchObject({ incidentId: 401, action: "assumed", statusBefore: "dispatched", statusAfter: "dispatched", note: expect.stringContaining("dispatched") });
+    expect((await orm.select().from(incidents).where(eq(incidents.id, 401)))[0].notes).toBe(note);
+  });
+
+  it("impede a tela do operador anterior de finalizar e aceita o lease do novo painel no mesmo incidente", async () => {
+    await openIncidentPanel({ incidentId: 401 }, { operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: leaseTokens.amanda });
+    await pauseIncidentPanel(401, "Aguardar transferência de equipe", { operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: leaseTokens.amanda });
+    await orm.insert(authSessions).values({ id: 102, userId: 2, tokenHash: "b".repeat(64), createdAt: now, expiresAt: new Date("2027-01-01T00:00:00Z") });
+    const assumed = await openIncidentPanel({ incidentId: 401, assume: true }, { operatorId: 2, operatorName: "Yasmin", authSessionId: 102, leaseToken: leaseTokens.yasmin });
+    const report = {
+      account: "TEST-001", eventCode: "130", qualifier: "E", description: "Alarme fictício de teste",
+      observations: "Equipe chegou ao local; sem violação identificada.",
+    } as any;
+
+    await expect(createOccurrenceAndCloseIncident(401, report, 1, "Amanda", 101, leaseTokens.amanda))
+      .rejects.toThrow("atribuído a outro operador");
+    expect((await orm.select().from(incidents).where(eq(incidents.id, 401)))[0]).toMatchObject({ id: 401, status: "attending", operatorId: 2 });
+    expect(await orm.select().from(occurrences)).toHaveLength(0);
+
+    const finalizedReport = await createOccurrenceAndCloseIncident(assumed.id, report, 2, "Yasmin", 102, leaseTokens.yasmin);
+    expect(finalizedReport.id).toBeGreaterThan(0);
+    expect(await orm.select().from(occurrences)).toMatchObject([expect.objectContaining({ id: finalizedReport.id, incidentId: 401, operatorId: 2, operatorName: "Yasmin" })]);
+    expect((await orm.select().from(incidents).where(eq(incidents.id, 401)))[0]).toMatchObject({ id: 401, status: "closed", operatorId: 2 });
+    expect((await orm.select().from(incidentHistory).orderBy(incidentHistory.id)).at(-1)).toMatchObject({ incidentId: 401, action: "finalized", operatorId: 2 });
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
+    expect(await orm.select().from(incidents)).toHaveLength(1);
+  });
+
+  it("bloqueia logoff com lease ativo e, após pausa, permite [] sem mutar incidente nem criar mensagem", async () => {
+    const initial = (await getOperatorLogoutPreview({ userId: 1, authSessionId: 101, now }));
+    expect(initial.pendingIncidents).toHaveLength(1);
+    expect(initial.pendingIncidents[0].blockerReasons).toContain("Não há motivo operacional de pausa ou encaminhamento registrado.");
+
+    await openIncidentPanel({ incidentId: 401 }, { operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: leaseTokens.amanda });
+    const leased = await getOperatorLogoutPreview({ userId: 1, authSessionId: 101, now });
+    expect(leased.pendingIncidents).toHaveLength(1);
+    expect(leased.pendingIncidents[0].blockerReasons).toContain("Painel ainda aberto em uma sessão ativa.");
+
+    const pauseReason = "Aguardar confirmação do cliente";
+    await pauseIncidentPanel(401, pauseReason, { operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: leaseTokens.amanda });
+    const [paused] = await orm.select().from(incidents).where(eq(incidents.id, 401));
+    expect((await getOperatorLogoutPreview({ userId: 1, authSessionId: 101, now })).pendingIncidents).toEqual([]);
+    expect(await orm.select().from(operatorShiftMessages)).toHaveLength(0);
+
+    const loggedOut = await endOperatorSessionWithHandoff({ userId: 1, authSessionId: 101, operatorName: "Amanda", handoffs: [], now });
+    expect(loggedOut.messages).toEqual([]);
+    expect((await orm.select().from(incidents).where(eq(incidents.id, 401)))[0]).toMatchObject({ status: paused.status, operatorId: paused.operatorId, pauseReason, notes: paused.notes, version: paused.version });
+    expect(await orm.select().from(operatorShiftMessages)).toHaveLength(0);
+  });
+
+  it("observar ou encaminhar para dispatched libera o lease e persiste o motivo operacional", async () => {
+    await openIncidentPanel({ incidentId: 401 }, { operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: leaseTokens.amanda });
+    const dispatchReason = "Equipe tática acionada para verificação presencial.";
+    await transitionIncidentForOperator({ incidentId: 401, operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: leaseTokens.amanda, status: "dispatched", notes: dispatchReason });
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
+    expect((await orm.select().from(incidents).where(eq(incidents.id, 401)))[0]).toMatchObject({ status: "dispatched", operatorId: 1, pauseReason: dispatchReason });
+
+    await orm.insert(incidents).values({ id: 402, eventId: 301, operatorId: 1, status: "attending", notes: "Anotação da segunda ocorrência", version: 0 });
+    const observationToken = "44444444-4444-4444-8444-444444444444";
+    await openIncidentPanel({ incidentId: 402 }, { operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: observationToken });
+    const observationReason = "Aguardar retorno do contato responsável.";
+    await putIncidentInObservation({ incidentId: 402, operatorId: 1, operatorName: "Amanda", authSessionId: 101, leaseToken: observationToken, until: new Date(Date.now() + 60_000), notes: observationReason });
+    expect((await orm.select().from(incidentPanelLeases)).some((lease) => lease.incidentId === 402)).toBe(false);
+    expect((await orm.select().from(incidents).where(eq(incidents.id, 402)))[0]).toMatchObject({ status: "observing", operatorId: 1, pauseReason: observationReason });
   });
 
   it("grava logoff real, preserva o mesmo incidente e envia a mensagem somente ao destinatário", async () => {
@@ -429,4 +516,19 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(await expireStaleRemoteCommandDispatches(new Date("2026-11-04T10:04:00Z"))).toBe(0);
     expect((await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, 902)))[0].status).toBe("dispatch_unknown");
   });
+  it("restauração automática fecha o painel, preserva auditoria e permite logoff imediato sem mensagem", async () => {
+    await openIncidentPanel({incidentId:401},{operatorId:1,operatorName:"Amanda",authSessionId:101,leaseToken:leaseTokens.amanda});
+    const incident = (await orm.select().from(incidents))[0];
+    const event = (await orm.select().from(alarmEvents))[0];
+    await finalizeIncidentWithRestoration({incident,event});
+    expect((await orm.select().from(incidents))[0].status).toBe("closed");
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
+    expect((await getOperatorLogoutPreview({userId:1,authSessionId:101,now})).pendingIncidents).toEqual([]);
+    expect((await logoff([])).messages).toEqual([]);
+    expect(await orm.select().from(operatorShiftMessages)).toHaveLength(0);
+    expect(await finalizeIncidentWithRestoration({incident,event})).toBeUndefined();
+    expect(await orm.select().from(occurrences)).toHaveLength(1);
+    expect((await orm.select().from(incidentHistory)).filter(row=>row.action === "auto_restored")).toHaveLength(1);
+  });
+
 });

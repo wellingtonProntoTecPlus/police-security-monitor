@@ -30,7 +30,6 @@ import { Button } from "./ui/button";
 import WorkspaceScreenMenu from "./WorkspaceScreenMenu";
 import OperatorHandoffMessageDialog from "./OperatorHandoffMessageDialog";
 import { useSocket } from "@/hooks/useSocket";
-import { OPERATOR_SHIFT_LABELS, type OperatorShiftCode } from "@shared/operatorShift";
 import OperatorScheduleDecisionDialog from "./OperatorScheduleDecisionDialog";
 
 const menuItems = [
@@ -58,7 +57,6 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 200;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
-function localDateTimeInput(date: Date) { return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); }
 
 export default function DashboardLayout({
   children,
@@ -154,9 +152,6 @@ function DashboardLayoutContent({
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [logoutMode, setLogoutMode] = useState<"logout" | "switch">("logout");
-  const [handoffMessages, setHandoffMessages] = useState<Record<number, string>>({});
-  const [handoffRecipients, setHandoffRecipients] = useState<Record<number, number>>({});
-  const [handoffUntil, setHandoffUntil] = useState<Record<number, string>>({});
   const [logoutSubmitting, setLogoutSubmitting] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const [scheduleDecisionError, setScheduleDecisionError] = useState("");
@@ -257,41 +252,39 @@ function DashboardLayoutContent({
     if (first && activeReminderId === null) setActiveReminderId(Number(first.id));
   }, [remindersQuery.data, activeReminderId]);
 
-  useEffect(() => {
-    if (!logoutDialogOpen || !logoutPreview.data) return;
-    setHandoffMessages((old) => Object.fromEntries(logoutPreview.data.pendingIncidents.map((incident) => [incident.incidentId, old[incident.incidentId] || ""])));
-    setHandoffRecipients((old) => Object.fromEntries(logoutPreview.data.pendingIncidents.map((incident) => [incident.incidentId, old[incident.incidentId] || logoutPreview.data.nextOperators[0]?.userId || logoutPreview.data.availableRecipients[0]?.userId || 0])));
-    setHandoffUntil((old) => Object.fromEntries(logoutPreview.data.pendingIncidents.map((incident) => [incident.incidentId, old[incident.incidentId] || localDateTimeInput(incident.observationUntil && new Date(incident.observationUntil) > new Date() ? new Date(incident.observationUntil) : new Date(Date.now() + 30 * 60_000))])));
-  }, [logoutDialogOpen, logoutPreview.dataUpdatedAt]);
-
-  const changeShift = () => { setLogoutMode("switch"); setLogoutError(""); setLogoutDialogOpen(true); };
-  const requestLogout = () => { setLogoutMode("logout"); setLogoutError(""); setLogoutDialogOpen(true); };
-
-  const confirmLogout = async () => {
+  const startLogout = async (mode: "logout" | "switch") => {
     if (logoutSubmitting) return;
-    const incidents = logoutPreview.data?.pendingIncidents || [];
-    const handoffs = incidents.map((incident) => ({
-      incidentId: incident.incidentId,
-      toUserId: handoffRecipients[incident.incidentId] || 0,
-      message: handoffMessages[incident.incidentId] || "",
-      observationUntil: new Date(handoffUntil[incident.incidentId] || ""),
-    }));
-    if (handoffs.some((handoff) => !handoff.toUserId || handoff.message.trim().length < 10)) {
-      setLogoutError("Cada ocorrência pendente precisa de um próximo operador e uma anotação de pelo menos 10 caracteres.");
-      return;
-    }
-    if (handoffs.some((handoff) => Number.isNaN(handoff.observationUntil.getTime()) || handoff.observationUntil <= new Date())) { setLogoutError("Informe prazo futuro de observação para cada ocorrência."); return; }
     setLogoutSubmitting(true);
+    setLogoutError("");
     try {
-      await logout(handoffs);
+      if (isOperational) {
+        const refreshed = await logoutPreview.refetch();
+        if (refreshed.error) throw refreshed.error;
+        if (!refreshed.data) throw new Error("Não foi possível atualizar a conferência de ocorrências. Nenhum logoff foi realizado.");
+        const blockers = refreshed.data.pendingIncidents || [];
+        if (blockers.length) {
+          setLogoutMode(mode);
+          setLogoutDialogOpen(true);
+          return;
+        }
+      }
+      await logout([]);
       setLogoutDialogOpen(false);
-      if (logoutMode === "switch") window.location.href = "/login?turno=1";
+      if (mode === "switch") window.location.href = "/login?turno=1";
     } catch (error) {
-      setLogoutError(error instanceof Error ? error.message : "Não foi possível concluir o logoff. Nenhuma ocorrência foi transferida.");
-      await logoutPreview.refetch();
+      setLogoutError(error instanceof Error ? error.message : "Não foi possível concluir o logoff. Nenhuma ocorrência foi alterada.");
+      setLogoutDialogOpen(true);
     } finally {
       setLogoutSubmitting(false);
     }
+  };
+  const changeShift = () => { void startLogout("switch"); };
+  const requestLogout = () => { void startLogout("logout"); };
+  const returnToDashboard = () => {
+    setLogoutDialogOpen(false);
+    setLogoutError("");
+    void logoutPreview.refetch();
+    setLocation("/dashboard");
   };
 
   useEffect(() => {
@@ -532,46 +525,29 @@ function DashboardLayoutContent({
         {messageDialogOpen && <OperatorHandoffMessageDialog onClose={() => setMessageDialogOpen(false)} />}
         {logoutDialogOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="operator-logout-title">
-            <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-border bg-card text-card-foreground shadow-2xl">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl border border-border bg-card text-card-foreground shadow-2xl">
               <div className="border-b border-border px-5 py-4">
-                <h2 id="operator-logout-title" className="text-lg font-semibold">{logoutMode === "switch" ? "Trocar usuário" : "Sair do sistema"}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Antes do logoff, confira e passe para o próximo operador todas as ocorrências que ainda estão atribuídas a você.</p>
+                <h2 id="operator-logout-title" className="text-lg font-semibold">{logoutMode === "switch" ? "Não é possível trocar usuário ainda" : "Não é possível sair ainda"}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Conclua o atendimento, feche o painel ou registre uma pausa/encaminhamento pelo Dashboard. As mensagens pessoais são opcionais e ficam separadas desta verificação.</p>
               </div>
               <div className="space-y-4 p-5">
-                {logoutPreview.isLoading ? <p className="text-sm text-muted-foreground">Conferindo suas ocorrências abertas...</p> : null}
-                {logoutPreview.error ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutPreview.error.message}</p> : null}
-                {logoutPreview.data?.fallbackRecipients && logoutPreview.data.pendingIncidents.length > 0 ? <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">Não há operador escalado para o próximo turno. Selecione um operador disponível abaixo e informe o motivo.</p> : null}
-                {logoutPreview.data?.pendingIncidents.length === 0 && !logoutPreview.isLoading && !logoutPreview.error ? <p className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">Nenhuma ocorrência pendente está atribuída a você. Pode confirmar o logoff.</p> : null}
-                {logoutPreview.data?.pendingIncidents.map((incident) => {
-                  const recipients = logoutPreview.data.nextOperators.length ? logoutPreview.data.nextOperators : logoutPreview.data.availableRecipients;
-                  return <div key={incident.incidentId} className="space-y-3 rounded-lg border border-border p-4">
-                    <div>
-                      <p className="font-semibold">Conta {incident.account} · atendimento #{incident.incidentId}</p>
-                      <p className="text-sm text-muted-foreground">{incident.description || `Evento ${incident.eventCode}`} · {incident.status === "observing" ? "já está em observação" : "precisa ser colocado em observação"}</p>
-                      {incident.notes ? <p className="mt-2 whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">Registro atual: {incident.notes}</p> : null}
-                    </div>
-                    <label className="block text-xs text-muted-foreground">Observação até
-                      <input type="datetime-local" aria-label={`Observação até da conta ${incident.account}`} value={handoffUntil[incident.incidentId] || ""} onChange={(event) => setHandoffUntil((old) => ({ ...old, [incident.incidentId]: event.target.value }))} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground" />
-                    </label>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="space-y-1 text-xs text-muted-foreground">Próximo operador
-                        <select aria-label={`Próximo operador da conta ${incident.account}`} value={handoffRecipients[incident.incidentId] || ""} onChange={(event) => setHandoffRecipients((previous) => ({ ...previous, [incident.incidentId]: Number(event.target.value) }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground">
-                          <option value="">Selecione</option>
-                          {recipients.map((person: any) => <option key={person.userId} value={person.userId}>{person.name}{person.shiftCode ? ` · ${OPERATOR_SHIFT_LABELS[person.shiftCode as OperatorShiftCode]}` : ""}</option>)}
-                        </select>
-                      </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">Anotação para o próximo operador (mínimo 10 caracteres)
-                        <textarea aria-label={`Anotação de passagem da conta ${incident.account}`} value={handoffMessages[incident.incidentId] || ""} onChange={(event) => setHandoffMessages((previous) => ({ ...previous, [incident.incidentId]: event.target.value }))} rows={3} maxLength={4000} placeholder="Ex.: Cliente informou que está sem energia; previsão de retorno às 13h." className="w-full resize-y rounded-md border border-input bg-background p-3 text-sm text-foreground" />
-                      </label>
-                    </div>
-                  </div>;
-                })}
-                {logoutError ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutError}</p> : null}
-                <p className="text-xs text-muted-foreground">O sistema grava quem saiu, o horário, o destinatário e a mensagem. As ocorrências continuam na fila, agora em observação. Se houver pendências, nenhuma delas é alterada se uma anotação ou destinatário estiver faltando.</p>
+                {logoutSubmitting || logoutPreview.isFetching ? <p role="status" className="text-sm text-muted-foreground">Conferindo suas ocorrências abertas...</p> : null}
+                {logoutPreview.error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutPreview.error.message}</p> : null}
+                {logoutError ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutError}</p> : null}
+                {logoutPreview.data?.pendingIncidents.map((incident) => (
+                  <article key={incident.incidentId} className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+                    <p className="font-semibold">Conta {incident.account} · atendimento #{incident.incidentId}</p>
+                    <p className="text-sm text-muted-foreground">{incident.description || `Evento ${incident.eventCode}`} · status: {incident.status}</p>
+                    {incident.pauseReason?.trim() ? <p className="whitespace-pre-wrap rounded bg-muted/40 p-2 text-sm">Motivo registrado: {incident.pauseReason}</p> : null}
+                    {incident.blockerReasons?.map((reason, index) => <p key={index} className="text-sm text-amber-200">{reason}</p>)}
+                    {incident.notes ? <p className="whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">Registro atual: {incident.notes}</p> : null}
+                  </article>
+                ))}
+                {!logoutPreview.error && !logoutPreview.isFetching && logoutPreview.data?.pendingIncidents.length === 0 ? <p className="text-sm text-muted-foreground">A verificação já não encontrou ocorrências bloqueadoras. Cancele e solicite a saída novamente para atualizar a autorização.</p> : null}
               </div>
-              <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
-                <Button variant="outline" disabled={logoutSubmitting} onClick={() => setLogoutDialogOpen(false)}>Cancelar</Button>
-                <Button onClick={() => void confirmLogout()} disabled={logoutSubmitting || logoutPreview.isFetching || Boolean(logoutPreview.error)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{logoutSubmitting ? "Registrando..." : "Confirmar logoff"}</Button>
+              <div className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-4">
+                <Button variant="outline" disabled={logoutSubmitting || logoutPreview.isFetching} onClick={() => { setLogoutDialogOpen(false); setLogoutError(""); void logoutPreview.refetch(); }}>Cancelar</Button>
+                <Button disabled={logoutSubmitting || logoutPreview.isFetching} onClick={returnToDashboard}>Voltar ao atendimento</Button>
               </div>
             </div>
           </div>

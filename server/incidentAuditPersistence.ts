@@ -7,6 +7,7 @@ type Db = ReturnType<typeof drizzle>;
 export type IncidentAuditActionInput = {
   incidentId: number;
   requestId: string;
+  leaseToken?: string;
   action: "attendance_opened" | "camera_viewed" | "contact_selected" | "contact_call_clicked" | "contact_whatsapp_clicked" | "police_action_registered" | "tactical_status_updated";
   targetId?: number;
   tacticalStatus?: "en_route" | "arrived" | "inspection" | "completed";
@@ -22,7 +23,7 @@ const auditProjection = {
   statusAfter: incidentHistory.statusAfter, note: incidentHistory.note, createdAt: incidentHistory.createdAt,
 };
 
-export async function recordIncidentOperatorActionWithDb(db: Db, input: IncidentAuditActionInput, actor: { id: number; name: string }, lockSession: (tx: any) => Promise<void>) {
+export async function recordIncidentOperatorActionWithDb(db: Db, input: IncidentAuditActionInput, actor: { id: number; name: string }, lockSession: (tx: any) => Promise<void>, assertPanel?: (tx: any) => Promise<unknown>) {
   return db.transaction(async (tx) => {
     await lockSession(tx);
     const [incident] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
@@ -36,6 +37,7 @@ export async function recordIncidentOperatorActionWithDb(db: Db, input: Incident
       return existing;
     }
     if (!inArrayStatus(incident.status) || incident.operatorId !== actor.id) throw new TRPCError({ code: "FORBIDDEN", message: "Somente o operador responsável por um atendimento aberto pode registrar esta ação" });
+    if (assertPanel) await assertPanel(tx);
     const [system] = incident.alarmSystemId ? await tx.select({ clientId: alarmSystems.clientId }).from(alarmSystems).where(eq(alarmSystems.id, incident.alarmSystemId)).limit(1) : [];
     if (incident.clientId && system?.clientId && incident.clientId !== system.clientId) throw new TRPCError({ code: "CONFLICT", message: "Vínculo cliente/central divergente" });
     const clientId = incident.clientId ?? system?.clientId;

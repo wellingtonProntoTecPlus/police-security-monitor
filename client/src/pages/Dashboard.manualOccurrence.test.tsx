@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import userEvent from "@testing-library/user-event";
@@ -23,6 +23,9 @@ const standardMutation = {
 
 const bulkMutation = { mutateAsync: vi.fn(), isPending: false };
 const auditMutation = { mutateAsync: vi.fn(), isPending: false };
+const openPanelMutation = { mutateAsync: vi.fn(), isPending: false };
+const renewPanelMutation = { mutateAsync: vi.fn(), isPending: false };
+const pausePanelMutation = { mutateAsync: vi.fn(), isPending: false };
 const invalidateAuditTrail = vi.fn().mockResolvedValue(undefined);
 let mockedAuditItems: any[] = [];
 let mockedCameras: any[] = [];
@@ -55,6 +58,9 @@ vi.mock("@/lib/trpc", () => ({
     alarmEvent: { createManual: { useMutation: () => manualMutation } },
     incident: {
       assume: { useMutation: () => standardMutation },
+      openPanel: { useMutation: () => openPanelMutation },
+      renewPanel: { useMutation: () => renewPanelMutation },
+      pausePanel: { useMutation: () => pausePanelMutation },
       update: { useMutation: () => standardMutation },
       bulkFinalize: { useMutation: () => bulkMutation },
       bulkPreview: { useQuery: () => ({ data: mockedBulkPreview, isFetching: false, error: null, refetch: refetchBulkPreview }) },
@@ -155,6 +161,7 @@ vi.mock("sonner", () => ({
 describe("Dashboard — Ocorrência Manual", () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
     vi.restoreAllMocks();
@@ -167,6 +174,9 @@ describe("Dashboard — Ocorrência Manual", () => {
     mockedCameras = [];
     mockedContacts = [];
     auditMutation.mutateAsync.mockReset().mockResolvedValue({ id: 1001 });
+    openPanelMutation.mutateAsync.mockReset().mockImplementation(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: "attending", operatorId: 1, operatorName: "Wellington", notes: null, pauseReason: null, leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
+    renewPanelMutation.mutateAsync.mockReset().mockResolvedValue({ leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() });
+    pausePanelMutation.mutateAsync.mockReset().mockResolvedValue({ id: 91, status: "attending", pauseReason: "Pausa solicitada" });
     invalidateAuditTrail.mockClear();
     manualMutation.mutate.mockReset();
     manualMutation.mutateAsync.mockReset();
@@ -340,6 +350,8 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByText("Tratamento de ocorrência")).toBeTruthy();
     expect(screen.getByText("Cliente de Teste")).toBeTruthy();
     expect(screen.queryByText("Cliente incorreto")).toBeNull();
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledWith({ incidentId: 91, leaseToken: expect.any(String) }));
+    expect(auditMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
   it("abre eventos recentes da ocorrência em consulta somente leitura vinculada ao incidentId", async () => {
@@ -352,15 +364,25 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(queryRecentClientEvents).toHaveBeenCalledWith({ incidentId: 91 });
   });
 
-  it("volta às filas ao fechar o painel sem finalizar e mantém a última auditoria", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("ao fechar o tratamento pede motivo e ACK da pausa, sem finalizar nem perder a auditoria", async () => {
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
     expect(screen.getByTestId("active-occurrence-inline").closest("main")?.getAttribute("aria-label")).toBe("Área central de atendimento");
     expect(screen.getByRole("complementary", { name: "Logs da Ocorrência" }).closest("main")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Fechar tratamento" }));
-    expect(screen.queryByTestId("active-occurrence-inline")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Pausar atendimento" })).toBeTruthy();
+    const confirmPause = screen.getByRole("button", { name: "Confirmar pausa" });
+    expect(confirmPause.hasAttribute("disabled")).toBe(true);
+    expect(pausePanelMutation.mutateAsync).not.toHaveBeenCalled();
+    await user.type(screen.getByPlaceholderText("Motivo da pausa (obrigatório, mínimo de 5 caracteres)"), "Aguardando retorno do cliente");
+    expect(confirmPause.hasAttribute("disabled")).toBe(false);
+    await user.click(confirmPause);
+    await waitFor(() => expect(pausePanelMutation.mutateAsync).toHaveBeenCalledWith({ incidentId: 91, leaseToken: expect.any(String), reason: "Aguardando retorno do cliente" }));
+    const openToken = openPanelMutation.mutateAsync.mock.calls[0][0].leaseToken;
+    expect(pausePanelMutation.mutateAsync.mock.calls[0][0].leaseToken).toBe(openToken);
+    await waitFor(() => expect(screen.queryByTestId("active-occurrence-inline")).toBeNull());
     expect(screen.getByText("AGUARDANDO (0)")).toBeTruthy();
     expect(screen.getByText(/Ocorrência #91/)).toBeTruthy();
     expect(standardMutation.mutate).not.toHaveBeenCalled();
@@ -368,13 +390,57 @@ describe("Dashboard — Ocorrência Manual", () => {
 
   it("retoma para atendimento uma ocorrência em observação atribuída ao próprio operador", async () => {
     mockedPersistedQueue = [{ ...defaultQueue[0], incidentStatus: "observing", incidentOperatorId: 1, incidentOperatorName: "Wellington" }];
+    openPanelMutation.mutateAsync.mockImplementationOnce(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: "observing", operatorId: 1, operatorName: "Wellington", notes: null, pauseReason: "Aguardando retorno", leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(screen.getByTitle("Observação (1)"));
     await user.click(await screen.findByText("Disparo de alarme"));
-    await waitFor(() => expect(standardMutation.mutateAsync).toHaveBeenCalledWith({ id: 91, status: "attending" }));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledWith({ incidentId: 91, leaseToken: expect.any(String) }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
     expect(screen.getByTestId("active-occurrence-inline")).toBeTruthy();
     expect(screen.getByText("Responsável pelo atendimento:")).toBeTruthy();
+    expect(standardMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(openPanelMutation.mutateAsync.mock.results[0].value).toBeInstanceOf(Promise);
+  });
+
+  it.each([
+    { queueStatus: "attending", panelStatus: "attending", queueTitle: "Atendimento (1)" },
+    { queueStatus: "observing", panelStatus: "observing", queueTitle: "Observação (1)" },
+    { queueStatus: "tactical", panelStatus: "dispatched", queueTitle: "Tático (1)" },
+    { queueStatus: "maintenance", panelStatus: "maintenance", queueTitle: "Manutenção (1)" },
+  ])("assume ocorrência pausada em $queueStatus por outro operador com lease novo e preserva status", async ({ queueStatus, panelStatus, queueTitle }) => {
+    mockedPersistedQueue = [{ ...defaultQueue[0], incidentStatus: panelStatus, incidentOperatorId: 8, incidentOperatorName: "Amanda", pauseReason: "Retorno pendente" }];
+    openPanelMutation.mutateAsync.mockImplementationOnce(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: panelStatus, operatorId: 1, operatorName: "Wellington", notes: "Nota anterior", pauseReason: "Retorno pendente", leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(screen.getByTitle(queueTitle));
+    await user.click(await screen.findByRole("button", { name: "Assumir ocorrência 91" }));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledWith({ incidentId: 91, leaseToken: expect.any(String), assume: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
+    const acquisition = openPanelMutation.mutateAsync.mock.calls[0][0];
+    expect(acquisition.leaseToken).toEqual(expect.any(String));
+    expect(standardMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(standardMutation.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText("Responsável pelo atendimento:")).toBeTruthy();
+    if (queueStatus === "maintenance") expect(screen.getByText(/Sistema em manutenção\./)).toBeTruthy();
+    if (queueStatus === "tactical") expect(screen.getByLabelText("Atualizar status informado do patrulheiro")).toBeTruthy();
+    expect(toast.success).toHaveBeenCalledWith("Atendimento assumido; o status da fila foi preservado.");
+  });
+
+  it("permite consulta de ocorrência com lease ativo de outro operador sem habilitar controles", async () => {
+    mockedPersistedQueue = [{ ...defaultQueue[0], incidentStatus: "attending", panelActive: true, panelOperatorId: 8, panelOperatorName: "Amanda", incidentOperatorId: 8, incidentOperatorName: "Amanda" }];
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(screen.getByTitle("Atendimento (1)"));
+    await user.click(await screen.findByText("Disparo de alarme"));
+    expect((await screen.findByRole("alert")).textContent).toContain("OCORRÊNCIA EM ATENDIMENTO POR Amanda");
+    expect(screen.getByText(/Você pode consultar contatos, notas e logs/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Finalizar" })).toBeNull();
+    expect(screen.queryByPlaceholderText("Registro do atendimento, contatos realizados e providências...")).toBeNull();
+    expect(openPanelMutation.mutateAsync).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Consultar últimos eventos do cliente" }));
+    expect(screen.getByRole("heading", { name: "Últimos eventos do cliente" })).toBeTruthy();
+    expect(queryRecentClientEvents).toHaveBeenCalledWith({ incidentId: 91 });
   });
 
   it("preserva o atendimento aberto enquanto a finalização aguarda confirmação do servidor", async () => {
@@ -409,9 +475,11 @@ describe("Dashboard — Ocorrência Manual", () => {
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências..."), "Verificação concluída sem anormalidades.");
     await user.click(screen.getByRole("button", { name: /^Finalizar$/ }));
     expect(standardMutation.mutate).toHaveBeenCalledWith(expect.objectContaining({ incidentId: 91 }), expect.any(Object));
+    expect(standardMutation.mutate.mock.calls[0][0].leaseToken).toBe(openPanelMutation.mutateAsync.mock.calls[0][0].leaseToken);
     const options = standardMutation.mutate.mock.calls[0][1];
     options.onSuccess();
     await waitFor(() => expect(screen.queryByTestId("active-occurrence-inline")).toBeNull());
@@ -442,10 +510,12 @@ describe("Dashboard — Ocorrência Manual", () => {
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: /^Câmeras$/ }));
     await user.click(screen.getByRole("button", { name: "Abrir Câmera 1 — Entrada" }));
     await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ incidentId: 91, action: "camera_viewed", targetId: 201, requestId: expect.any(String) })));
     const cameraPayload = auditMutation.mutateAsync.mock.calls[0][0];
+    expect(cameraPayload.leaseToken).toBe(openPanelMutation.mutateAsync.mock.calls[0][0].leaseToken);
     expect(cameraPayload.operatorName).toBeUndefined();
     expect(cameraPayload.createdAt).toBeUndefined();
     expect(cameraPayload.rtspUrl).toBeUndefined();
@@ -459,6 +529,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Contatos (1)" }));
     await user.click(screen.getByRole("button", { name: "Selecionar contato" }));
     await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ incidentId: 91, targetId: 301, action: "contact_selected" })));
@@ -483,6 +554,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Contatos (1)" }));
     await user.click(screen.getByRole("button", { name: "WhatsApp" }));
     await waitFor(() => expect(externalWindow.close).toHaveBeenCalledTimes(1));
@@ -496,13 +568,17 @@ describe("Dashboard — Ocorrência Manual", () => {
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(openPanelMutation.mutateAsync).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: /^Polícia$/ }));
     await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledTimes(1));
     const originalPayload = auditMutation.mutateAsync.mock.calls[0][0];
-    expect(JSON.parse(localStorage.getItem("police-incident-audit-pending-1")!)).toEqual(originalPayload);
+    const persistedPayload = JSON.parse(localStorage.getItem("police-incident-audit-pending-1")!);
+    expect(persistedPayload).toEqual({ action: originalPayload.action, incidentId: originalPayload.incidentId, requestId: originalPayload.requestId });
+    expect(persistedPayload).not.toHaveProperty("leaseToken");
     await user.click(screen.getAllByRole("button", { name: "Tentar gravar novamente" })[0]);
     await waitFor(() => expect(auditMutation.mutateAsync).toHaveBeenCalledTimes(2));
     expect(auditMutation.mutateAsync.mock.calls[1][0]).toEqual(originalPayload);
+    expect(originalPayload.leaseToken).toBe(openPanelMutation.mutateAsync.mock.calls[0][0].leaseToken);
     expect(localStorage.getItem("police-incident-audit-pending-1")).toBeNull();
   });
 
@@ -645,4 +721,65 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(source).toContain("Ação remota confirmada");
     expect(source).toContain("[COMANDO REMOTO CONFIRMADO]");
   });
+  it("bloqueia os controles imediatamente quando a renovação do painel falha", async () => {
+    const heartbeat: Array<() => Promise<void>> = [];
+    const originalInterval = window.setInterval.bind(window);
+    vi.spyOn(window, "setInterval").mockImplementation(((callback: any, delay: number, ...args: any[]) => {
+      if (delay === 15000) heartbeat.push(callback);
+      return originalInterval(callback, delay, ...args);
+    }) as any);
+    renewPanelMutation.mutateAsync.mockRejectedValueOnce(new Error("Exclusividade perdida"));
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
+    await act(async () => { await heartbeat.at(-1)!(); });
+    expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Observação" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByRole("alert").some(element => element.textContent?.includes("renovação do painel falhou"))).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Finalizar" }));
+    expect(standardMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it("ignora renovação atrasada depois da pausa confirmada sem ressuscitar o painel", async () => {
+    const heartbeat: Array<() => Promise<void>> = [];
+    const originalInterval = window.setInterval.bind(window);
+    vi.spyOn(window, "setInterval").mockImplementation(((callback: any, delay: number, ...args: any[]) => {
+      if (delay === 15000) heartbeat.push(callback);
+      return originalInterval(callback, delay, ...args);
+    }) as any);
+    let resolveRenew!: (value: any) => void;
+    renewPanelMutation.mutateAsync.mockImplementationOnce(() => new Promise(resolve => { resolveRenew = resolve; }));
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
+    let outstanding!: Promise<void>;
+    await act(async () => { outstanding = heartbeat.at(-1)!(); });
+    await user.click(screen.getByRole("button", { name: "Fechar tratamento" }));
+    await user.type(screen.getByPlaceholderText("Motivo da pausa (obrigatório, mínimo de 5 caracteres)"), "Aguardar equipe de campo");
+    await user.click(screen.getByRole("button", { name: "Confirmar pausa" }));
+    await waitFor(() => expect(screen.queryByTestId("active-occurrence-inline")).toBeNull());
+    await act(async () => { resolveRenew({ leaseExpiresAt: new Date(Date.now()+90000).toISOString() }); await outstanding; });
+    expect(screen.queryByTestId("active-occurrence-inline")).toBeNull();
+    expect(standardMutation.mutate).not.toHaveBeenCalled();
+    expect(pausePanelMutation.mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("não pausa nem fecha pelo X enquanto uma ação aguarda confirmação da auditoria", async () => {
+    let finishAudit!: (value: any) => void;
+    auditMutation.mutateAsync.mockImplementationOnce(() => new Promise(resolve => { finishAudit = resolve; }));
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Polícia" }));
+    await user.click(screen.getByRole("button", { name: "Fechar tratamento" }));
+    expect(screen.getByTestId("active-occurrence-inline")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirmar pausa" })).toBeNull();
+    expect(pausePanelMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("auditoria pendente"));
+    await act(async () => { finishAudit({ id:99 }); });
+  });
+
 });

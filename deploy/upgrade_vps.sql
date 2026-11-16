@@ -1425,3 +1425,20 @@ CREATE TABLE IF NOT EXISTS client_dvrs (
   KEY client_dvrs_client_idx (clientId),
   KEY client_dvrs_serial_idx (serialNumber)
 );
+
+-- Exclusividade temporária do painel aberto de cada atendimento.
+CREATE TABLE IF NOT EXISTS incident_panel_leases (
+  incidentId INT NOT NULL PRIMARY KEY,
+  operatorId INT NOT NULL,
+  authSessionId BIGINT NOT NULL,
+  leaseToken VARCHAR(36) NOT NULL,
+  expiresAt TIMESTAMP NOT NULL,
+  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY incident_panel_leases_session_incident_unique (authSessionId, incidentId),
+  KEY incident_panel_leases_operator_expiry_idx (operatorId, expiresAt)
+);
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE incidents ADD COLUMN pauseReason TEXT NULL', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='incidents' AND COLUMN_NAME='pauseReason'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;

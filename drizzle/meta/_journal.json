@@ -386,6 +386,20 @@
       "when": 1794691687894,
       "tag": "0054_open_mindworm",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "5",
+      "when": 1794850698252,
+      "tag": "0055_fresh_cyclops",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "5",
+      "when": 1794851003314,
+      "tag": "0056_living_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

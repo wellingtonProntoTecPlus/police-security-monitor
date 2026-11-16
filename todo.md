@@ -1002,3 +1002,19 @@
 - [x] Testes renderizados: layout inline e responsividade, retorno à fila, retomada própria, finalização por incidente, logs laterais e prévia local com fixture sintética
 - [x] Validação final: TypeScript; 160 arquivos/755 testes aprovados, MariaDB descartável local em socket Unix; build e git diff --check. Aviso de chunk Vite >500 kB permanece não bloqueante
 - [x] Sem comando físico, sem VPS acessada/atualizada e sem deploy desta versão
+
+
+## Painel aberto exclusivo, pausa assumível e logoff sem recado obrigatório — 16/11/2026
+- [x] Separar status da fila do painel efetivamente aberto: aquisição transacional por ocorrência, operador, sessão e token de aba; renovação a cada 15s e concessão de 90s
+- [x] Mostrar OCORRÊNCIA EM ATENDIMENTO POR [operador] somente enquanto houver painel ativo; impedir assunção de outro operador/aba e manter consulta de eventos e logs
+- [x] Permitir assumir registros pausados em Atendimento, Observação, Tático ou Manutenção; preservar ID, categoria/status, histórico, motivo e notas anteriores, auditando a transferência
+- [x] Exigir motivo operacional de no mínimo 5 caracteres no X/pausa, Observação, Tático e Manutenção; liberar painel somente após confirmação do servidor, sem criar mensagens pessoais
+- [x] Finalização individual/em massa, mudanças de status e ações auditadas exigem sessão ativa e token do painel; excluir outros painéis ativos do lote, revalidar confirmação e proteger contra resposta antiga
+- [x] Renovação falha bloqueia controles; callback atrasado após pausa não reabre painel; abertura dupla, saída durante ACK e auditoria pendente são barradas; modal de comando já aberto não permite ação em atendimento que virou consulta
+- [x] Manutenção inicia somente na ocorrência selecionada; retirar manutenção exige painel assumido e recusa outro painel ativo da mesma central; não finaliza ocorrências nem recria incidente encerrado; expirações são revalidadas e auditadas
+- [x] Logoff e troca de usuário revalidam bloqueadores e não exigem destinatário/recado quando as ocorrências estão pausadas/encaminhadas com motivo; painel ativo ou registro legado sem motivo bloqueia saída. Mensagens pessoais permanecem em fluxo separado
+- [x] Restaurações KOFF por heartbeat/evento real, E361/R361 e restauração genérica liberam concessão junto ao fechamento; finalizador genérico é atômico/idempotente e registra histórico; logoff ignora defensivamente concessões antigas de incidentes encerrados
+- [x] Migrations Drizzle 0055/0056 aditivas (tabela incident_panel_leases e incidents.pauseReason nullable) aplicadas somente ao desenvolvimento; upgrade VPS idempotente preparado sem alterar ViaWeb nem inventar motivos de registros legados
+- [x] Revisão independente apontou retirada de manutenção sem painel e concessão órfã após restauração; corrigidos com regressões reais
+- [x] Validação da versão exata: pnpm check; 165 arquivos e 819 testes aprovados sem ignorados, incluindo MariaDB descartável por socket Unix; pnpm build e git diff --check aprovados. MariaDB encerrado. Aviso conhecido de chunk Vite >500 kB não bloqueante
+- [x] Nenhum acesso/alteração da VPS, comando físico ou acesso a câmeras foi executado nesta implementação; implantação e verificação visual na VPS continuam pendentes

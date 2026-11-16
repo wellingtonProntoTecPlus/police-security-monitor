@@ -20,6 +20,7 @@ import {
   clients,
   incidentHistory,
   incidents,
+  incidentPanelLeases,
   users,
 } from "../drizzle/schema";
 
@@ -32,6 +33,7 @@ const TABLES = [
   "auth_sessions",
   "incidents",
   "incident_history",
+  "incident_panel_leases",
   "alarm_events",
   "alarm_systems",
   "clients",
@@ -236,9 +238,10 @@ describe.skipIf(!localEnabled)("Auditoria operacional de incidentes · integraç
 
   it("exige a sessão operacional ativa real e rejeita sessão revogada, expirada ou ausente", async () => {
     setDbForTesting(orm);
-    const input = { incidentId: 101, requestId: "audit-active-session-001", action: "police_action_registered" as const };
+    const input = { incidentId: 101, leaseToken: "00000000-0000-4000-8000-000000000901", requestId: "audit-active-session-001", action: "police_action_registered" as const };
     await expect(recordIncidentOperatorAction(input, operatorOne, null)).rejects.toThrow("Sessão operacional não identificada");
     await orm.insert(authSessions).values({ id: 901, userId: operatorOne.id, tokenHash: "a".repeat(64), expiresAt: new Date(Date.now() + 60_000) });
+    await orm.insert(incidentPanelLeases).values({ incidentId: 101, operatorId: operatorOne.id, authSessionId: 901, leaseToken: input.leaseToken, expiresAt: new Date(Date.now()+60_000) });
     const saved = await recordIncidentOperatorAction(input, operatorOne, 901);
     expect(saved.operatorId).toBe(operatorOne.id);
     await orm.update(authSessions).set({ revokedAt: new Date() }).where(eq(authSessions.id, 901));

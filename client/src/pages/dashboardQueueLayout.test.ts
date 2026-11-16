@@ -75,14 +75,44 @@ describe("layout operacional da fila de ocorrências", () => {
     expect(source).toContain("Responsável pelo atendimento:");
     expect(source).toContain("isOtherOperatorObservation");
     expect(source).toContain("Assumir atendimento");
-    expect(source).toContain("a responsabilidade pela mesma ocorrência passa para você");
     expect(source).not.toContain("Será criado um segundo registro vinculado a esta ocorrência");
-    expect(source).toContain("Atendimento assumido. A mesma ocorrência saiu da observação");
-    expect(source).toContain("incidentStatusToQueueStatus(result.status)");
+    expect(source).toContain('openPanelMut.mutateAsync({ incidentId: ev.incidentId, leaseToken, ...(assume ? { assume: true } : {}) })');
+    expect(source).toContain("Atendimento assumido; o status da fila foi preservado.");
+    expect(source).toContain("Status e motivo serão preservados ao abrir/assumir o painel");
+    expect(source).toContain("incidentStatusToQueueStatus(opened.status)");
     expect(source).toContain("utils.incident.openQueue.invalidate()");
     expect(source).toContain("isOtherOperatorAttendance");
-    expect(source).toContain("Somente o responsável atual pode continuar ou finalizar");
+    expect(source).toContain("Modo consulta: nenhum controle operacional será enviado.");
+    expect(source).toContain("Você pode consultar contatos, notas e logs");
     expect(source).toContain("Registro anterior e transferência do atendimento");
+  });
+
+  it("mantém lease em memória, renova periodicamente e bloqueia ações ao perder a renovação", () => {
+    expect(source).toContain("Lease de painel vive somente em memória");
+    expect(source).toContain('window.setInterval(async () => {');
+    expect(source).toContain("}, 15_000)");
+    expect(source).toContain("renewPanelCallRef.current({ incidentId, leaseToken: lease.leaseToken })");
+    expect(source).toContain("setLeaseBlocked(true)");
+    expect(source).toContain("!lease || lease.incidentId !== incidentId || renewing || stopped");
+  });
+
+  it("exige motivo para pausa, observação, Tático e manutenção e não permite sair com ACK pendente", () => {
+    expect(source).toContain("Motivo da pausa (obrigatório, mínimo de 5 caracteres)");
+    expect(source).toContain("Informe o motivo obrigatório da observação (mínimo de 5 caracteres).");
+    expect(source).toContain("Informe o motivo obrigatório para encaminhar ao Tático (mínimo de 5 caracteres).");
+    expect(source).toContain("Informe o motivo obrigatório da manutenção (mínimo de 5 caracteres).");
+    expect(source).toContain("Conclua ou tente gravar a auditoria pendente antes de pausar o atendimento.");
+    expect(source).toContain("panelTransitionInFlightRef.current");
+    expect(source).toContain("Aguarde a confirmação da finalização desta ocorrência antes de sair.");
+  });
+
+  it("anexa lease token às ações e finalizações e nunca o persiste no outbox de auditoria", () => {
+    expect(source).toContain("const payload = { ...input, incidentId, requestId, leaseToken: lease.leaseToken }");
+    expect(source).toContain("delete payload.leaseToken");
+    expect(source).toContain("await recordAuditActionMut.mutateAsync({ ...failedAuditAction, leaseToken: lease.leaseToken })");
+    expect(source).toContain("leaseToken: lease.leaseToken,");
+    expect(source).toContain("Abra ou assuma o painel exclusivo antes de finalizar esta ocorrência.");
+    expect(source).toContain("Abra ou assuma o painel exclusivo antes de finalizar em massa.");
   });
 
   it("permite abrir outra tela sem fechar o atendimento atual", () => {

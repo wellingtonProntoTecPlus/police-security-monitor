@@ -2,6 +2,9 @@ import { eq, and, or, desc, sql, like, inArray, gte, gt, lte, ne, isNotNull, isN
 import { alias } from "drizzle-orm/mysql-core";
 import { drizzle } from "drizzle-orm/mysql2";
 import { recordIncidentOperatorActionWithDb, listIncidentAuditTrailWithDb, listIncidentAuditReportWithDb, type IncidentAuditActionInput, type IncidentAuditReportInput } from "./incidentAuditPersistence";
+import { openIncidentPanelWithDb, renewIncidentPanelWithDb, pauseIncidentPanelWithDb, assertActivePanelLease, clearPanelLease, lockPanelActorSession, readPanelLease, requireOperationalReason, type PanelActor } from "./incidentPanelLease";
+import { isPanelLeaseActive } from "./incidentPanelLeasePolicy";
+import { startSystemMaintenanceWithDb, endSystemMaintenanceWithDb, reconcileOperationalIncidentWindowsWithDb } from "./incidentMaintenancePersistence";
 import {
   InsertUser, users, authSessions, operatorAttendanceRecords, operatorShiftMessages,
   managingCompanies, InsertManagingCompany,
@@ -17,7 +20,7 @@ import {
   cameras, InsertCamera,
   clientDvrs, InsertClientDvr,
   alarmEvents, InsertAlarmEvent,
-  incidents, InsertIncident, incidentHistory,
+  incidents, InsertIncident, incidentHistory, incidentPanelLeases,
   contactIdCodes,
   systemTechnicalAccounts,
   systemKeepAliveSamples,
@@ -182,8 +185,13 @@ export async function replaceActiveAuthSession(userId: number, tokenHash: string
     if (previous.some((row) => new Date(row.expiresAt) > now) && OPERATIONAL_ROLES.includes(user.role as any)) {
       const pending = await tx.select({ id: incidents.id }).from(incidents).where(and(
         eq(incidents.operatorId, userId), inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+        or(isNull(incidents.pauseReason), eq(incidents.pauseReason, "")),
       )).for("update").limit(500);
-      if (pending.length) throw new Error("Você tem ocorrências pendentes na sessão anterior. Volte à tela onde está conectado, finalize-as ou faça a passagem para o próximo operador antes de entrar neste computador.");
+      const activePanels = await tx.select({ id: incidentPanelLeases.incidentId }).from(incidentPanelLeases)
+        .innerJoin(authSessions, eq(authSessions.id, incidentPanelLeases.authSessionId))
+        .innerJoin(incidents, eq(incidents.id, incidentPanelLeases.incidentId))
+        .where(and(eq(incidentPanelLeases.operatorId, userId), gt(incidentPanelLeases.expiresAt, now), isNull(authSessions.revokedAt), gt(authSessions.expiresAt, now), ne(incidents.status, "closed"))).limit(1);
+      if (pending.length || activePanels.length) throw new Error("Você tem ocorrências pendentes na sessão anterior. Volte à tela onde está conectado, finalize-as ou faça a passagem para o próximo operador antes de entrar neste computador.");
     }
     if (previous.length) {
       await tx.update(authSessions).set({ revokedAt: now }).where(and(
@@ -687,6 +695,17 @@ export function isSystemInMaintenance(system: Pick<typeof alarmSystems.$inferSel
     && system.maintenanceEndAt.getTime() > referenceTime.getTime();
 }
 
+export async function startSystemMaintenanceForOperator(input: { systemId: number; incidentId: number; startAt: Date; endAt: Date; notes: string }, actor: PanelActor) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return startSystemMaintenanceWithDb(db, input, actor, getMaintenanceOperationalNow());
+}
+export async function endSystemMaintenanceForOperator(input: { systemId: number; incidentId: number }, actor: PanelActor) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return endSystemMaintenanceWithDb(db, input, actor);
+}
+
 export async function scheduleSystemMaintenance(input: { systemId: number; startAt: Date; endAt: Date; notes?: string; operatorId?: number }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -942,6 +961,7 @@ export async function markDisconnectAlertsRestored(systemId: number, receivedAt 
       version: sql`${incidents.version} + 1`,
     }).where(and(eq(incidents.id, incident.id), inArray(incidents.status, [...openStatuses])));
     if (!update[0]?.affectedRows) continue;
+    await db.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, incident.id));
 
     if (!alert.restoredAt) {
       await db.update(systemDisconnectAlerts).set({ restoredAt: receivedAt, restoredKeepAliveAt: receivedAt }).where(and(
@@ -1052,6 +1072,7 @@ export async function finalizeKeepAliveDisconnectsOnPanelEvent(input: {
         version: sql`${incidents.version} + 1`,
       }).where(and(eq(incidents.id, incident.id), inArray(incidents.status, [...openStatuses])));
       if (!update[0]?.affectedRows) continue;
+      await tx.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, incident.id));
 
       if (!alert.restoredAt) {
         await tx.update(systemDisconnectAlerts).set({ restoredAt: finalizedAt }).where(and(
@@ -2625,6 +2646,7 @@ export async function finalizeRadioengeKeepAliveFailureWithRestoration(input: {
       version: sql`${incidents.version} + 1`,
     }).where(and(eq(incidents.id, incident.id), inArray(incidents.status, [...openStatuses])));
     if (!updated[0]?.affectedRows) return undefined;
+    await tx.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, incident.id));
 
     await tx.update(alarmEvents).set({
       autoFinalized: true,
@@ -2815,6 +2837,22 @@ export async function listIncidents(status?: string) {
   return db.select().from(incidents).orderBy(desc(incidents.createdAt)).limit(100);
 }
 
+export async function openIncidentPanel(input: { incidentId: number; assume?: boolean }, actor: PanelActor) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return openIncidentPanelWithDb(db, input, actor);
+}
+export async function renewIncidentPanel(incidentId: number, actor: PanelActor) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return renewIncidentPanelWithDb(db, incidentId, actor);
+}
+export async function pauseIncidentPanel(incidentId: number, reason: string, actor: PanelActor) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return pauseIncidentPanelWithDb(db, incidentId, reason, actor);
+}
+
 export async function listOpenQueueEvents() {
   const db = await getDb();
   if (!db) return [];
@@ -2822,63 +2860,25 @@ export async function listOpenQueueEvents() {
 
   await promoteExpiredRadioengeKeepAliveObservations(now);
 
-  const expiredMaintenances = await db.select({ id: alarmSystems.id })
-    .from(alarmSystems)
-    .where(lte(alarmSystems.maintenanceEndAt, now));
-  const expiredMaintenanceIds = expiredMaintenances.map((system) => system.id);
-  if (expiredMaintenanceIds.length > 0) {
-    await db.update(alarmSystems).set({
-      maintenanceStartAt: null,
-      maintenanceEndAt: null,
-      maintenanceNotes: null,
-      maintenanceOperatorId: null,
-    }).where(inArray(alarmSystems.id, expiredMaintenanceIds));
-    await db.update(incidents).set({
-      status: "attending",
-      notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPeríodo de manutenção encerrado. Ocorrência retornada para atendimento.')`,
-    }).where(and(eq(incidents.status, "maintenance"), inArray(incidents.alarmSystemId, expiredMaintenanceIds)));
-  }
+  await reconcileOperationalIncidentWindowsWithDb(db, now);
 
-  const activeMaintenances = await db.select({
-    id: alarmSystems.id,
-    maintenanceEndAt: alarmSystems.maintenanceEndAt,
-    maintenanceNotes: alarmSystems.maintenanceNotes,
-  }).from(alarmSystems).where(and(
-    lte(alarmSystems.maintenanceStartAt, now),
-    gte(alarmSystems.maintenanceEndAt, now),
-  ));
-  for (const maintenance of activeMaintenances) {
-    if (!maintenance.maintenanceEndAt) continue;
-    await ensureMaintenanceIncident({
-      systemId: maintenance.id,
-      endAt: maintenance.maintenanceEndAt,
-      notes: maintenance.maintenanceNotes || `Sistema em manutenção até ${maintenance.maintenanceEndAt.toLocaleString("pt-BR")}`,
-    });
-  }
-
-  await db.update(incidents).set({
-    status: "attending",
-    observationUntil: null,
-    notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), '\nPrazo de observação encerrado. Ocorrência retornada para atendimento.')`,
-  }).where(and(
-    eq(incidents.status, "observing"),
-    lte(incidents.observationUntil, now),
-    notExists(db.select({ id: alarmEvents.id }).from(alarmEvents).where(and(
-      eq(alarmEvents.id, incidents.eventId),
-      eq(alarmEvents.brand, "RADIOENGE"),
-      eq(alarmEvents.qualifier, "E"),
-      eq(alarmEvents.eventCode, "361"),
-    ))),
-  ));
-
+  const panelSession = alias(authSessions, "panel_session");
+  const panelOperator = alias(users, "panel_operator");
   const rows = await db
-    .select({ incident: incidents, event: alarmEvents, incidentOperatorName: users.name })
+    .select({ incident: incidents, event: alarmEvents, incidentOperatorName: users.name,
+      panelLease: incidentPanelLeases, panelSessionRevokedAt: panelSession.revokedAt,
+      panelSessionExpiresAt: panelSession.expiresAt, panelOperatorName: panelOperator.name })
     .from(incidents)
     .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
     .leftJoin(users, eq(incidents.operatorId, users.id))
+    .leftJoin(incidentPanelLeases, eq(incidentPanelLeases.incidentId, incidents.id))
+    .leftJoin(panelSession, and(eq(panelSession.id, incidentPanelLeases.authSessionId), eq(panelSession.userId, incidentPanelLeases.operatorId)))
+    .leftJoin(panelOperator, eq(panelOperator.id, incidentPanelLeases.operatorId))
     .where(inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]))
     .orderBy(desc(alarmEvents.receivedAt));
-  return rows.map(({ incident, event, incidentOperatorName }) => ({
+  return rows.map(({ incident, event, incidentOperatorName, panelLease, panelSessionRevokedAt, panelSessionExpiresAt, panelOperatorName }) => {
+    const panelActive = isPanelLeaseActive(panelLease ? { ...panelLease, sessionRevokedAt: panelSessionRevokedAt, sessionExpiresAt: panelSessionExpiresAt } : null);
+    return {
     ...event,
     incidentId: incident.id,
     parentIncidentId: incident.parentIncidentId,
@@ -2891,7 +2891,12 @@ export async function listOpenQueueEvents() {
     incidentOperatorName,
     incidentNotes: incident.notes,
     observationUntil: incident.observationUntil,
-  }));
+    pauseReason: incident.pauseReason,
+    panelActive,
+    panelOperatorId: panelActive ? panelLease!.operatorId : null,
+    panelOperatorName: panelActive ? panelOperatorName : null,
+    panelLeaseExpiresAt: panelActive ? panelLease!.expiresAt : null,
+  }; });
 }
 
 /** Retorna eventos recentes da carteira do cliente associado a uma ocorrência ainda aberta. */
@@ -2980,9 +2985,12 @@ export async function bulkFinalizeOpenIncidents(input: {
   observations: string;
   confirmedIncidentIds?: number[];
   authSessionId?: number | null;
+  currentIncidentId?: number;
+  leaseToken?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
+  if (!input.authSessionId || !input.leaseToken || !input.currentIncidentId) throw new Error("Abra o atendimento numa sessão ativa antes de finalizar em massa.");
   return bulkFinalizeOpenIncidentsWithDb(db, input);
 }
 
@@ -2998,6 +3006,8 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
   observations: string;
   confirmedIncidentIds?: number[];
   authSessionId?: number | null;
+  currentIncidentId?: number;
+  leaseToken?: string;
 }) {
   if (!input.alarmSystemId) throw new Error("Selecione a central identificada para finalizar em massa");
   if (!input.operatorId) throw new Error("Operador autenticado obrigatório");
@@ -3028,7 +3038,20 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
       .orderBy(desc(alarmEvents.receivedAt))
       .for("update");
 
-    const eligibleRows = scopedRows.filter(({ incident }) => canBulkFinalizeIncident(incident, input.operatorId!));
+    if (input.authSessionId !== undefined) {
+      const current = scopedRows.find(({ incident }) => incident.id === input.currentIncidentId);
+      if (!current) throw new Error("Abra o atendimento identificado antes de finalizar em massa.");
+      await assertActivePanelLease(tx, current.incident.id, { operatorId: input.operatorId!, authSessionId: input.authSessionId!, leaseToken: input.leaseToken || "" });
+    }
+    const eligibleRows: typeof scopedRows = [];
+    for (const row of scopedRows) {
+      if (!canBulkFinalizeIncident(row.incident, input.operatorId!)) continue;
+      if (input.authSessionId !== undefined) {
+        const lease = await readPanelLease(tx, row.incident.id);
+        if (isPanelLeaseActive(lease) && (row.incident.id !== input.currentIncidentId || lease?.leaseToken !== input.leaseToken || lease?.authSessionId !== input.authSessionId)) continue;
+      }
+      eligibleRows.push(row);
+    }
     if (input.confirmedIncidentIds && !isConfirmedBulkSetEligible(input.confirmedIncidentIds, eligibleRows.map(({ incident }) => incident.id))) {
       throw new Error("O lote mudou desde a confirmação. Nenhum atendimento foi finalizado; atualize o lote e confirme novamente.");
     }
@@ -3086,6 +3109,7 @@ export async function bulkFinalizeOpenIncidentsWithDb(db: any, input: {
     }).where(inArray(incidents.id, closedIncidentIds));
     if (Number(closedResult[0]?.affectedRows) !== closedIncidentIds.length) throw new Error("Não foi possível confirmar o fechamento de todos os atendimentos; a operação foi revertida");
 
+    if (input.authSessionId && input.currentIncidentId && closedIncidentIds.includes(input.currentIncidentId)) await clearPanelLease(tx, input.currentIncidentId, { operatorId: input.operatorId!, authSessionId: input.authSessionId, leaseToken: input.leaseToken! });
     return { count: openRows.length, closedIncidentIds, skippedCount };
   });
 }
@@ -3096,14 +3120,17 @@ export async function transitionIncidentForOperator(input: {
   operatorName: string;
   authSessionId?: number | null;
   status: "attending" | "dispatched";
+  leaseToken?: string;
+  notes?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
+  const reason = input.status === "dispatched" ? requireOperationalReason(input.notes) : undefined;
   return db.transaction(async (tx) => {
-    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
-    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId)).for("update").limit(1);
+    await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
+    await assertActivePanelLease(tx, current.id, { operatorId: input.operatorId, authSessionId: input.authSessionId!, leaseToken: input.leaseToken || "" });
     const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
     if (!action || action === "assume") throw new Error("Este atendimento pertence a outro operador. Atualize a fila e use ‘Assumir atendimento’ somente se estiver em observação.");
     if (current.status === "waiting" && input.status !== "attending") throw new Error("Abra primeiro o atendimento antes de encaminhá-lo ao tático.");
@@ -3115,6 +3142,7 @@ export async function transitionIncidentForOperator(input: {
       operatorId: input.operatorId,
       claimedAt: current.claimedAt || now,
       observationUntil: null,
+      ...(reason ? { pauseReason: reason, notes: [current.notes, reason].filter(Boolean).join("\n") } : {}),
       dispatchedAt: nextStatus === "dispatched" ? now : current.dispatchedAt,
       version: (current.version || 0) + 1,
     }).where(and(eq(incidents.id, current.id), eq(incidents.version, current.version || 0)));
@@ -3126,130 +3154,41 @@ export async function transitionIncidentForOperator(input: {
       action: action === "claim" ? "claimed" : action === "resume" ? "resumed" : "status_changed",
       statusBefore: current.status,
       statusAfter: nextStatus,
-      note: nextStatus === "dispatched" ? "Atendimento encaminhado ao tático." : action === "claim" ? "Atendimento assumido pelo operador." : null,
+      note: nextStatus === "dispatched" ? reason! : action === "claim" ? "Atendimento assumido pelo operador." : null,
     });
+    if (nextStatus === "dispatched" && input.authSessionId) await clearPanelLease(tx, current.id, { operatorId: input.operatorId, authSessionId: input.authSessionId, leaseToken: input.leaseToken! });
     return { id: current.id, parentIncidentId: current.parentIncidentId, status: nextStatus, operatorId: input.operatorId, operatorName: input.operatorName, action };
   });
 }
 
-export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string; operatorId: number; operatorName: string; authSessionId?: number | null }) {
+export async function putIncidentInObservation(input: { incidentId: number; until: Date; notes?: string; operatorId: number; operatorName: string; authSessionId?: number | null; leaseToken?: string }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
+  const note = requireOperationalReason(input.notes);
   if (input.until <= new Date()) throw new Error("Informe uma data e hora futura para a observação");
   return db.transaction(async (tx) => {
-    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
-    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId)).for("update").limit(1);
+    await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
+    await assertActivePanelLease(tx, current.id, { operatorId: input.operatorId, authSessionId: input.authSessionId!, leaseToken: input.leaseToken || "" });
     const action = resolveIncidentOwnershipAction({ status: current.status, assignedOperatorId: current.operatorId, actingOperatorId: input.operatorId });
     if (!action || action === "assume") throw new Error("Somente o operador responsável pode colocar este atendimento em observação.");
     const now = new Date();
-    const note = input.notes?.trim() || "Ocorrência colocada em observação";
-    await tx.update(incidents).set({ status: "observing", operatorId: input.operatorId, claimedAt: current.claimedAt || now, observationUntil: input.until, notes: note, version: (current.version || 0) + 1 })
+    await tx.update(incidents).set({ status: "observing", operatorId: input.operatorId, claimedAt: current.claimedAt || now, observationUntil: input.until, pauseReason: note, notes: [current.notes, note].filter(Boolean).join("\n"), version: (current.version || 0) + 1 })
       .where(and(eq(incidents.id, current.id), eq(incidents.version, current.version || 0)));
     await tx.insert(incidentHistory).values({
       incidentId: current.id, parentIncidentId: current.parentIncidentId,
       operatorId: input.operatorId, operatorName: input.operatorName.slice(0, 255), action: "observing",
       statusBefore: current.status, statusAfter: "observing", note,
     });
+    if (input.authSessionId) await clearPanelLease(tx, current.id, { operatorId: input.operatorId, authSessionId: input.authSessionId, leaseToken: input.leaseToken! });
     return { id: current.id, parentIncidentId: current.parentIncidentId, status: "observing" as const, operatorId: input.operatorId, operatorName: input.operatorName };
   });
 }
 
-export async function assumeObservedIncident(input: { incidentId: number; operatorId: number; operatorName: string; authSessionId?: number | null }) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados indisponível");
-  return db.transaction(async (tx) => {
-    if (input.authSessionId !== undefined) await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
-    else await tx.select({ id: users.id }).from(users).where(eq(users.id, input.operatorId)).for("update").limit(1);
-    const [parent] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
-    if (!parent) throw new Error("Ocorrência aberta não encontrada");
-    if (parent.status === "closed") throw new Error("Este atendimento já está finalizado");
-    const action = resolveIncidentOwnershipAction({ status: parent.status, assignedOperatorId: parent.operatorId, actingOperatorId: input.operatorId });
-    if (action !== "assume") throw new Error(action === "resume" ? "Você já é responsável por este atendimento; atualize a fila para retomá-lo." : "Só é possível assumir um atendimento em observação por outro operador.");
-
-    // Registros filhos só existiam no fluxo antigo. Não transferir o pai enquanto
-    // houver um atendimento legado aberto, para nunca deixar dois operadores
-    // finalizarem em paralelo o mesmo evento.
-    const [activeChild] = await tx.select({ id: incidents.id, operatorId: incidents.operatorId }).from(incidents).where(and(
-      eq(incidents.parentIncidentId, parent.id),
-      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
-    )).for("update").limit(1);
-    if (activeChild) {
-      const childAction = resolveExistingActiveChildAction({ activeChildOperatorId: activeChild.operatorId, actingOperatorId: input.operatorId });
-      throw new Error(childAction === "reuse_existing"
-        ? `Já existe um atendimento legado seu (#${activeChild.id}) vinculado. Abra esse registro; nenhum atendimento duplicado foi criado.`
-        : `Já existe um atendimento legado ativo (#${activeChild.id}) vinculado a outro operador. Atualize a fila e resolva esse registro antes de assumir o atendimento principal.`);
-    }
-
-    const now = new Date();
-    const operatorName = input.operatorName.slice(0, 255);
-    const previousOperatorName = parent.operatorId
-      ? (await tx.select({ name: users.name }).from(users).where(eq(users.id, parent.operatorId)).limit(1))[0]?.name || `operador ${parent.operatorId}`
-      : "outro operador";
-    const transferNote = `Atendimento assumido por ${operatorName}; responsabilidade transferida de ${previousOperatorName}.`;
-    const updated = await tx.update(incidents).set({
-      status: "attending",
-      operatorId: input.operatorId,
-      claimedAt: parent.claimedAt || now,
-      observationUntil: null,
-      notes: sql`CONCAT(COALESCE(${incidents.notes}, ''), ${`\n${transferNote}`})`,
-      version: (parent.version || 0) + 1,
-    }).where(and(
-      eq(incidents.id, parent.id),
-      eq(incidents.status, "observing"),
-      eq(incidents.operatorId, parent.operatorId!),
-      eq(incidents.version, parent.version || 0),
-    ));
-    if (Number(updated[0]?.affectedRows) !== 1) throw new Error("O atendimento mudou em outra tela. Atualize a fila e tente novamente.");
-
-    await tx.insert(incidentHistory).values({
-      incidentId: parent.id,
-      parentIncidentId: parent.parentIncidentId,
-      operatorId: input.operatorId,
-      operatorName,
-      action: "assumed",
-      statusBefore: "observing",
-      statusAfter: "attending",
-      note: transferNote,
-    });
-    const [activeHandoffMessage] = await tx.select().from(operatorShiftMessages).where(and(
-      eq(operatorShiftMessages.incidentId, parent.id), eq(operatorShiftMessages.isCurrent, true),
-    ))
-      .orderBy(desc(operatorShiftMessages.createdAt), desc(operatorShiftMessages.id)).for("update").limit(1);
-    let forwardedMessage: { id: number; fromOperatorName: string; toUserId: number; toOperatorName: string; incidentId: number; account: string | null } | null = null;
-    if (activeHandoffMessage) {
-      const [recipient] = await tx.select({ name: users.name }).from(users).where(eq(users.id, input.operatorId)).limit(1);
-      const toOperatorName = recipient?.name || operatorName;
-      await tx.update(operatorShiftMessages).set({ isCurrent: false })
-        .where(eq(operatorShiftMessages.id, activeHandoffMessage.id));
-      const inserted = await tx.insert(operatorShiftMessages).values({
-        fromUserId: activeHandoffMessage.fromUserId, fromOperatorName: activeHandoffMessage.fromOperatorName,
-        fromAttendanceId: activeHandoffMessage.fromAttendanceId, toUserId: input.operatorId, toOperatorName,
-        incidentId: parent.id, account: activeHandoffMessage.account, message: activeHandoffMessage.message,
-        isCurrent: true, readAt: null, createdAt: now,
-      });
-      forwardedMessage = {
-        id: Number(inserted[0]?.insertId), fromOperatorName: activeHandoffMessage.fromOperatorName,
-        toUserId: input.operatorId, toOperatorName, incidentId: Number(parent.id), account: activeHandoffMessage.account,
-      };
-    }
-    return {
-      id: parent.id,
-      parentIncidentId: parent.parentIncidentId,
-      eventId: parent.eventId,
-      alarmSystemId: parent.alarmSystemId,
-      clientId: parent.clientId,
-      status: "attending" as const,
-      operatorId: input.operatorId,
-      operatorName,
-      notes: `${parent.notes || ""}\n${transferNote}`.trim(),
-      transferred: true as const,
-      previousOperatorId: parent.operatorId,
-      previousOperatorName,
-      forwardedMessage,
-    };
-  });
+export async function assumeObservedIncident(input: { incidentId: number; operatorId: number; operatorName: string; authSessionId?: number | null; leaseToken?: string }) {
+  if (!input.authSessionId || !input.leaseToken) throw new Error("Abra/assuma a ocorrência usando o painel atualizado; sessão e concessão obrigatórias.");
+  return openIncidentPanel({ incidentId: input.incidentId, assume: true }, { operatorId: input.operatorId, operatorName: input.operatorName, authSessionId: input.authSessionId, leaseToken: input.leaseToken });
 }
 
 export async function getIncidentHistory(incidentId: number) {
@@ -3267,7 +3206,7 @@ export async function getIncidentHistory(incidentId: number) {
 export async function recordIncidentOperatorAction(input: IncidentAuditActionInput, actor: { id: number; name: string }, authSessionId?: number | null) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
-  return recordIncidentOperatorActionWithDb(db, input, actor, (tx) => lockActiveOperatorSession(tx, actor.id, authSessionId));
+  return recordIncidentOperatorActionWithDb(db, input, actor, (tx) => lockActiveOperatorSession(tx, actor.id, authSessionId), (tx) => assertActivePanelLease(tx, input.incidentId, { operatorId: actor.id, authSessionId: authSessionId!, leaseToken: input.leaseToken || "" }));
 }
 export async function listIncidentAuditTrail(incidentId: number, beforeId?: number) {
   const db = await getDb();
@@ -3399,24 +3338,26 @@ export async function finalizeIncidentWithRestoration(input: { incident: typeof 
   if (!db) throw new Error("Banco de dados indisponível");
   const message = "Finalizado com a restauração do evento";
   const finalizedAt = new Date();
-  await db.update(incidents).set({ status: "closed", resolution: message, closedAt: finalizedAt }).where(eq(incidents.id, input.incident.id));
-  return createOccurrence({
-    account: input.event.account,
-    eventCode: input.event.eventCode,
-    qualifier: input.event.qualifier,
-    partition: input.event.partition,
-    zoneUser: input.event.zoneUser,
-    description: input.event.description,
-    priority: input.event.priority,
-    brand: input.event.brand,
-    clientId: input.incident.clientId || null,
-    systemId: input.incident.alarmSystemId || null,
-    operatorName: "Sistema",
-    observations: message,
-    logs: JSON.stringify([`[${finalizedAt.toLocaleTimeString("pt-BR")}] ${message}`]),
-    attendingTimeMs: input.incident.createdAt ? Math.max(0, finalizedAt.getTime() - input.incident.createdAt.getTime()) : 0,
-    eventReceivedAt: input.event.receivedAt,
-    finalizedAt,
+  return db.transaction(async (tx: any) => {
+    const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incident.id)).for("update").limit(1);
+    if (!current || current.status === "closed" || current.eventId !== input.event.id) return undefined;
+    const [event] = await tx.select().from(alarmEvents).where(eq(alarmEvents.id, current.eventId)).limit(1);
+    if (!event || event.alarmSystemId !== current.alarmSystemId) return undefined;
+    const [client] = current.clientId ? await tx.select().from(clients).where(eq(clients.id, current.clientId)).limit(1) : [];
+    await tx.update(incidents).set({ status: "closed", resolution: message, observationUntil: null, closedAt: finalizedAt, version: current.version + 1 }).where(eq(incidents.id, current.id));
+    await tx.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, current.id));
+    const result = await tx.insert(occurrences).values({
+      incidentId: current.id, account: event.account, eventCode: event.eventCode, qualifier: event.qualifier,
+      partition: event.partition, zoneUser: event.zoneUser, description: event.description, priority: event.priority,
+      brand: event.brand, clientId: current.clientId || null, clientName: client?.fantasyName || client?.name || null,
+      systemId: current.alarmSystemId || null, partnerCompanyId: client?.partnerCompanyId || null,
+      operatorName: "Sistema", status: "finalized", observations: message,
+      logs: JSON.stringify([`[${finalizedAt.toLocaleTimeString("pt-BR")}] ${message}`]),
+      attendingTimeMs: current.createdAt ? Math.max(0, finalizedAt.getTime() - current.createdAt.getTime()) : 0,
+      eventReceivedAt: event.receivedAt, finalizedAt,
+    });
+    await tx.insert(incidentHistory).values({ incidentId: current.id, parentIncidentId: current.parentIncidentId, operatorName: "Sistema", action: "auto_restored", statusBefore: current.status, statusAfter: "closed", note: message });
+    return { id: Number(result[0].insertId) };
   });
 }
 
@@ -4009,16 +3950,16 @@ export async function createOccurrence(data: InsertOccurrence) {
 }
 
 /** Fecha a ocorrência somente quando o relatório foi gravado com sucesso. */
-export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence, actingOperatorId: number, actingOperatorName: string, authSessionId?: number | null) {
+export async function createOccurrenceAndCloseIncident(incidentId: number, occurrence: InsertOccurrence, actingOperatorId: number, actingOperatorName: string, authSessionId?: number | null, leaseToken?: string) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   return db.transaction(async (tx) => {
-    if (authSessionId !== undefined) await lockActiveOperatorSession(tx, actingOperatorId, authSessionId);
-    else await tx.select({ id: users.id }).from(users).where(eq(users.id, actingOperatorId)).for("update").limit(1);
+    await lockActiveOperatorSession(tx, actingOperatorId, authSessionId);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, incidentId)).for("update").limit(1);
     if (!current) throw new Error("Ocorrência aberta não encontrada");
     if (current.status === "closed") throw new Error("Ocorrência já está finalizada");
     if (current.operatorId !== actingOperatorId) throw new Error("Este atendimento está atribuído a outro operador. Assuma o atendimento quando estiver em observação antes de finalizá-lo.");
+    await assertActivePanelLease(tx, incidentId, { operatorId: actingOperatorId, authSessionId: authSessionId!, leaseToken: leaseToken || "" });
     const reportResult = await tx.insert(occurrences).values({
       ...occurrence,
       incidentId,
@@ -4043,6 +3984,7 @@ export async function createOccurrenceAndCloseIncident(incidentId: number, occur
       statusAfter: "closed",
       note: occurrence.observations || "Finalizada pelo operador",
     });
+    if (authSessionId) await clearPanelLease(tx, incidentId, { operatorId: actingOperatorId, authSessionId, leaseToken: leaseToken! });
     return { id: reportId };
   });
 }

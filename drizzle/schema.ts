@@ -532,6 +532,7 @@ export const incidents = mysqlTable("incidents", {
   claimedAt: timestamp("claimedAt"),
   priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium").notNull(),
   notes: text("notes"),
+  pauseReason: text("pauseReason"),
   resolution: text("resolution"),
   dispatchedAt: timestamp("dispatchedAt"),
   observationUntil: timestamp("observationUntil"),
@@ -545,6 +546,19 @@ export const incidents = mysqlTable("incidents", {
 
 export type Incident = typeof incidents.$inferSelect;
 export type InsertIncident = typeof incidents.$inferInsert;
+
+/** Concessão temporária do painel aberto; a ausência/expiração libera a ocorrência para assumir. */
+export const incidentPanelLeases = mysqlTable("incident_panel_leases", {
+  incidentId: int("incidentId").primaryKey(),
+  operatorId: int("operatorId").notNull(),
+  authSessionId: bigint("authSessionId", { mode: "number" }).notNull(),
+  leaseToken: varchar("leaseToken", { length: 36 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("incident_panel_leases_operator_expiry_idx").on(table.operatorId, table.expiresAt),
+  uniqueIndex("incident_panel_leases_session_incident_unique").on(table.authSessionId, table.incidentId),
+]);
 
 export const incidentHistory = mysqlTable("incident_history", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),

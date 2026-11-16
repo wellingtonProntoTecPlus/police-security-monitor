@@ -10,11 +10,12 @@ const socket = process.env.POLICE_DVR_TEST_SOCKET;
 const enabled = Boolean(socket?.startsWith("/tmp/police-dvr-db/") && existsSync(socket));
 const database = `police_dvr_test_${process.pid}`;
 const upgrade = readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
-const migration = upgrade.slice(upgrade.lastIndexOf("CREATE TABLE IF NOT EXISTS client_dvrs ("));
+const migrationStart = upgrade.lastIndexOf("CREATE TABLE IF NOT EXISTS client_dvrs (");
+const migration = upgrade.slice(migrationStart, upgrade.indexOf("-- Exclusividade temporária do painel", migrationStart));
 let pool: mysql.Pool;
 
 function parentTablesDDL() {
-  const snapshot = JSON.parse(readFileSync(new URL("../drizzle/meta/0050_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
   return ["clients", "alarm_systems", "registration_documents"].map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {

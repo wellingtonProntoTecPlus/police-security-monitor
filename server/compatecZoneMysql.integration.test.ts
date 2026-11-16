@@ -48,10 +48,10 @@ let pool!: mysql.Pool;
 let orm!: ReturnType<typeof drizzle>;
 
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0048_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
-    if (!table) throw new Error(`Tabela ${name} ausente em drizzle/meta/0048_snapshot.json`);
+    if (!table) throw new Error(`Tabela ${name} ausente em drizzle/meta/0056_snapshot.json`);
     const columns = Object.values(table.columns).map((column: any) => {
       let value = `\`${column.name}\` ${column.type}${column.notNull ? " NOT NULL" : " NULL"}${column.autoincrement ? " AUTO_INCREMENT" : ""}`;
       if (Object.hasOwn(column, "default")) value += ` DEFAULT ${typeof column.default === "boolean" ? Number(column.default) : column.default}`;

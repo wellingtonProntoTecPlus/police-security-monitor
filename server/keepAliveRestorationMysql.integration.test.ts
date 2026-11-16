@@ -15,6 +15,7 @@ import {
   alarmSystems,
   clients,
   incidentHistory,
+  incidentPanelLeases,
   incidents,
   occurrences,
   systemDisconnectAlerts,
@@ -24,12 +25,12 @@ import {
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
 const localEnabled = Boolean(socket?.startsWith("/tmp/police-shift-db/") && fs.existsSync(socket));
 const database = `police_keepalive_restore_test_${process.pid}`;
-const TABLES = ["system_disconnect_alerts", "system_keep_alive_samples", "incident_history", "occurrences", "incidents", "alarm_events", "alarm_systems", "clients"];
+const TABLES = ["incident_panel_leases", "system_disconnect_alerts", "system_keep_alive_samples", "incident_history", "occurrences", "incidents", "alarm_events", "alarm_systems", "clients"];
 let pool!: mysql.Pool;
 let orm!: ReturnType<typeof drizzle>;
 
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0054_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     if (!table) throw new Error(`Tabela ${name} ausente no snapshot 0054`);
@@ -150,7 +151,9 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       incidentId: 61,
     });
 
+    await orm.insert(incidentPanelLeases).values({ incidentId: 61, operatorId: 9, authSessionId: 91, leaseToken: "00000000-0000-4000-8000-000000000061", expiresAt: new Date("2027-01-01Z") });
     const result = await recordSystemKeepAlive(1, restoredAt);
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
     expect(result?.finalizedDisconnectAlerts).toHaveLength(1);
     expect(result?.finalizedDisconnectAlerts[0]?.description).toContain("Falha de Keep Alive restaurada");
     expect((await orm.select().from(incidents))[0]).toMatchObject({
@@ -215,6 +218,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
     await seedEvent({ id: 102, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "R", eventCode: "361", receivedAt: restoredAt, description: "Restauração de Keep Alive R361" });
     await seedIncident({ id: 201, systemId: 1, eventId: 101, status: "maintenance" });
 
+    await orm.insert(incidentPanelLeases).values({ incidentId: 201, operatorId: 9, authSessionId: 91, leaseToken: "00000000-0000-4000-8000-000000000201", expiresAt: new Date("2027-01-01Z") });
     const candidate = await findRadioengeKeepAliveObservationForRestoration({ alarmSystemId: 1, account: "0041" });
     expect(candidate?.incident.id).toBe(201);
     const result = await finalizeRadioengeKeepAliveFailureWithRestoration({
@@ -225,6 +229,7 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       restoredAt,
     });
 
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
     expect(result?.description).toContain("Falha de Keep Alive restaurada");
     expect((await orm.select().from(incidents))[0]).toMatchObject({ status: "closed", resolution: expect.stringContaining("R361") });
     expect((await orm.select().from(alarmEvents)).find((event) => event.id === 101)).toMatchObject({

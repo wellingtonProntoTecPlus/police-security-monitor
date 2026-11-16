@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 
 describe("consulta de fila e observações Radioenge", () => {
   it("correlaciona E361 com seu evento pela chave estrangeira válida", () => {
-    const source = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
+    const source = readFileSync(resolve(process.cwd(), "server/incidentMaintenancePersistence.ts"), "utf8");
 
-    expect(source).toContain("notExists(db.select({ id: alarmEvents.id }).from(alarmEvents).where(and(");
-    expect(source).toContain("eq(alarmEvents.id, incidents.eventId)");
+    expect(source).toContain("from(alarmEvents).where(eq(alarmEvents.id, current.eventId))");
+    expect(source).toContain('event?.brand === "RADIOENGE" && event.qualifier === "E" && event.eventCode === "361"');
     expect(source).not.toContain("NOT (${alarmEvents.brand} = 'RADIOENGE'");
   });
 });

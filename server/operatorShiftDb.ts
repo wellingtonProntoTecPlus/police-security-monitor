@@ -1,21 +1,64 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import {
-  authSessions, incidents, alarmEvents, incidentHistory, users,
+  authSessions, incidents, incidentPanelLeases, alarmEvents, incidentHistory, users,
   operatorAttendanceRecords, operatorShiftAssignments, operatorShiftExceptions,
   operatorShiftMessages, operatorShiftReminders,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { isPanelLeaseActive } from "./incidentPanelLeasePolicy";
 import { addCalendarDays, calendarDayDistance, getCurrentShiftWindow, getCurrentShiftWindows, getNextShiftWindow, getShiftAfter, getShiftReminderDueMinutes,
   localDateKey, resolveOperatorShift, type OperatorShiftCode,
 } from "@shared/operatorShift";
 import { OPERATIONAL_ROLES, listRosterForWindow, getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
-import { getConnectedOperatorSessionIds, isOperatorSessionSocketConnected } from "./_core/operatorShiftRuntime";
 import { validateOperatorHandoffPlan } from "./operatorLogoutContract";
+import { getConnectedOperatorSessionIds, isOperatorSessionSocketConnected } from "./_core/operatorShiftRuntime";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { buildOperatorMonthlyPlan } from "@shared/operatorMonthlyPlan";
 
 const OPEN_STATUSES = ["waiting", "attending", "observing", "dispatched", "maintenance"] as const;
 type DbLike = any;
+export function getOperatorLogoutBlockerReasons(incident: { pauseReason?: string | null }, hasActiveLease: boolean) {
+  const reasons: string[] = [];
+  if (hasActiveLease) reasons.push("Painel ainda aberto em uma sessão ativa.");
+  if (!incident.pauseReason?.trim()) reasons.push("Não há motivo operacional de pausa ou encaminhamento registrado.");
+  return reasons;
+}
+async function readPanelLeaseRows(db: DbLike, where: any) {
+  return db.select({
+    incidentId: incidentPanelLeases.incidentId,
+    operatorId: incidentPanelLeases.operatorId,
+    authSessionId: incidentPanelLeases.authSessionId,
+    leaseToken: incidentPanelLeases.leaseToken,
+    expiresAt: incidentPanelLeases.expiresAt,
+    sessionExpiresAt: authSessions.expiresAt,
+    sessionRevokedAt: authSessions.revokedAt,
+  }).from(incidentPanelLeases).leftJoin(authSessions, and(
+    eq(incidentPanelLeases.authSessionId, authSessions.id),
+    eq(incidentPanelLeases.operatorId, authSessions.userId),
+  )).where(where);
+}
+async function lockLogoutIncidentsAndReadLeases(tx: DbLike, userId: number, authSessionId: number) {
+  const candidateLeases = await tx.select({ incidentId: incidentPanelLeases.incidentId }).from(incidentPanelLeases)
+    .where(or(eq(incidentPanelLeases.operatorId, userId), eq(incidentPanelLeases.authSessionId, authSessionId)));
+  const leaseIncidentIds = Array.from(new Set((candidateLeases as any[]).map((row) => Number(row.incidentId))));
+  const incidentWhere = leaseIncidentIds.length
+    ? or(and(eq(incidents.operatorId, userId), inArray(incidents.status, [...OPEN_STATUSES])), inArray(incidents.id, leaseIncidentIds))
+    : and(eq(incidents.operatorId, userId), inArray(incidents.status, [...OPEN_STATUSES]));
+  const lockedRows = await tx.select({
+    incident: incidents,
+    account: alarmEvents.account,
+    eventCode: alarmEvents.eventCode,
+    description: alarmEvents.description,
+  }).from(incidents).leftJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(incidentWhere).orderBy(incidents.id).for("update");
+  await tx.select({ incidentId: incidentPanelLeases.incidentId }).from(incidentPanelLeases).where(or(
+    eq(incidentPanelLeases.operatorId, userId), eq(incidentPanelLeases.authSessionId, authSessionId),
+  )).orderBy(incidentPanelLeases.incidentId).for("update");
+  const leaseRows = await readPanelLeaseRows(tx, or(
+    eq(incidentPanelLeases.operatorId, userId), eq(incidentPanelLeases.authSessionId, authSessionId),
+  ));
+  return { lockedRows, leaseRows };
+}
 
 async function ensureSessionAttendance(tx: DbLike, userId: number, authSessionId: number, sessionCreatedAt: Date, now: Date) {
   const [existing] = await tx.select().from(operatorAttendanceRecords).where(and(
@@ -222,20 +265,40 @@ export async function getOperatorLogoutPreview(input: { userId: number; authSess
   const recipients = await listRosterForWindow(db, next.workDate, next.shiftCode, input.userId);
   const availableRecipients = recipients.length ? recipients : (await db.select({ id: users.id, name: users.name, role: users.role }).from(users)
     .where(and(inArray(users.role, [...OPERATIONAL_ROLES]), sql`${users.id} <> ${input.userId}`))).map((row: any) => ({ userId: Number(row.id), name: row.name || `Operador ${row.id}`, role: row.role, shiftCode: null, isException: false, exceptionReason: null }));
+  const leaseRows = await readPanelLeaseRows(db, eq(incidentPanelLeases.operatorId, input.userId));
+  const activeLeaseByIncidentId = new Map<number, boolean>();
+  for (const row of leaseRows as any[]) {
+    if (isPanelLeaseActive({
+      incidentId: Number(row.incidentId), operatorId: Number(row.operatorId),
+      authSessionId: Number(row.authSessionId), leaseToken: row.leaseToken,
+      expiresAt: row.expiresAt, sessionExpiresAt: row.sessionExpiresAt,
+      sessionRevokedAt: row.sessionRevokedAt,
+    }, now)) activeLeaseByIncidentId.set(Number(row.incidentId), true);
+  }
+  const leaseIncidentIds = Array.from(activeLeaseByIncidentId.keys());
+  const incidentWhere = leaseIncidentIds.length
+    ? or(and(eq(incidents.operatorId, input.userId), inArray(incidents.status, [...OPEN_STATUSES])), inArray(incidents.id, leaseIncidentIds))
+    : and(eq(incidents.operatorId, input.userId), inArray(incidents.status, [...OPEN_STATUSES]));
   const rows = await db.select({
     incident: incidents,
     account: alarmEvents.account,
     eventCode: alarmEvents.eventCode,
     description: alarmEvents.description,
-  }).from(incidents).innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id)).where(and(
-    eq(incidents.operatorId, input.userId), inArray(incidents.status, [...OPEN_STATUSES]),
-  )).orderBy(desc(alarmEvents.receivedAt));
-  return {
-    pendingIncidents: rows.map((row: any) => ({
+  }).from(incidents).leftJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id)).where(incidentWhere).orderBy(desc(alarmEvents.receivedAt));
+  const pendingIncidents = rows.flatMap((row: any) => {
+    const incidentId = Number(row.incident.id);
+    if (row.incident.status === "closed") return [];
+    const blockerReasons = getOperatorLogoutBlockerReasons(row.incident, activeLeaseByIncidentId.has(incidentId));
+    if (blockerReasons.length === 0) return [];
+    return [{
       incidentId: row.incident.id, status: row.incident.status, version: row.incident.version,
       account: row.account, eventCode: row.eventCode, description: row.description,
       observationUntil: row.incident.observationUntil, notes: row.incident.notes,
-    })),
+      pauseReason: row.incident.pauseReason || null, blockerReasons,
+    }];
+  });
+  return {
+    pendingIncidents,
     nextShift: { shiftCode: next.shiftCode, workDate: next.workDate, startAt: next.startAt, endAt: next.endAt },
     nextOperators: recipients,
     availableRecipients,
@@ -261,28 +324,67 @@ export async function endOperatorSessionWithHandoff(input: {
       await tx.update(authSessions).set({ revokedAt: now }).where(and(eq(authSessions.id, input.authSessionId), isNull(authSessions.revokedAt)));
       await tx.update(operatorAttendanceRecords).set({ logoutAt: new Date(session.expiresAt), logoutReason: "session_expired" })
         .where(and(eq(operatorAttendanceRecords.authSessionId, input.authSessionId), isNull(operatorAttendanceRecords.logoutAt)));
+      await tx.delete(incidentPanelLeases).where(eq(incidentPanelLeases.authSessionId, input.authSessionId));
       return { success: true, revokedSessionIds: [input.authSessionId], messages: [] as any[] };
     }
     const attendance = await ensureSessionAttendance(tx, input.userId, input.authSessionId, session.createdAt, now);
     if (attendance.logoutAt) throw new Error("Esta sessão já foi encerrada. Atualize a tela.");
     const nextWindow = attendance?.shiftCode && attendance.workDate ? getShiftAfter(attendance.workDate, attendance.shiftCode) : getNextShiftWindow(now);
-    const incidentsOpen = await tx.select({
-      incident: incidents, account: alarmEvents.account, eventCode: alarmEvents.eventCode, description: alarmEvents.description,
-    }).from(incidents).innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id)).where(and(
-      eq(incidents.operatorId, input.userId), inArray(incidents.status, [...OPEN_STATUSES]),
-    )).orderBy(incidents.id).for("update");
-    const scheduledRecipients = await listRosterForWindow(tx, nextWindow.workDate, nextWindow.shiftCode, input.userId);
-    const fallbackRecipients = scheduledRecipients.length === 0
+    const { lockedRows: incidentRows, leaseRows } = await lockLogoutIncidentsAndReadLeases(tx, input.userId, input.authSessionId);
+    const activeLeaseByIncidentId = new Map<number, boolean>();
+    const inactiveSessionLeaseIds: number[] = [];
+    for (const row of leaseRows as any[]) {
+      const incidentId = Number(row.incidentId);
+      if ((incidentRows as any[]).some(item => Number(item.incident.id) === incidentId && item.incident.status === "closed")) {
+        if (Number(row.authSessionId) === input.authSessionId) inactiveSessionLeaseIds.push(incidentId);
+        continue;
+      }
+      const active = isPanelLeaseActive({
+        incidentId, operatorId: Number(row.operatorId), authSessionId: Number(row.authSessionId),
+        leaseToken: row.leaseToken, expiresAt: row.expiresAt,
+        sessionExpiresAt: row.sessionExpiresAt, sessionRevokedAt: row.sessionRevokedAt,
+      }, now);
+      if (active) activeLeaseByIncidentId.set(incidentId, true);
+      else if (Number(row.authSessionId) === input.authSessionId) inactiveSessionLeaseIds.push(incidentId);
+    }
+    const incidentsOpen = (incidentRows as any[]).filter((row) => row.incident.operatorId === input.userId && OPEN_STATUSES.includes(row.incident.status));
+    const blockers = incidentsOpen.flatMap((row) => {
+      const reasons = getOperatorLogoutBlockerReasons(row.incident, activeLeaseByIncidentId.has(Number(row.incident.id)));
+      return reasons.length ? [{ incidentId: Number(row.incident.id), reasons }] : [];
+    });
+    for (const incidentId of Array.from(activeLeaseByIncidentId.keys())) {
+      if (!incidentsOpen.some((row) => Number(row.incident.id) === incidentId)) blockers.push({ incidentId, reasons: ["Painel ainda aberto em uma sessão ativa."] });
+    }
+    if (blockers.some((blocker) => blocker.reasons.some((reason) => reason.startsWith("Painel ainda aberto")))) {
+      throw new Error(`Não é possível sair: ${blockers.filter((blocker) => blocker.reasons.some((reason) => reason.startsWith("Painel ainda aberto"))).map((blocker) => `ocorrência #${blocker.incidentId} possui painel aberto em uma sessão ativa`).join("; ")}. Feche o painel e tente novamente.`);
+    }
+    const legacyHandoffRows = incidentsOpen.filter((row) => !row.incident.pauseReason?.trim());
+    let handoffPlan: ReturnType<typeof validateOperatorHandoffPlan> = [];
+    if (input.handoffs.length > 0) {
+      if (input.handoffs.some((handoff) => !legacyHandoffRows.some((row) => Number(row.incident.id) === handoff.incidentId))) {
+        throw new Error("Passagens legadas só podem ser enviadas para ocorrências sem motivo operacional registrado.");
+      }
+      const forbiddenStatus = legacyHandoffRows.find((row) => input.handoffs.some((handoff) => handoff.incidentId === Number(row.incident.id)) && ["dispatched", "maintenance"].includes(row.incident.status));
+      if (forbiddenStatus) throw new Error(`A ocorrência #${forbiddenStatus.incident.id} está em ${forbiddenStatus.incident.status}; encerre, pause ou encaminhe pelo atendimento antes do logoff.`);
+      const handoffRecipients = await listRosterForWindow(tx, nextWindow.workDate, nextWindow.shiftCode, input.userId);
+      const handoffFallbackRecipients = handoffRecipients.length === 0
+        ? await tx.select({ id: users.id, name: users.name, role: users.role }).from(users).where(and(inArray(users.role, [...OPERATIONAL_ROLES]), sql`${users.id} <> ${input.userId}`))
+        : [];
+      const allowedRecipientIds = new Set<number>((handoffRecipients.length ? handoffRecipients.map((person: any) => Number(person.userId)) : handoffFallbackRecipients.map((person: any) => Number(person.id))));
+      handoffPlan = validateOperatorHandoffPlan({
+        openIncidents: legacyHandoffRows.map((row: any) => ({ incidentId: Number(row.incident.id), status: row.incident.status, account: row.account })),
+        handoffs: input.handoffs, allowedRecipientIds,
+      });
+    } else if (blockers.length) {
+      throw new Error(`Não é possível sair: ${blockers.map((blocker) => `ocorrência #${blocker.incidentId}: ${blocker.reasons.join(" ")}`).join("; ")}. Conclua, pause ou encaminhe pelo Dashboard.`);
+    }
+    const scheduledRecipients = handoffPlan.length ? await listRosterForWindow(tx, nextWindow.workDate, nextWindow.shiftCode, input.userId) : [];
+    const fallbackRecipients = handoffPlan.length && scheduledRecipients.length === 0
       ? await tx.select({ id: users.id, name: users.name, role: users.role }).from(users).where(and(inArray(users.role, [...OPERATIONAL_ROLES]), sql`${users.id} <> ${input.userId}`))
       : [];
-    const allowedRecipientIds = new Set<number>((scheduledRecipients.length ? scheduledRecipients.map((person: any) => Number(person.userId)) : fallbackRecipients.map((person: any) => Number(person.id))));
-    const handoffPlan = validateOperatorHandoffPlan({
-      openIncidents: incidentsOpen.map((row: any) => ({ incidentId: Number(row.incident.id), status: row.incident.status, account: row.account })),
-      handoffs: input.handoffs, allowedRecipientIds,
-    });
     const messages: Array<{ id: number; toUserId: number; toOperatorName: string; fromOperatorName: string; incidentId: number; account: string }> = [];
     for (const { incident: plannedIncident, handoff } of handoffPlan) {
-      const row = incidentsOpen.find((candidate: any) => Number(candidate.incident.id) === plannedIncident.incidentId)!;
+      const row = legacyHandoffRows.find((candidate: any) => Number(candidate.incident.id) === plannedIncident.incidentId)!;
       const incidentId = Number(row.incident.id);
       const message = handoff.message.trim();
       const recipient = scheduledRecipients.length
@@ -301,7 +403,7 @@ export async function endOperatorSessionWithHandoff(input: {
         : row.incident.observationUntil && new Date(row.incident.observationUntil) > now ? new Date(row.incident.observationUntil) : null;
       if (!existingUntil || Number.isNaN(existingUntil.getTime()) || existingUntil <= now) throw new Error(`Informe uma data e hora futura de observação para a ocorrência #${incidentId}.`);
       const changed = await tx.update(incidents).set({
-        status: nextStatus, notes: combinedNotes, observationUntil: existingUntil,
+        status: nextStatus, pauseReason: message, notes: combinedNotes, observationUntil: existingUntil,
         claimedAt: row.incident.claimedAt || now, version: (row.incident.version || 0) + 1,
       }).where(and(eq(incidents.id, incidentId), eq(incidents.version, row.incident.version || 0)));
       if (Number(changed[0]?.affectedRows) !== 1) throw new Error(`A ocorrência #${incidentId} mudou durante a passagem. Nenhuma alteração foi confirmada.`);
@@ -321,6 +423,9 @@ export async function endOperatorSessionWithHandoff(input: {
       const messageId = Number(inserted[0]?.insertId || 0);
       messages.push({ id: messageId, toUserId: handoff.toUserId, toOperatorName: nextName, fromOperatorName: input.operatorName, incidentId, account: row.account });
     }
+    if (inactiveSessionLeaseIds.length) await tx.delete(incidentPanelLeases).where(and(
+      eq(incidentPanelLeases.authSessionId, input.authSessionId), inArray(incidentPanelLeases.incidentId, inactiveSessionLeaseIds),
+    ));
     const closedAt = now;
     const attendanceUpdate = await tx.update(operatorAttendanceRecords).set({ logoutAt: closedAt, logoutReason: "logout" })
       .where(and(eq(operatorAttendanceRecords.authSessionId, input.authSessionId), isNull(operatorAttendanceRecords.logoutAt)));

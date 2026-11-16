@@ -25,7 +25,7 @@ describe("partner tenant access", () => {
     const report = vi.spyOn(db, "listIncidentAuditReport").mockResolvedValue({ items: [], hasMore: false });
     const trail = vi.spyOn(db, "listIncidentAuditTrail").mockResolvedValue({ items: [], nextCursor: null });
     const partner = appRouter.createCaller(context("partner", 99));
-    const action = { incidentId: 91, requestId: "37f8d0e1-29b5-4543-a7b8-13751b3cfd83", action: "police_action_registered" as const };
+    const action = { incidentId: 91, requestId: "37f8d0e1-29b5-4543-a7b8-13751b3cfd83", leaseToken: "00000000-0000-4000-8000-000000000091", action: "police_action_registered" as const };
     await expect(partner.incident.auditTrail({ incidentId: 91 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(partner.incident.auditReport({})).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(partner.incident.recordAction(action)).rejects.toMatchObject({ code: "FORBIDDEN" });
