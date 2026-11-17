@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listInvalidate: vi.fn(),
   queueInvalidate: vi.fn(),
   toastInfo: vi.fn(),
+  toastSuccess: vi.fn(),
   toastWarning: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -29,7 +30,7 @@ vi.mock("@/lib/trpc", () => ({
     }),
   },
 }));
-vi.mock("sonner", () => ({ toast: { info: mocks.toastInfo, warning: mocks.toastWarning, error: mocks.toastError } }));
+vi.mock("sonner", () => ({ toast: { info: mocks.toastInfo, success: mocks.toastSuccess, warning: mocks.toastWarning, error: mocks.toastError } }));
 
 const baseProps = {
   alarmSystemId: 78,
@@ -46,8 +47,9 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cleanup());
 
 describe("CompatecZoneConfigurationPanel", () => {
-  it("mostra somente setores ativos 1–23 e gera a prévia oficial AK2→AK1 sem AK4", () => {
+  it("mostra setores ativos e esconde os códigos e quadros técnicos do protocolo", () => {
     render(<CompatecZoneConfigurationPanel {...baseProps} />);
+    expect(screen.getByRole("heading", { name: "Comandos de zonas e setores" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Estado de arme do setor 1" })).toBeTruthy();
     expect(screen.queryByText("Fora do escopo")).toBeNull();
 
@@ -56,14 +58,13 @@ describe("CompatecZoneConfigurationPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Anulação do setor 3" }), { target: { value: "annulled" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Anulação do setor 4" }), { target: { value: "annulled" } });
 
-    const preview = screen.getByLabelText("Prévia dos quadros AK2 e AK1");
-    expect(preview.textContent).toContain("MB=AK2[0080,0080,0008,0008,");
-    expect(preview.textContent).toContain("MB=AK1[0080,0080,0008,0008,");
-    expect(preview.textContent).not.toContain("MB=AK4");
-    expect(screen.getByText(/Não há terceiro quadro AK4/)).toBeTruthy();
+    expect(screen.queryByLabelText("Prévia dos quadros AK2 e AK1")).toBeNull();
+    expect(screen.queryByText(/MB=AK[0124]\[/)).toBeNull();
+    expect(screen.queryByText(/KA1|AK4|AK2/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Aplicar alterações · 4 setor(es)" })).toBeTruthy();
   });
 
-  it("confirma identidade física, porta, solicitante, motivo e envia todas as alterações em uma requisição", () => {
+  it("confirma apenas conta, ocorrência, alterações, solicitante e motivo, e envia tudo numa requisição", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<CompatecZoneConfigurationPanel {...baseProps} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
@@ -71,12 +72,19 @@ describe("CompatecZoneConfigurationPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Anulação do setor 3" }), { target: { value: "annulled" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Solicitado por" }), { target: { value: "Sr. Wellington" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Motivo operacional da configuração de setores" }), { target: { value: "Solicitação confirmada pelo responsável" } });
-    fireEvent.click(screen.getByRole("button", { name: /Enviar configuração AK2→AK1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Aplicar alterações/ }));
 
     expect(confirm).toHaveBeenCalledOnce();
-    expect(confirm.mock.calls[0][0]).toContain("MAC C1BDCB · Porta do receptor 9271");
-    expect(confirm.mock.calls[0][0]).toMatch(/resposta esperada é KA1/i);
-    expect(confirm.mock.calls[0][0]).not.toContain("AK4[4]");
+    const confirmation = confirm.mock.calls[0][0];
+    expect(confirmation).toContain("Conta 0001 · AW320 PRO");
+    expect(confirmation).toContain("Ocorrência #901");
+    expect(confirmation).toContain("Solicitado por: Sr. Wellington");
+    expect(confirmation).toContain("Setor 1 · Entrada: Armar");
+    expect(confirmation).toContain("Setor 2 · Recepção: Desarmar");
+    expect(confirmation).toContain("Esta ação altera somente os setores listados");
+    expect(confirmation).not.toContain("C1BDCB");
+    expect(confirmation).not.toContain("9271");
+    expect(confirmation).not.toMatch(/MB=|AK[0124]|KA1/);
     expect(mocks.mutate).toHaveBeenCalledOnce();
     expect(mocks.mutate).toHaveBeenCalledWith({
       alarmSystemId: 78,
@@ -94,13 +102,13 @@ describe("CompatecZoneConfigurationPanel", () => {
 
   it("bloqueia envio se faltar lease, MAC/IMEI de 6 hex ou porta", () => {
     const { rerender } = render(<CompatecZoneConfigurationPanel {...baseProps} leaseToken={undefined} />);
-    expect((screen.getByRole("button", { name: /Enviar configuração AK2→AK1/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/Abra ou assuma o painel/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Aplicar alterações/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Abra ou assuma o atendimento/)).toBeTruthy();
     rerender(<CompatecZoneConfigurationPanel {...baseProps} macAddress={undefined} imeiGprs={undefined} receiverPort={9271} />);
-    expect((screen.getByRole("button", { name: /Enviar configuração AK2→AK1/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/MAC ou IMEI de 6 caracteres hexadecimais/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Aplicar alterações/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/identificação da central incompleta/)).toBeTruthy();
     rerender(<CompatecZoneConfigurationPanel {...baseProps} receiverPort={undefined} />);
-    expect((screen.getByRole("button", { name: /Enviar configuração AK2→AK1/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Aplicar alterações/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
@@ -110,7 +118,7 @@ describe("CompatecZoneConfigurationPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Solicitado por" }), { target: { value: "Cliente" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Motivo operacional da configuração de setores" }), { target: { value: "Pedido do responsável" } });
-    fireEvent.click(screen.getByRole("button", { name: /Enviar configuração AK2→AK1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Aplicar alterações/ }));
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 });

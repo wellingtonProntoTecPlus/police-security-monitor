@@ -85,6 +85,10 @@ function getRemoteCommandHistoryStatusLabel(command: any) {
   }
   return REMOTE_COMMAND_STATUS_LABELS[command.status] || command.status;
 }
+function getOperatorFacingIncidentNotes(notes?: string | null) {
+  if (!notes) return "";
+  return notes.replace(/(?:^|\n)\[COMANDO REMOTO #\d+ [^\]\n]+\][\s\S]*?(?:\n\[COMANDO REMOTO #\d+\](?=\n|$)|$)/g, "").trim();
+}
 function isStandalonePhysicalCommandSupported(brand?: string | null) {
   const normalized = String(brand || "").trim().toUpperCase();
   return normalized === "COMPATEC";
@@ -719,6 +723,10 @@ export default function Dashboard() {
     const markerIndex = notes.indexOf("[COMANDO REMOTO");
     return markerIndex >= 0 ? notes.slice(markerIndex).split("\n").filter(Boolean) : [];
   }, [selectedEvent?.incidentNotes]);
+  const selectedIncidentNotesForDisplay = useMemo(
+    () => getOperatorFacingIncidentNotes(selectedEvent?.incidentNotes),
+    [selectedEvent?.incidentNotes],
+  );
   const selectedEventArgument = useMemo(() => {
     if (!selectedEvent) return "Argumento não informado";
     if (isUnidentifiedApplicationUserEvent(selectedEvent)) return "Usuário do painel: não informado";
@@ -792,12 +800,14 @@ export default function Dashboard() {
           if (ev.incidentId) void utils.incident.openQueue.invalidate();
           const isArmDisarmAck = ev.commandType === "arm" || ev.commandType === "disarm";
           const responseCode = ev.responsePayload?.match(/^MB=KA[14]/)?.[0] || (isArmDisarmAck ? "MB=KA4" : "MB=KA1");
-          const caution = ev.commandType === "configure_zones"
-            ? "Isso indica recebimento da configuração, não confirma os estados finais dos setores; confira a central."
-            : isArmDisarmAck
+          const caution = isArmDisarmAck
             ? "A resposta não confirma o estado final; confira o evento/status real do painel."
             : "Isso indica recebimento, não confirma o estado final do bypass.";
-          toast.info(`${ev.actionLabel || "Comando Compatec"}: resposta ${responseCode} recebida. ${caution}`, { duration: 12_000 });
+          if (ev.commandType === "configure_zones") {
+            toast.success("Alteração dos setores recebida. Confira o estado final no painel.", { duration: 12_000 });
+          } else {
+            toast.info(`${ev.actionLabel || "Comando Compatec"}: resposta ${responseCode} recebida. ${caution}`, { duration: 12_000 });
+          }
         } else if (ev.kind === "radioenge_observation_escalated") {
           void utils.incident.openQueue.invalidate();
           startAlertSound();
@@ -2067,7 +2077,7 @@ export default function Dashboard() {
                   <h3 className="text-lg font-bold text-amber-100">Atendimento em observação</h3>
                   <p className="mt-2 text-sm text-muted-foreground">Ocorrência pausada em {selectedEvent.queueStatus} com <strong className="text-foreground">{selectedEvent.incidentOperatorName || "outro operador"}</strong>. Status e motivo serão preservados ao abrir/assumir o painel; o histórico existente é preservado.</p>
                   {selectedEvent.pauseReason && <p className="mt-3 rounded bg-black/20 p-3 text-left text-sm text-amber-100">Motivo da pausa: {selectedEvent.pauseReason}</p>}
-                  {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
+                  {selectedIncidentNotesForDisplay && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedIncidentNotesForDisplay}</p>}
                   <Button className="mt-5 bg-amber-500 font-bold text-black hover:bg-amber-400" disabled={openPending} onClick={() => void assumeSelectedObservation()}>
                     <Users className="mr-2 h-4 w-4" />{openPending ? "Assumindo..." : "Assumir atendimento"}
                   </Button>
@@ -2079,16 +2089,16 @@ export default function Dashboard() {
                   <Users className="mx-auto mb-3 h-10 w-10 text-sky-300" />
                   <h3 className="text-lg font-bold text-sky-100">OCORRÊNCIA EM ATENDIMENTO POR {selectedEvent.panelOperatorName || "OUTRO OPERADOR"}</h3>
                   <p className="mt-2 text-sm text-muted-foreground">Esta ocorrência está em atendimento por <strong className="text-foreground">{selectedEvent.panelOperatorName || "outro operador"}</strong>. Você pode consultar contatos, notas e logs; controles operacionais ficam bloqueados até o lease ser liberado.</p>
-                  {selectedEvent.incidentNotes && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedEvent.incidentNotes}</p>}
+                  {selectedIncidentNotesForDisplay && <p className="mt-4 whitespace-pre-wrap rounded-md bg-black/20 p-3 text-left text-sm text-foreground">{selectedIncidentNotesForDisplay}</p>}
                   {selectedEvent.pauseReason && <p className="mt-3 rounded bg-black/20 p-3 text-left text-sm text-amber-100">Motivo da pausa: {selectedEvent.pauseReason}</p>}
                 </div>
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
                 {selectedEvent.queueStatus === "maintenance" && <div className="border-b border-yellow-500/40 bg-yellow-500/10 px-5 py-3 text-sm text-yellow-100"><strong>Sistema em manutenção.</strong> A ocorrência continua consultável, permite contatos, notas e finalização; retirar a manutenção do sistema é uma ação separada e não finaliza a ocorrência. {selectedEvent.pauseReason && <span className="block mt-1">Motivo: {selectedEvent.pauseReason}</span>}<Button className="mt-2 h-8 bg-red-600 hover:bg-red-700" onClick={() => void releaseMaintenance()} disabled={!canOperateSelected || endMaintenanceMut.isPending}><Wrench className="mr-2 h-4 w-4" />{endMaintenanceMut.isPending ? "Retirando..." : "Retirar manutenção do sistema"}</Button></div>}
-                {selectedEvent.incidentNotes && <details className="shrink-0 border-b border-border bg-muted/20 px-5 py-3">
+                {selectedIncidentNotesForDisplay && <details className="shrink-0 border-b border-border bg-muted/20 px-5 py-3">
                   <summary className="cursor-pointer text-xs font-semibold text-sky-200">Registro anterior e transferência do atendimento</summary>
-                  <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">{selectedEvent.incidentNotes}</p>
+                  <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">{selectedIncidentNotesForDisplay}</p>
                 </details>}
                 {!canOperateSelected && <div role="status" className="border-b border-sky-500/30 bg-sky-500/5 px-5 py-2 text-xs text-sky-100">Modo consulta: nenhum controle operacional será enviado. Use Assumir atendimento se a ocorrência estiver pausada.</div>}
                 {assumeAvailable && <div className="border-b border-amber-500/30 px-5 py-2"><Button size="sm" disabled={openPending} onClick={() => void assumeSelectedObservation()}><Users className="mr-2 h-4 w-4" />{openPending ? "Assumindo..." : "Assumir atendimento"}</Button></div>}
@@ -2143,7 +2153,6 @@ export default function Dashboard() {
 	                </div>
                 <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[0.82fr_1.18fr]">
                   <div className="space-y-4">
-                    {selectedRemoteCommandNotes.length > 0 && <div className="rounded-lg border border-cyan-400/30 bg-cyan-400/5 p-4"><h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-cyan-100"><Shield className="h-4 w-4 text-cyan-300" /> {selectedRemoteCommandNotes.includes("[COMANDO REMOTO CONFIRMADO]") ? "Ação remota confirmada" : "Ação remota registrada"}</h3><div className="space-y-1 text-xs text-cyan-50">{selectedRemoteCommandNotes.map((line, index) => <p key={index}>{line}</p>)}</div></div>}
                     {selectedRemoteBrand === "COMPATEC" && selectedRemoteSystemId && selectedEvent.incidentId ? <fieldset disabled={!canOperateSelected}><CompatecZoneConfigurationPanel alarmSystemId={selectedRemoteSystemId} incidentId={selectedEvent.incidentId} leaseToken={panelLease?.leaseToken} account={selectedEvent.account} model={selectedSystem?.model || selectedEvent.systemModel} macAddress={selectedSystem?.macAddress} imeiGprs={selectedSystem?.imeiGprs} receiverPort={selectedSystem?.receiverPort || selectedEvent.receiverPort} canOperate={canOperateSelected && Boolean(panelLease?.leaseToken)} /></fieldset> : (<div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-red-100"><MapPin className="h-4 w-4 text-red-400" /> Zonas e setores</h3><div className="max-h-48 space-y-1.5 overflow-y-auto">{treatmentZones.filter((zone: any) => zone.isActive !== false).map((zone: any) => <div key={zone.id} className={`flex items-center justify-between rounded px-2.5 py-1.5 text-xs ${String(zone.zoneNumber) === String(selectedEvent.zoneUser).replace(/^0+/, "") ? "bg-red-500/15 text-red-100" : "bg-black/20 text-muted-foreground"}`}><span><strong className="font-mono">Zona {String(zone.zoneNumber).padStart(3, "0")}</strong> · {zone.name}</span><span className="uppercase text-[10px]">{zone.type}</span></div>)}{treatmentZones.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma zona cadastrada neste sistema.</p>}</div></div>)}
                     <div className="rounded-lg border border-border bg-black/15 p-4"><h3 className="mb-3 text-sm font-bold text-foreground">Dados do sistema</h3><div className="grid gap-1 text-sm text-muted-foreground"><p>Central: <span className="text-foreground">{selectedEvent.systemModel}</span></p><p>Porta: <span className="font-mono text-foreground">{selectedEvent.receiverPort || "Não informada"}</span></p><p>Detalhe do evento: <span className="font-mono text-foreground">{selectedEventArgument}</span></p><p>Prioridade: <span className={PRIORITY_TEXT_COLOR[selectedEvent.priority] || "text-foreground"}>{PRIORITY_LABELS[selectedEvent.priority]?.label || "Média"}</span></p></div></div>
                   </div>

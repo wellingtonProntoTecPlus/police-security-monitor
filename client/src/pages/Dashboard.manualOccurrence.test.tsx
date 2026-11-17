@@ -260,8 +260,8 @@ describe("Dashboard — Ocorrência Manual", () => {
   it("apresenta KA1 de configuração multi-setorial como recebimento, sem confirmar estado final", async () => {
     mockedRealtimeEvents = [{ kind: "remote_command_ack", alarmSystemId: 6, incidentId: 91, commandId: 89, commandType: "configure_zones", actionLabel: "Configuração de setores via PoliceCentral", responsePayload: "MB=KA1", timestamp: "2026-11-17T14:00:00Z" }];
     render(<Dashboard />);
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(
-      "Configuração de setores via PoliceCentral: resposta MB=KA1 recebida. Isso indica recebimento da configuração, não confirma os estados finais dos setores; confira a central.",
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Alteração dos setores recebida. Confira o estado final no painel.",
       { duration: 12_000 },
     ));
     expect(invalidateArmDisarmStatus).not.toHaveBeenCalled();
@@ -477,6 +477,29 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByText("Conta 0001")).toBeTruthy();
     finalizeOptions.onError(new Error("Falha controlada no teste"));
     finalizeOptions.onSettled();
+  });
+
+  it("oculta o bloco técnico do atendimento, mas preserva a auditoria remota no relatório final", async () => {
+    const commandAudit = "Operador anterior: confira o estado final no painel.\n[COMANDO REMOTO #109 SOLICITADO]\nAção: Arme remoto via PoliceCentral\n[COMANDO REMOTO #109 RESPOSTA KA4 RECEBIDA]\nResposta da central: MB=KA4\nAuditoria do comando: #109";
+    mockedPersistedQueue = [{ ...defaultQueue[0], incidentNotes: commandAudit }];
+    openPanelMutation.mutateAsync.mockResolvedValueOnce({
+      id: 91, parentIncidentId: null, status: "attending", operatorId: 1, operatorName: "Wellington",
+      notes: commandAudit, pauseReason: null, leaseToken: "22222222-2222-4222-8222-222222222222",
+      leaseExpiresAt: new Date(Date.now() + 90_000).toISOString(),
+    });
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(await screen.findByText("Disparo de alarme"));
+    expect(screen.queryByText("Ação remota registrada")).toBeNull();
+    expect(screen.getByText("Operador anterior: confira o estado final no painel.")).toBeTruthy();
+    expect(screen.queryByText(/COMANDO REMOTO #109|MB=KA4/)).toBeNull();
+    await user.type(screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências..."), "Conferi o estado do painel.");
+    await user.click(screen.getByRole("button", { name: /^Finalizar$/ }));
+
+    const payload = standardMutation.mutate.mock.calls[0][0];
+    expect(payload.observations).toContain("Conferi o estado do painel.");
+    expect(payload.observations).toContain("Auditoria do comando: #109");
+    expect(payload.observations).toContain("Resposta da central: MB=KA4");
   });
 
   it("finaliza só a ocorrência aberta e volta às filas mantendo outra central com mesma conta e hora", async () => {
@@ -720,15 +743,17 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(source).not.toContain('"Vetti VSec" : "Compatec"} · modo de simulação');
   });
 
-  it("mantém um único controle de estado e apresenta o resumo da ação remota no atendimento", () => {
+  it("mantém Arme/Desarme e guarda a auditoria remota sem exibi-la no formulário de atendimento", () => {
     const source = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
 
     expect(source).toContain('selectedArmDisarmState === "armed"');
     expect(source).toContain(">DESARMAR</Button>");
     expect(source).toContain(">ARMAR</Button>");
     expect(source).toContain("Arme remoto ainda não homologado.");
-    expect(source).toContain("Ação remota confirmada");
-    expect(source).toContain("[COMANDO REMOTO CONFIRMADO]");
+    expect(source).toContain("const remoteAuditText = selectedRemoteCommandNotes.join");
+    expect(source).toContain("const finalObservations = [attendingNotes.trim(), remoteAuditText]");
+    expect(source).not.toContain("Ação remota registrada");
+    expect(source).not.toContain("selectedRemoteCommandNotes.map");
   });
   it("bloqueia os controles imediatamente quando a renovação do painel falha", async () => {
     const heartbeat: Array<() => Promise<void>> = [];

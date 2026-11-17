@@ -1030,3 +1030,12 @@
 - [x] Locks padronizados: ocorrência → cliente → central para reserva/dispatcher; ocorrência → central para manutenção manual/automática; snapshots de vínculo revalidados sob lock
 - [x] Revisão independente final sem bloqueadores concretos. Validação integral exata: TypeScript, 167 arquivos/830 testes aprovados, build e `git diff --check`; integrações MariaDB executadas em banco descartável privado por socket Unix
 - [x] Nenhuma VPS acessada/atualizada e nenhum comando físico foi transmitido; não houve teste na central real
+
+
+## Simplificação operacional dos comandos Compatec — 17/11/2026
+- [x] Manter Arme/Desarme total nos controles já homologados e disponibilizar comandos para armar/desarmar e anular/restaurar setores em uma tela operacional limpa
+- [x] Remover da tela do operador e da confirmação visível prévias de frames, códigos AK/KA e blocos extensos de auditoria; confirmação continua identificando solicitante, motivo, setores e ações
+- [x] Ocultar blocos técnicos de comando remoto na apresentação do atendimento, preservando notas humanas e mantendo a auditoria persistente no histórico/relatório e nas observações da ocorrência finalizada
+- [x] Simplificar a mensagem realtime de configuração setorial sem mudar payload, endpoint, lease, validações, fluxo de envio ou regras de reconciliação; Arme/Desarme mantêm o aviso conservador sobre resposta versus estado final
+- [x] Validação integral da versão exata: TypeScript, 167 arquivos e 831 testes aprovados, build concluído e `git diff --check` limpo; MariaDB de validação privado/descartável encerrado
+- [x] Nenhuma VPS acessada, atualizada ou deployada; nenhum comando físico transmitido

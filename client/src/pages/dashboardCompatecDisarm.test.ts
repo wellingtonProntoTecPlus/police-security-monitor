@@ -55,10 +55,14 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain('selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false');
   });
 
-  it("mantém Arme total separado da configuração AK2→AK1 e não promete KA1 como estado final", () => {
+  it("mantém Arme total separado e apresenta comandos setoriais sem códigos de protocolo", () => {
     expect(dashboardSource).toContain("Configuração de setores");
     expect(dashboardSource).not.toContain("A inibição AK2→AK1 será enviada antes de AK4[4]");
-    expect(zoneConfigurationSource).toContain("KA1 indica recebimento; não prova o estado final.");
+    expect(zoneConfigurationSource).toContain("Comandos de zonas e setores");
+    expect(zoneConfigurationSource).toContain("Aplicar alterações");
+    expect(zoneConfigurationSource).toContain("Solicitado por");
+    expect(zoneConfigurationSource).toContain("Motivo");
+    expect(zoneConfigurationSource).not.toMatch(/\bAK[124]\b|\bKA1\b|quadro físico/i);
     expect(dashboardSource).toContain("Arme Stay/partição continua bloqueado até homologação Compatec");
     expect(dashboardSource).toContain("AK4[9–11] são toggle; não serão enviados");
   });
