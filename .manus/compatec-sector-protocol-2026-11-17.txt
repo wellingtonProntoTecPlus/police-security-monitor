@@ -1,0 +1,10 @@
+Fonte: resposta da Compatec encaminhada pelo usuário nesta conversa em 17/11/2026 (texto e captura do WhatsApp do Suporte Conti...). Não é documentação pública; usar somente como referência fornecida pelo usuário.
+
+1) Uma solicitação pode alterar vários setores de uma vez.
+2) A sequência documentada é AK2 e depois AK1. O ACK esperado é KA1.
+3) Não deve ser enviado KA4 como parte da configuração de setores; a Compatec diz que KA4 nessa sequência indica comando enviado incorretamente.
+4) A estrutura do setor tem o bit ArmadoSet. AK2 escolhe os bits/campos a alterar; AK1 informa o estado desejado.
+5) Exemplo enviado pelo usuário: armar setores 1 e 2 e anular setores 3 e 4. AK2 e AK1 têm palavras 0080,0080,0008,0008, seguidas por zeros até 23 palavras.
+6) Exemplo enviado pelo usuário: apenas desarmar setores 1 e 2. AK2 tem 0080,0080, depois zeros; AK1 é zero em todas as 23 palavras.
+
+Interpretação de implementação: cada ação deve mapear a máscara de seleção (AK2) e o valor desejado (AK1) por setor; o sucesso do transporte KA1 significa somente recebimento, não confirmação dos estados finais. O componente não pode automaticamente enviar AK4 após KA1.

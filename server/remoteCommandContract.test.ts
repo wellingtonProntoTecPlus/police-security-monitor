@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompatecPhysicalArmWithZonesFrames, buildCompatecPhysicalArmWithZonesPayload, buildCompatecPhysicalZoneFrames, buildCompatecPhysicalZonePayload, buildCompatecSimulationFrames, buildCompatecSimulationPayload, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, validateCompatecPhysicalZoneTarget, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationFrames, buildCompatecSimulationPayload, buildCompatecZoneConfigurationFrames, buildCompatecZoneConfigurationPayload, compatecZoneConfigurationInputSchema, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, isPhysicalIntelbrasSystem, remoteCommandSimulationInputSchema, validateIntelbrasPhysicalTarget, validateRemoteCommandTarget } from "./remoteCommandContract";
 
 describe("contrato de comandos remotos Compatec", () => {
   it("libera a consulta física inicial somente para o MAC da bancada habilitada", () => {
@@ -73,45 +73,49 @@ describe("contrato de comandos remotos Compatec", () => {
     ]);
   });
 
-  it("gera somente os dois quadros oficiais de bypass AK2→AK1 para a zona selecionada", () => {
-    const isolated = buildCompatecPhysicalZoneFrames({ commandType: "isolate_zone", zoneNumber: 1 });
-    const restored = buildCompatecPhysicalZoneFrames({ commandType: "restore_zone", zoneNumber: 23 });
-    expect(isolated).toHaveLength(2);
-    expect(isolated[0]).toMatch(/^MB=AK2\[/);
-    expect(isolated[1]).toMatch(/^MB=AK1\[/);
-    expect(isolated[0].replace(/\r\n$/, "").slice(8, -1).split(",")).toHaveLength(23);
-    expect(isolated).toEqual([
-      `MB=AK2[${["0008", ...Array(22).fill("0000")].join(",")}]\r\n`,
-      `MB=AK1[${["0008", ...Array(22).fill("0000")].join(",")}]\r\n`,
+  it("monta as máscaras oficiais de armamento, desarmamento e anulação multi-setorial, sem AK4", () => {
+    const armAndAnnul = buildCompatecZoneConfigurationFrames([
+      { zoneNumber: 1, armState: "armed" },
+      { zoneNumber: 2, armState: "armed" },
+      { zoneNumber: 3, bypassState: "annulled" },
+      { zoneNumber: 4, bypassState: "annulled" },
     ]);
-    expect(restored).toEqual([
-      `MB=AK2[${[...Array(22).fill("0000"), "0008"].join(",")}]\r\n`,
-      `MB=AK1[${[...Array(22).fill("0000"), "0000"].join(",")}]\r\n`,
-    ]);
-    expect(buildCompatecPhysicalZonePayload({ commandType: "isolate_zone", zoneNumber: 4, requestedBy: "Sr. Cliente" })).toMatch(/"mode":"physical"/);
-    expect(validateCompatecPhysicalZoneTarget({ commandType: "isolate_zone", zoneNumber: 23 })).toBeUndefined();
-    expect(validateCompatecPhysicalZoneTarget({ commandType: "arm", zoneNumber: 1 })).toContain("somente isolamento");
-    expect(validateCompatecPhysicalZoneTarget({ commandType: "restore_zone", zoneNumber: 24 })).toContain("entre 1 e 23");
-    expect(() => buildCompatecPhysicalZoneFrames({ commandType: "isolate_zone", zoneNumber: 24 })).toThrow();
-  });
+    const expectedMask = ["0080", "0080", "0008", "0008", ...Array(19).fill("0000")].join(",");
+    expect(armAndAnnul).toEqual([`MB=AK2[${expectedMask}]\r\n`, `MB=AK1[${expectedMask}]\r\n`]);
+    expect(armAndAnnul).toHaveLength(2);
+    expect(armAndAnnul.join("\n")).not.toContain("AK4");
+    expect(armAndAnnul.join("\n")).not.toContain("KA4");
 
-  it("gera o bypass selecionado antes do Arme total e não o envia quando não há chave ativa", () => {
-    const frames = buildCompatecPhysicalArmWithZonesFrames([3, 5]);
-    expect(buildCompatecPhysicalArmWithZonesFrames([])).toEqual(["MB=AK4[4]\r\n"]);
-    expect(frames).toHaveLength(3);
-    expect(frames[0]).toMatch(/^MB=AK2\[/);
-    expect(frames[1]).toMatch(/^MB=AK1\[/);
-    expect(frames[2]).toBe("MB=AK4[4]\r\n");
-    const selectedMask = Array.from({ length: 23 }, (_, index) => [3, 5].includes(index + 1) ? "0008" : "0000").join(",");
-    expect(frames).toEqual([`MB=AK2[${selectedMask}]\r\n`, `MB=AK1[${selectedMask}]\r\n`, "MB=AK4[4]\r\n"]);
-    const payload = JSON.parse(buildCompatecPhysicalArmWithZonesPayload({
-      zoneNumbers: [5, 3, 3], requestedBy: "Responsável", selectedBy: [{ zoneNumber: 3, operatorId: 17, operatorName: "Operadora" }],
+    const disarmSectors = buildCompatecZoneConfigurationFrames([
+      { zoneNumber: 1, armState: "disarmed" },
+      { zoneNumber: 2, armState: "disarmed" },
+    ]);
+    const disarmMask = ["0080", "0080", ...Array(21).fill("0000")].join(",");
+    const zeroValues = Array(23).fill("0000").join(",");
+    expect(disarmSectors).toEqual([`MB=AK2[${disarmMask}]\r\n`, `MB=AK1[${zeroValues}]\r\n`]);
+
+    const combinedBits = buildCompatecZoneConfigurationFrames([{ zoneNumber: 7, armState: "armed", bypassState: "annulled" }]);
+    const combinedArgs = [...Array(6).fill("0000"), "0088", ...Array(16).fill("0000")].join(",");
+    expect(combinedBits).toEqual([`MB=AK2[${combinedArgs}]\r\n`, `MB=AK1[${combinedArgs}]\r\n`]);
+    expect(() => buildCompatecZoneConfigurationFrames([{ zoneNumber: 1 }])).toThrow();
+    expect(() => buildCompatecZoneConfigurationFrames([{ zoneNumber: 24, armState: "armed" }])).toThrow();
+    expect(() => buildCompatecZoneConfigurationFrames([{ zoneNumber: 1, armState: "armed" }, { zoneNumber: 1, bypassState: "annulled" }])).toThrow();
+
+    const payload = JSON.parse(buildCompatecZoneConfigurationPayload({
+      zoneChanges: [{ zoneNumber: 2, armState: "armed" }, { zoneNumber: 4, bypassState: "annulled" }],
+      requestedBy: "Sr. Cliente",
     }));
-    expect(payload).toMatchObject({ mode: "physical_arm_with_zones", commandType: "arm", zoneNumbers: [3, 5], requestedBy: "Responsável" });
-    expect(payload.frames).toEqual(frames);
-    expect(payload.selectedBy).toEqual([{ zoneNumber: 3, operatorId: 17, operatorName: "Operadora" }]);
-    expect(() => buildCompatecPhysicalArmWithZonesFrames([0])).toThrow();
-    expect(() => buildCompatecPhysicalArmWithZonesFrames([24])).toThrow();
+    expect(payload).toMatchObject({ mode: "physical_zone_configuration", commandType: "configure_zones", requestedBy: "Sr. Cliente" });
+    expect(payload.frames).toHaveLength(2);
+    expect(payload.note).toContain("nenhum AK4");
+    expect(compatecZoneConfigurationInputSchema.safeParse({
+      alarmSystemId: 1,
+      incidentId: 9,
+      leaseToken: "22222222-2222-4222-8222-222222222222",
+      requestedBy: "Cliente",
+      reason: "Ajuste solicitado",
+      zoneChanges: [{ zoneNumber: 1, armState: "armed" }, { zoneNumber: 1, bypassState: "annulled" }],
+    }).success).toBe(false);
   });
 
   it("aceita somente central Intelbras ativa com MAC e somente Arme/Desarme físico", () => {

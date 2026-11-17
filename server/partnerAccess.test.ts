@@ -52,6 +52,23 @@ describe("partner tenant access", () => {
     expect(recent).toHaveBeenCalledTimes(1);
   });
 
+  it("allows only operators to reconcile an indeterminate Compatec command and derives the audit actor", async () => {
+    const reconcile = vi.spyOn(db, "reconcileCompatecCommand").mockResolvedValue({ reconciled: true, commandId: 41, incidentId: 91, status: "reconciled" } as any);
+    const indeterminate = vi.spyOn(db, "listIndeterminateCompatecCommands").mockResolvedValue([]);
+    const input = { commandId: 41, outcome: "applied" as const, verificationMethod: "Aplicativo Compatec", details: "Setores conferidos no painel local" };
+    await expect(appRouter.createCaller(context("partner", 99)).remoteCommand.indeterminateCompatec({ alarmSystemId: 78 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(context("partner", 99)).remoteCommand.reconcileCompatecCommand(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(reconcile).not.toHaveBeenCalled();
+
+    const operator = appRouter.createCaller(context("operator"));
+    await operator.remoteCommand.indeterminateCompatec({ alarmSystemId: 78 });
+    expect(indeterminate).toHaveBeenCalledWith(78);
+    await operator.remoteCommand.reconcileCompatecCommand(input);
+    expect(reconcile).toHaveBeenCalledWith({ ...input, operatorId: 2, operatorName: "operator", authSessionId: null });
+    await expect(appRouter.createCaller(context("operator")).remoteCommand.reconcileCompatecCommand({ ...input, operatorId: 999 } as any)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
   it("partner reads complete status of its own clients, while create forces own partnerId and active status", async () => {
     const list = vi.spyOn(db, "listClients").mockResolvedValue([{
       id: 101,
@@ -302,6 +319,32 @@ describe("partner tenant access", () => {
     await expect(partner.alarmSystem.getByAccount({ account: "0001" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(partner.dashboard.stats()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(partner.remoteCommand.list({ alarmSystemId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.remoteCommand.configureCompatecZones({
+      alarmSystemId: 1,
+      incidentId: 1,
+      leaseToken: "11111111-1111-4111-8111-111111111111",
+      requestedBy: "Responsável fictício",
+      reason: "Teste de bloqueio de acesso parceiro",
+      zoneChanges: [{ zoneNumber: 1, armState: "armed" }],
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(partner.remoteCommand.compatecZonePhysical({
+      alarmSystemId: 1,
+      commandType: "restore_zone",
+      zoneNumber: 1,
+      requestedBy: "Responsável fictício",
+      reason: "Teste de bloqueio de acesso parceiro",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("rejects legacy single-sector physical commands for operators; only the audited aggregate route remains", async () => {
+    const operator = appRouter.createCaller(context("operator"));
+    await expect(operator.remoteCommand.compatecZonePhysical({
+      alarmSystemId: 1,
+      commandType: "isolate_zone",
+      zoneNumber: 3,
+      requestedBy: "Responsável fictício",
+      reason: "Teste de bloqueio do comando avulso",
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("keeps admin, supervisor, and operator client creation semantics", async () => {

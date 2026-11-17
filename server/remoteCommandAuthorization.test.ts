@@ -6,6 +6,8 @@ const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
 const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.url), "utf8");
 const databaseSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 const dashboardSource = readFileSync(new URL("../client/src/pages/Dashboard.tsx", import.meta.url), "utf8");
+const zonePanelSource = readFileSync(new URL("../client/src/components/CompatecZoneConfigurationPanel.tsx", import.meta.url), "utf8");
+const maintenanceSource = readFileSync(new URL("./incidentMaintenancePersistence.ts", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
   it("preserva a simulação Intelbras legada sem transformar seu quadro em transmissão física", () => {
@@ -70,42 +72,56 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(armRoute).toContain('currentState.qualifier !== "E"');
   });
 
-  it("autoriza Inibir/Restaurar Zona somente para Compatec ativa, zona cadastrada e solicitação auditável", () => {
+  it("bloqueia comando físico avulso e exige configuração multi-setorial auditada com lease", () => {
     const zoneRoute = source.slice(source.indexOf("compatecZonePhysical: operatorProcedure"), source.indexOf("  }),\n  alarmPgm: router"));
     expect(zoneRoute).toContain("assertPartnerSystemScope(ctx, input.alarmSystemId)");
-    expect(zoneRoute).toContain("getOperationalAlarmSystem(input.alarmSystemId)");
-    expect(zoneRoute).toContain("db.getIncident(input.incidentId)");
-    expect(zoneRoute).toContain("incident.alarmSystemId !== system.id");
-    expect(zoneRoute).toContain("db.appendIncidentNote(input.incidentId, system.id");
-    expect(zoneRoute).toContain('system.brand !== "COMPATEC"');
-    expect(zoneRoute).toContain('z.enum(["isolate_zone", "restore_zone"])');
-    expect(zoneRoute).toContain('requestedBy: z.string().trim().min(2');
-    expect(zoneRoute).toContain('reason: z.string().trim().min(5');
-    expect(zoneRoute).toContain("listAlarmZones(system.id)");
-    expect(zoneRoute).toContain("item.isActive");
-    expect(zoneRoute).toContain("createExclusiveCompatecPhysicalCommand");
-    expect(zoneRoute).toContain("requiredZoneNumber: input.zoneNumber");
-    expect(zoneRoute).toContain("sendCompatecMw1PhysicalCommand");
-    expect(zoneRoute).not.toContain("AK4[9]");
-    expect(zoneRoute).not.toContain("alarmEvents");
-    expect(zoneRoute).not.toContain("tx.insert(incidents)");
+    expect(zoneRoute).toContain("Comando físico de setor individual desativado");
+    expect(zoneRoute).not.toContain("sendCompatecMw1PhysicalCommand");
+    const configRoute = source.slice(source.indexOf("configureCompatecZones: operatorProcedure"), source.indexOf("compatecZonePhysical: operatorProcedure"));
+    expect(configRoute).toContain("createExclusiveCompatecZoneConfiguration");
+    expect(configRoute).toContain("requiredPanelActor: actor");
+    expect(configRoute).toContain("requiredZoneNumbers: reservation.zoneChanges.map");
+    expect(configRoute).toContain('expectedStatuses: ["prepared"]');
+    expect(configRoute).toContain("sendCompatecMw1PhysicalCommand");
+    expect(databaseSource).toContain("await assertActivePanelLease(tx, input.incidentId, input.actor)");
     expect(databaseSource).toContain("eq(incidents.alarmSystemId, alarmSystemId)");
   });
 
-  it("exige seleção explícita/solicitante e mantém partição desabilitada na interface", () => {
-    expect(dashboardSource).toContain('selectedRemoteBrand === "COMPATEC" ? ""');
-    expect(dashboardSource).toContain("Selecione uma zona ativa cadastrada");
-    expect(dashboardSource).toContain("remoteCompatecZones.filter((zone: any) => zone.isActive && zone.zoneNumber >= 1 && zone.zoneNumber <= 23)");
-    expect(dashboardSource).toContain("Solicitado por");
-    expect(dashboardSource).toContain("window.confirm(");
-    expect(dashboardSource).toContain("compatecZonePhysicalMut.mutate");
-    expect(dashboardSource).toContain('else if (result.status === "sent")');
-    expect(dashboardSource).toContain("toast.error(result.message || `Comando não enviado ou resultado indeterminado");
-    expect(dashboardSource).toContain("function getRemoteCommandRequester(commandPayload?: string | null)");
-    expect(dashboardSource).toContain("Solicitado por: {getRemoteCommandRequester(command.commandPayload)}");
+  it("mantém ordem de locks cliente→central na reserva setorial, igual ao dispatcher e à exclusão do cliente", () => {
+    const reservation = databaseSource.slice(
+      databaseSource.indexOf("export async function createExclusiveCompatecZoneConfiguration"),
+      databaseSource.indexOf("export async function dispatchAlarmRemoteCommand"),
+    );
+    const clientLock = reservation.indexOf(".from(clients)");
+    const systemLock = reservation.indexOf(".from(alarmSystems).where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id))).for(\"update\")");
+    expect(clientLock).toBeGreaterThan(-1);
+    expect(systemLock).toBeGreaterThan(clientLock);
+  });
+
+  it("mantém ocorrências→central na manutenção manual e automática para evitar ciclo com comandos Compatec", () => {
+    const start = maintenanceSource.slice(maintenanceSource.indexOf("export async function startSystemMaintenanceWithDb"), maintenanceSource.indexOf("export async function endSystemMaintenanceWithDb"));
+    const end = maintenanceSource.slice(maintenanceSource.indexOf("export async function endSystemMaintenanceWithDb"), maintenanceSource.indexOf("export async function reconcileOperationalIncidentWindowsWithDb"));
+    expect(start.indexOf(".from(incidents)")).toBeGreaterThan(-1);
+    expect(start.indexOf(".from(incidents)")).toBeLessThan(start.indexOf(".from(alarmSystems)"));
+    expect(end.indexOf(".from(incidents)")).toBeGreaterThan(-1);
+    expect(end.indexOf(".from(incidents)")).toBeLessThan(end.indexOf(".from(alarmSystems)"));
+    const windows = maintenanceSource.slice(maintenanceSource.indexOf("export async function reconcileOperationalIncidentWindowsWithDb"));
+    expect(windows.indexOf("const rows = await tx.select().from(incidents)")).toBeLessThan(windows.indexOf("const [current] = await tx.select().from(alarmSystems)"));
+  });
+
+  it("mostra prévia dos quadros oficiais, solicitante/motivo e confirmação do envio único", () => {
+    expect(dashboardSource).toContain("<CompatecZoneConfigurationPanel");
+    expect(dashboardSource).not.toContain("compatecZonePhysicalMut.mutate");
+    expect(zonePanelSource).toContain("buildCompatecZoneConfigurationFrames(zoneChanges)");
+    expect(zonePanelSource).toContain("window.confirm(confirmation)");
+    expect(zonePanelSource).toContain("configure.mutate({");
+    expect(zonePanelSource).toContain("requestedBy: normalizedRequester");
+    expect(zonePanelSource).toContain("reason: normalizedReason");
+    expect(zonePanelSource).toContain("leaseToken,");
+    expect(zonePanelSource).toContain("não confirmação do estado final");
+    expect(zonePanelSource).toContain("Não há AK4 nesta ação");
     expect(dashboardSource).toContain('toast.info(`${ev.actionLabel || "Comando Compatec"}: resposta ${responseCode} recebida. ${caution}`');
-    expect(dashboardSource).toContain("A resposta não confirma o estado final; confira o evento/status real do painel.");
-    expect(dashboardSource).toContain("Isso indica recebimento, não confirma o estado final do bypass.");
+    expect(dashboardSource).toContain("não confirma os estados finais dos setores; confira a central.");
     expect(dashboardSource).toContain("disabled>Arme por partição indisponível até homologação Compatec</Button>");
   });
 

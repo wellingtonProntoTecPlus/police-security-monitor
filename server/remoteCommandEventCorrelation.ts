@@ -14,8 +14,26 @@ export type IncomingRemoteEvent = {
   receivedAt: Date;
 };
 
+export type CompatecZoneChangeAudit = {
+  zoneNumber: number;
+  armState?: "armed" | "disarmed";
+  bypassState?: "annulled" | "restored";
+};
+
+export function formatCompatecZoneChanges(changes: CompatecZoneChangeAudit[] = []) {
+  return changes.map((change) => {
+    const states = [
+      change.armState === "armed" ? "armado" : change.armState === "disarmed" ? "desarmado" : null,
+      change.bypassState === "annulled" ? "anulado" : change.bypassState === "restored" ? "anulação retirada" : null,
+    ].filter(Boolean);
+    return `Setor ${change.zoneNumber}: ${states.join(" e ")}`;
+  });
+}
+
 export function getRemoteCommandActionLabel(commandType: string) {
-  return commandType === "arm"
+  return commandType === "configure_zones"
+    ? "Configuração de setores via PoliceCentral"
+    : commandType === "arm"
     ? "Arme remoto via PoliceCentral"
     : commandType === "disarm"
       ? "Desarme remoto via PoliceCentral"
@@ -27,7 +45,7 @@ export function getRemoteCommandActionLabel(commandType: string) {
 }
 
 export function getRemoteCommandOutcomeLabel(status: string, commandType?: string, response?: string | null) {
-  const isZoneBypassCommand = commandType === "isolate_zone" || commandType === "restore_zone";
+  const isZoneBypassCommand = commandType === "isolate_zone" || commandType === "restore_zone" || commandType === "configure_zones";
   const isCompatecArmDisarmAck = (commandType === "arm" || commandType === "disarm")
     && /(?:^|\n)MB=KA4(?:\[[^\]\r\n]*\])?\r?$/m.test(response || "");
   switch (status) {
@@ -41,9 +59,12 @@ export function getRemoteCommandOutcomeLabel(status: string, commandType?: strin
       return "Despacho reservado; aguardando confirmação da transmissão.";
     case "dispatch_unknown":
       return "Resultado indeterminado; conferir a central antes de qualquer novo comando.";
+    case "reconciled":
+      return "Resultado conferido manualmente; não é confirmação eletrônica do painel.";
     case "sent":
       return isZoneBypassCommand ? "Enviado à central; aguardando resposta KA1." : "Enviado à central; aguardando confirmação.";
     case "responded":
+      if (commandType === "configure_zones") return "Resposta KA1 recebida; indica recebimento da configuração, não confirma os estados finais dos setores. Confira a central.";
       if (isZoneBypassCommand) return "Resposta KA1 recebida; indica recebimento do comando, não confirmação do estado final do bypass.";
       if (isCompatecArmDisarmAck) return "Resposta KA4 recebida; indica resposta ao comando, não confirma o estado final. Confira o estado/evento da central.";
       return "Confirmado pela central.";
@@ -67,6 +88,7 @@ export function buildRemoteCommandRequestNote(input: {
   reason: string;
   requestedBy?: string | null;
   zoneNumber?: number | null;
+  zoneChanges?: CompatecZoneChangeAudit[];
 }) {
   return [
     `[COMANDO REMOTO #${input.commandId} SOLICITADO]`,
@@ -75,8 +97,11 @@ export function buildRemoteCommandRequestNote(input: {
     `Operador: ${input.operatorName}`,
     input.requestedBy ? `Solicitado por: ${input.requestedBy}` : null,
     input.zoneNumber ? `Zona: ${input.zoneNumber}` : null,
+    ...(input.zoneChanges || []).length ? formatCompatecZoneChanges(input.zoneChanges) : [],
     `Motivo: ${input.reason}`,
-    input.commandType === "isolate_zone" || input.commandType === "restore_zone"
+    input.commandType === "configure_zones"
+      ? "Resultado: aguardando envio e resposta KA1; esta resposta indica recebimento, não confirmação dos estados finais dos setores. Nenhum AK4 integra esta ação."
+      : input.commandType === "isolate_zone" || input.commandType === "restore_zone"
       ? "Resultado: aguardando envio e resposta KA1; essa resposta indica recebimento, não o estado final do bypass."
       : "Resultado: aguardando envio e confirmação da central.",
     `Auditoria do comando: #${input.commandId}`,
@@ -92,6 +117,7 @@ export function buildRemoteCommandOccurrenceText(input: {
   response?: string | null;
   requestedBy?: string | null;
   zoneNumber?: number | null;
+  zoneChanges?: CompatecZoneChangeAudit[];
 }) {
   const action = getRemoteCommandActionLabel(input.commandType);
   const outcome = getRemoteCommandOutcomeLabel(input.status, input.commandType, input.response);
@@ -106,6 +132,7 @@ export function buildRemoteCommandOccurrenceText(input: {
       `Operador: ${input.operatorName}`,
       input.requestedBy ? `Solicitado por: ${input.requestedBy}` : null,
       input.zoneNumber ? `Zona: ${input.zoneNumber}` : null,
+      ...(input.zoneChanges || []).length ? formatCompatecZoneChanges(input.zoneChanges) : [],
       `Motivo: ${input.reason}`,
       `Resultado: ${outcome}`,
       input.response ? `Resposta da central: ${input.response}` : null,
@@ -148,8 +175,10 @@ export function buildRemoteCommandIncidentNotes(input: {
   technicalUserCode?: string | null;
   panelUser?: string | null;
   commandType?: string;
+  zoneChanges?: CompatecZoneChangeAudit[];
 }) {
-  const isZoneBypassCommand = input.commandType === "isolate_zone" || input.commandType === "restore_zone";
+  const isZoneConfiguration = input.commandType === "configure_zones";
+  const isZoneBypassCommand = input.commandType === "isolate_zone" || input.commandType === "restore_zone" || isZoneConfiguration;
   const isCompatecArmDisarmAck = (input.commandType === "arm" || input.commandType === "disarm")
     && /(?:^|\n)MB=KA4(?:\[[^\]\r\n]*\])?\r?$/m.test(input.response || "");
   const rows = [
@@ -159,9 +188,12 @@ export function buildRemoteCommandIncidentNotes(input: {
     `Operador: ${input.requestedBy}`,
     `Solicitado por: ${input.requesterName || input.requestedBy}`,
     input.zoneNumber ? `Zona: ${input.zoneNumber}` : null,
+    ...(input.zoneChanges || []).length ? formatCompatecZoneChanges(input.zoneChanges) : [],
   ];
   if (input.reason) rows.push(`Motivo: ${input.reason}`);
-  rows.push(isZoneBypassCommand
+  rows.push(isZoneConfiguration
+    ? "Resultado: resposta KA1 recebida; indica que a central recebeu a configuração. Os estados finais dos setores não foram confirmados; nenhum AK4 foi enviado."
+    : isZoneBypassCommand
     ? "Resultado: resposta KA1 recebida; indica que a central recebeu o comando, não confirma o estado final do bypass."
     : isCompatecArmDisarmAck
       ? "Resultado: resposta KA4 recebida; indica resposta ao comando, não confirma o estado final do Arme/Desarme. Confira o estado/evento do painel."

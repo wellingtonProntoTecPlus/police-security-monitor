@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const dashboardSource = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
+const zoneConfigurationSource = readFileSync(resolve(process.cwd(), "client/src/components/CompatecZoneConfigurationPanel.tsx"), "utf8");
 
 describe("Desarme Compatec no atendimento", () => {
   it("mostra um botão direto para toda central Compatec ativa e cadastrada", () => {
@@ -36,13 +37,15 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain("item.alarmSystemId === systemId || item.systemId === systemId");
   });
 
-  it("usa formulário operacional de Arme com confirmação e chaves sem exigir tela técnica", () => {
+  it("usa Arme total independente e configuração multi-setorial em painel próprio", () => {
     expect(dashboardSource).toContain("submitCompatecArmQuick");
-    expect(dashboardSource).toContain("CONFIRMAR ARME FÍSICO DA CENTRAL COMPATEC?");
+    expect(dashboardSource).toContain('const actionLabel = commandType === "arm" ? "ARMAR físico Compatec"');
+    expect(dashboardSource).toContain("window.confirm(");
     expect(dashboardSource).toContain("armCompatecAllMut.mutate");
     expect(dashboardSource).toContain("openStandaloneCommandRequest({ ...selectedSystem");
-    expect(dashboardSource).toContain("selectionIds: selections.map((item) => item.id)");
-    expect(dashboardSource).toContain("CompatecZoneArmControls");
+    expect(dashboardSource).toContain("CompatecZoneConfigurationPanel");
+    expect(dashboardSource).not.toContain("selectionIds: selections.map((item) => item.id)");
+    expect(dashboardSource).not.toContain("CompatecZoneArmControls");
   });
 
   it("mantém o quadro oficial AK4[4] no fluxo técnico de compatibilidade", () => {
@@ -52,11 +55,20 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).toContain('selectedSystem?.brand !== "COMPATEC" || selectedSystem.isActive === false');
   });
 
-  it("inibe somente no Arme e mantém Toggle, partições e PGM bloqueados", () => {
-    expect(dashboardSource).toContain("A inibição AK2→AK1 será enviada antes de AK4[4]");
-    expect(dashboardSource).toContain("Inibir/Restaurar Zona transmite AK2→AK1");
+  it("mantém Arme total separado da configuração AK2→AK1 e não promete KA1 como estado final", () => {
+    expect(dashboardSource).toContain("Configuração de setores");
+    expect(dashboardSource).not.toContain("A inibição AK2→AK1 será enviada antes de AK4[4]");
+    expect(zoneConfigurationSource).toContain("KA1 indica recebimento; não prova o estado final.");
     expect(dashboardSource).toContain("Arme Stay/partição continua bloqueado até homologação Compatec");
     expect(dashboardSource).toContain("AK4[9–11] são toggle; não serão enviados");
+  });
+
+  it("identifica AK2→AK1 como quadros físicos e diferencia transmissão indeterminada de apenas prevista", () => {
+    expect(dashboardSource).toContain('parsed.mode === "physical_zone_configuration"');
+    expect(dashboardSource).toContain("Quadros físicos AK2→AK1 · transmissão registrada");
+    expect(dashboardSource).toContain("Quadros AK2→AK1 podem ter sido transmitidos");
+    expect(dashboardSource).toContain("Quadros físicos AK2→AK1 previstos · transmissão não confirmada");
+    expect(dashboardSource).not.toContain('parsed.mode === "physical_zone_configuration" ? "simulation"');
   });
 });
 

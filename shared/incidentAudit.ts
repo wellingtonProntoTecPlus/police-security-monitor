@@ -58,6 +58,7 @@ export function incidentAuditActionLabel(entry: Pick<IncidentAuditRow, "action" 
     case "contact_whatsapp_clicked": return "Abriu a opção de WhatsApp";
     case "police_action_registered": return "Registrou acionamento manual da Polícia";
     case "tactical_status_updated": return "Atualizou status informado do patrulheiro";
+    case "remote_command_reconciled": return "Conferiu manualmente o resultado de comando remoto";
     default: return entry.action.replaceAll("_", " ");
   }
 }

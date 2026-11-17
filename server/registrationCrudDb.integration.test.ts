@@ -17,6 +17,7 @@ import {
   generateIsepId,
   isValidIsepId,
 } from "./db";
+import { onAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
 
 const inserted: unknown[] = [];
 const updated: unknown[] = [];
@@ -73,6 +74,24 @@ describe("CRUDs reais com textos padronizados", () => {
     expect(isValidIsepId("LYUL")).toBe(false);
     await expect(createAlarmSystem({ clientId: 1, brand: "VIAWEB", account: "0337", isepId: "LYUL" } as any))
       .rejects.toThrow("4 caracteres hexadecimais");
+  });
+
+  it("invalida a sessão de receiver somente quando muda a identidade física ou a porta", async () => {
+    currentSystem = {
+      id: 1, brand: "COMPATEC", account: "0336", macAddress: "C1BDCB", imeiGprs: null,
+      serialNumber: null, isepId: null, receiverPort: 9271,
+    };
+    const retired: number[][] = [];
+    const unsubscribe = onAlarmSystemsRetired((ids) => retired.push(ids));
+    try {
+      await updateAlarmSystem(1, { account: "0337" } as any);
+      expect(retired).toHaveLength(0);
+
+      await updateAlarmSystem(1, { receiverPort: 9272 } as any);
+      expect(retired).toEqual([[1]]);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("persiste a classificação do cliente e apartamentos sem restringir vários usuários por unidade", async () => {

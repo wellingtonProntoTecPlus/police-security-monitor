@@ -1,0 +1,9 @@
+Revisão independente somente leitura (2026-11-17) — configuração Compatec AK2→AK1. Não houve transmissão física nem deploy.
+
+Achados concretos:
+1. P1: O socket Compatec é associado ao painel ao ler `*` + 6 hex; protocolo sem desafio/credencial criptográfica mútua. Se a porta do receiver for alcançável e o identificador conhecido/reproduzido, há risco de personificação e KA1 falso. Referências: `server/receiver/index.ts` (identificação/association), `server/receiver/compatecProtocol.ts:63-68`, `server/receiver/compatecMicrobusTransport.ts:61-72,87-102,121-124`. O projeto já documenta ausência de autenticação criptográfica.
+2. P1: `updateAlarmSystem` pode mudar MAC/IMEI/porta sem invalidar socket Compatec em memória; o sender seleciona socket somente pelo `alarmSystemId`, podendo enviar a sessão antiga. Necessário invalidar cache no update e/ou verificar identidade+porta do socket imediatamente antes do write.
+3. P2: UI e reserva deixam serial/ISEP bastarem com porta, mas o parser Compatec só vincula `*xxxxxx` como MAC/IMEI, sem serial/ISEP. Cadastro só serial/ISEP passará pela reserva mas não identificará sessão; deve-se exigir MAC/IMEI Compatec de 6 hex + porta, ou implementar identidade suportada pelo protocolo.
+4. P2: `sent` sem KA1 não expira para `configure_zones`; comando fica bloqueando comandos novos indefinidamente. A reaper expira `dispatching` e o legado de Arme composto mas não `configure_zones` em `sent`.
+
+Verificados: construtor compartilha máscaras e produz somente AK2 e AK1; receiver aceita KA1, trata KA4 como inesperado/indeterminado e não envia AK4. Lease e identidade do operador da ocorrência são validados na reserva e no envio. `getPendingCompatecCommand` não deve re-enviar configuração em reconnect. Risco residual entre writes pode produzir estado parcial/indeterminado; jamais re-enviar automaticamente.

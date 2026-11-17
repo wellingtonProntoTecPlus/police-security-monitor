@@ -96,8 +96,7 @@ vi.mock("@/lib/trpc", () => ({
       list: { useQuery: () => ({ data: [] }) },
       simulate: { useMutation: () => standardMutation },
       compatecZonePhysical: { useMutation: () => standardMutation },
-      compatecZoneSelections: { useQuery: () => ({ data: [] }) },
-      selectCompatecZoneForArm: { useMutation: () => standardMutation },
+      configureCompatecZones: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
       queryVettiBenchStatus: { useMutation: () => standardMutation },
       disarmVettiBench: { useMutation: () => standardMutation },
@@ -123,7 +122,7 @@ vi.mock("@/lib/trpc", () => ({
       incident: { openQueue: { invalidate: invalidateOpenQueue }, history: { invalidate: vi.fn().mockResolvedValue(undefined) }, auditTrail: { invalidate: invalidateAuditTrail } },
       occurrence: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
-      remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) }, compatecZoneSelections: { invalidate: vi.fn().mockResolvedValue(undefined), fetch: vi.fn().mockResolvedValue([]) } },
+      remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       dashboard: {
         connectionStatus: { invalidate: invalidateConnectionStatus },
         armDisarmStatus: { invalidate: invalidateArmDisarmStatus },
@@ -256,6 +255,16 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(invalidateArmDisarmStatus).not.toHaveBeenCalled();
     expect(invalidateOpenQueue).not.toHaveBeenCalled();
     expect(screen.getAllByText("Disparo de alarme")).toHaveLength(1);
+  });
+
+  it("apresenta KA1 de configuração multi-setorial como recebimento, sem confirmar estado final", async () => {
+    mockedRealtimeEvents = [{ kind: "remote_command_ack", alarmSystemId: 6, incidentId: 91, commandId: 89, commandType: "configure_zones", actionLabel: "Configuração de setores via PoliceCentral", responsePayload: "MB=KA1", timestamp: "2026-11-17T14:00:00Z" }];
+    render(<Dashboard />);
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(
+      "Configuração de setores via PoliceCentral: resposta MB=KA1 recebida. Isso indica recebimento da configuração, não confirma os estados finais dos setores; confira a central.",
+      { duration: 12_000 },
+    ));
+    expect(invalidateArmDisarmStatus).not.toHaveBeenCalled();
   });
 
   it("mostra ‘Falha de Keep Alive restaurada’ e remove o KOFF da fila ao chegar evento real", async () => {

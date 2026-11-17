@@ -77,6 +77,7 @@ describe("Auditoria persistente de ocorrências", () => {
     expect(incidentAuditActionLabel({ action: "contact_call_clicked" })).toBe("Acionou a opção de ligação");
     expect(incidentAuditActionLabel({ action: "status_changed", statusAfter: "dispatched" })).toContain("Encaminhou");
     expect(incidentAuditActionLabel({ action: "tactical_status_updated" })).toContain("informado");
+    expect(incidentAuditActionLabel({ action: "remote_command_reconciled" })).toContain("Conferiu manualmente");
     expect(parseAuditReportDateTime("")).toBeUndefined();
     expect(formatIncidentAuditDateTime("inválido")).toBe("Horário não informado");
   });

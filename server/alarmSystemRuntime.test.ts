@@ -97,12 +97,18 @@ describe("runtime de centrais aposentadas", () => {
 describe("invalidação de caches por systemId", () => {
   it("remove sessão e pendência Compatec sem fechar o socket", () => {
     const socket = fakeTextSocket();
-    rememberActiveCompatecSession(socket, { id: 1101, account: "1101" });
-    expect(sendCompatecMw1StatusQuery({ alarmSystemId: 1101, commandId: 1 })).toMatchObject({ sent: true });
+    const expectedIdentity = { macAddress: "C1BDCB", receiverPort: 9271 };
+    rememberActiveCompatecSession(socket, {
+      id: 1101,
+      account: "1101",
+      receiverPort: 9271,
+      capturedIdentifier: { identifierType: "mac_ascii", identifier: "C1BDCB" },
+    });
+    expect(sendCompatecMw1StatusQuery({ alarmSystemId: 1101, commandId: 1, expectedIdentity })).toMatchObject({ sent: true });
 
     notifyAlarmSystemsRetired([1101]);
 
-    expect(sendCompatecMw1StatusQuery({ alarmSystemId: 1101, commandId: 2 })).toMatchObject({ sent: false });
+    expect(sendCompatecMw1StatusQuery({ alarmSystemId: 1101, commandId: 2, expectedIdentity })).toMatchObject({ sent: false });
     expect(consumeCompatecMw1StatusResponse(socket, "MB=KA0[03FF]\r\n")).toBeUndefined();
     expect(socket.destroyed).toBe(false);
     expect(socket.writes).toEqual([COMPATEC_MW1_STATUS_QUERY]);

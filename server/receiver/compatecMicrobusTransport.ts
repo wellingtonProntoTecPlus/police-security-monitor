@@ -1,6 +1,7 @@
 import type net from "net";
 import { onAlarmSystemsRetired } from "../_core/alarmSystemRuntime";
-import { buildCompatecPhysicalArmWithZonesFrames, buildCompatecPhysicalZoneFrames } from "../remoteCommandContract";
+import { compatecConnectionIdentityMatches, type CompatecConnectionIdentity, type CompatecIdentitySource } from "../../shared/compatecConnectionIdentity";
+import { buildCompatecZoneConfigurationFrames } from "../../shared/compatecZoneConfiguration";
 
 export const COMPATEC_MW1_STATUS_QUERY = "MB=AK0\r\n";
 export const COMPATEC_MW1_SECTORS_QUERY = "MB=AK1\r\n";
@@ -13,12 +14,15 @@ export const COMPATEC_MW1_ARM_ALL = "MB=AK4[4]\r\n";
 export const COMPATEC_MW1_DISARM_ALL = "MB=AK4[12]\r\n";
 export const COMPATEC_MW1_TOGGLE_ALL = "MB=AK4[0]\r\n";
 
-function getCompatecPhysicalZoneFrames(payload: string) {
+function getCompatecZoneConfigurationFrames(payload: string) {
   try {
     const parsed = JSON.parse(payload);
-    if (parsed?.protocol !== "Compatec MicroBus" || parsed?.mode !== "physical") return null;
-    if (parsed.commandType !== "isolate_zone" && parsed.commandType !== "restore_zone") return null;
-    const expected = buildCompatecPhysicalZoneFrames({ commandType: parsed.commandType, zoneNumber: parsed.zoneNumber });
+    if (parsed?.protocol !== "Compatec MicroBus") return null;
+    let expected: string[] | null = null;
+    if (parsed?.mode === "physical_zone_configuration" && parsed.commandType === "configure_zones") {
+      expected = buildCompatecZoneConfigurationFrames(parsed.zoneChanges);
+    }
+    if (!expected) return null;
     if (!Array.isArray(parsed.frames) || JSON.stringify(parsed.frames) !== JSON.stringify(expected)) return null;
     return expected;
   } catch {
@@ -26,20 +30,10 @@ function getCompatecPhysicalZoneFrames(payload: string) {
   }
 }
 
-export function isCompatecPhysicalZoneCommand(payload: string) {
-  return Boolean(getCompatecPhysicalZoneFrames(payload));
+export function isCompatecZoneConfigurationCommand(payload: string) {
+  return Boolean(getCompatecZoneConfigurationFrames(payload));
 }
 
-function getCompatecArmWithZonesFrames(payload: string) {
-  try {
-    const parsed = JSON.parse(payload);
-    if (parsed?.protocol !== "Compatec MicroBus" || parsed.mode !== "physical_arm_with_zones" || parsed.commandType !== "arm" || !Array.isArray(parsed.zoneNumbers) || parsed.zoneNumbers.length === 0) return null;
-    const expected = buildCompatecPhysicalArmWithZonesFrames(parsed.zoneNumbers);
-    if (JSON.stringify(parsed.frames) !== JSON.stringify(expected)) return null;
-    return expected;
-  } catch { return null; }
-}
-export function isCompatecArmWithZonesCommand(payload: string) { return Boolean(getCompatecArmWithZonesFrames(payload)); }
 export function isCompatecSessionActive(alarmSystemId: number) {
   const session = activeSessionBySystemId.get(alarmSystemId);
   return Boolean(session && !session.socket.destroyed && session.socket.writable);
@@ -49,10 +43,11 @@ type ActiveCompatecSession = {
   socket: net.Socket;
   systemId: number;
   account: string;
+  capturedIdentity: CompatecConnectionIdentity;
 };
 
 const activeSessionBySystemId = new Map<number, ActiveCompatecSession>();
-const pendingStatusCommandBySocket = new WeakMap<object, { commandId: number; payload: string; stage?: "zone_ack" | "ready_arm" | "arm_ack" }>();
+const pendingStatusCommandBySocket = new WeakMap<object, { commandId: number; payload: string }>();
 const pendingStatusResponseFragmentBySocket = new WeakMap<object, Buffer>();
 
 onAlarmSystemsRetired((systemIds) => {
@@ -65,9 +60,23 @@ onAlarmSystemsRetired((systemIds) => {
   }
 });
 
-/** Mantém a sessão TCP iniciada pelo painel após validar identidade física única e porta cadastrada; não implica autenticação criptográfica. */
-export function rememberActiveCompatecSession(socket: net.Socket, system: { id: number; account: string }) {
-  const session = { socket, systemId: system.id, account: system.account };
+/** Mantém a sessão identificada pelo frame real e sua porta; isso não implica autenticação criptográfica. */
+export function rememberActiveCompatecSession(socket: net.Socket, system: {
+  id: number;
+  account: string;
+  receiverPort?: number | null;
+  capturedIdentifier?: { identifierType: string; identifier: string };
+}) {
+  const captured = system.capturedIdentifier;
+  if (!captured || (captured.identifierType !== "mac_ascii" && captured.identifierType !== "imei_ascii")
+    || !/^[A-F0-9]{6}$/.test(captured.identifier) || !Number.isInteger(system.receiverPort)
+    || (system.receiverPort || 0) < 1 || (system.receiverPort || 0) > 65535) return;
+  const capturedIdentity: CompatecConnectionIdentity = {
+    identifierType: captured.identifierType,
+    identifier: captured.identifier,
+    receiverPort: system.receiverPort!,
+  };
+  const session = { socket, systemId: system.id, account: system.account, capturedIdentity };
   activeSessionBySystemId.set(system.id, session);
   const forgetSocketState = () => {
     if (activeSessionBySystemId.get(system.id)?.socket === socket) activeSessionBySystemId.delete(system.id);
@@ -82,7 +91,7 @@ export function rememberActiveCompatecSession(socket: net.Socket, system: { id: 
  * Envia somente uma consulta de estado pela sessão da central identificada e vinculada
  * ao cadastro físico e à porta do receptor. Nenhuma conexão de saída é aberta pela VPS.
  */
-export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; commandId: number }) {
+export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; commandId: number; expectedIdentity: CompatecIdentitySource }) {
   return sendCompatecMw1PhysicalCommand({ ...input, payload: COMPATEC_MW1_STATUS_QUERY });
 }
 
@@ -91,35 +100,30 @@ export function sendCompatecMw1StatusQuery(input: { alarmSystemId: number; comma
  * A VPS nunca abre uma conexão de saída: reutiliza a sessão aberta pelo painel e vinculada
  * a uma identidade física cadastrada e à porta compatível do receptor.
  */
-export function sendCompatecMw1PhysicalCommand(input: { alarmSystemId: number; commandId: number; payload: string }) {
-  // Arme/Desarme fixos e bypass construído pelo helper seguro chegam somente
-  // pelas rotas Compatec autorizadas e pela sessão TCP vinculada ao painel identificado.
+export function sendCompatecMw1PhysicalCommand(input: {
+  alarmSystemId: number;
+  commandId: number;
+  payload: string;
+  expectedIdentity: CompatecIdentitySource;
+}) {
+  // Arme/Desarme totais fixos e configuração setorial construída pelo helper
+  // seguro chegam pelas rotas autorizadas e sessão do painel identificado.
   const allowedPayloads = [COMPATEC_MW1_STATUS_QUERY, COMPATEC_MW1_SECTORS_QUERY, COMPATEC_MW1_ARM_ALL, COMPATEC_MW1_DISARM_ALL];
-  const zoneFrames = getCompatecPhysicalZoneFrames(input.payload);
-  const armWithZonesFrames = getCompatecArmWithZonesFrames(input.payload);
-  if (!allowedPayloads.includes(input.payload) && !zoneFrames && !armWithZonesFrames) {
+  const zoneFrames = getCompatecZoneConfigurationFrames(input.payload);
+  if (!allowedPayloads.includes(input.payload) && !zoneFrames) {
     return { sent: false as const, message: "Comando MicroBus Compatec não autorizado." };
   }
   const session = activeSessionBySystemId.get(input.alarmSystemId);
   if (!session || session.socket.destroyed || !session.socket.writable) {
     return { sent: false as const, message: "A central Compatec não possui conexão ativa com a VPS neste momento." };
   }
-  pendingStatusCommandBySocket.set(session.socket, { commandId: input.commandId, payload: input.payload, ...(armWithZonesFrames ? { stage: "zone_ack" as const } : {}) });
-  const writtenFrames = armWithZonesFrames ? armWithZonesFrames.slice(0, 2) : zoneFrames || [input.payload];
+  if (!compatecConnectionIdentityMatches(input.expectedIdentity, session.capturedIdentity)) {
+    return { sent: false as const, message: "A identidade física e/ou porta cadastrada não corresponde à sessão Compatec ativa; nenhum quadro foi escrito." };
+  }
+  pendingStatusCommandBySocket.set(session.socket, { commandId: input.commandId, payload: input.payload });
+  const writtenFrames = zoneFrames || [input.payload];
   for (const frame of writtenFrames) session.socket.write(frame);
   return { sent: true as const, payload: writtenFrames.join(""), account: session.account };
-}
-
-/** Continuação exige o mesmo socket e a resposta KA1; não permite reconexão/reenvio automático. */
-export function sendCompatecMw1ArmAfterZones(input: { alarmSystemId: number; commandId: number }) {
-  const session = activeSessionBySystemId.get(input.alarmSystemId);
-  const pending = session && pendingStatusCommandBySocket.get(session.socket);
-  if (!session || session.socket.destroyed || !session.socket.writable || pending?.commandId !== input.commandId || pending.stage !== "ready_arm") {
-    return { sent: false as const, message: "Sequência interrompida antes do Arme; conferir a central. Não reenviar automaticamente." };
-  }
-  pendingStatusCommandBySocket.set(session.socket, { ...pending, stage: "arm_ack" });
-  session.socket.write(COMPATEC_MW1_ARM_ALL);
-  return { sent: true as const, payload: COMPATEC_MW1_ARM_ALL, account: session.account };
 }
 
 /** Compatibilidade com o nome histórico usado pelas consultas de bancada. */
@@ -128,22 +132,18 @@ export const sendCompatecMw1BenchQuery = sendCompatecMw1PhysicalCommand;
 export function consumeCompatecMw1StatusResponse(socket: net.Socket, response: string) {
   const pending = pendingStatusCommandBySocket.get(socket);
   if (!pending) return undefined;
-  if (pending.stage === "zone_ack" && /^MB=KA1(?:\[[^\r\n]*\])?\r?\n?$/.test(response)) {
-    pendingStatusCommandBySocket.set(socket, { ...pending, stage: "ready_arm" });
-    return { ...pending, response, intermediateZoneAck: true as const };
-  }
   pendingStatusCommandBySocket.delete(socket);
   return { ...pending, response };
 }
 
 export function isCompatecArmDisarmConfirmation(payload: string, response: string) {
-  if (payload === COMPATEC_MW1_ARM_ALL || isCompatecArmWithZonesCommand(payload)) return /^MB=KA4(?:\[4\])?\r?\n?$/.test(response);
+  if (payload === COMPATEC_MW1_ARM_ALL) return /^MB=KA4(?:\[4\])?\r?\n?$/.test(response);
   if (payload === COMPATEC_MW1_DISARM_ALL) return /^MB=KA4(?:\[12\])?\r?\n?$/.test(response);
   return false;
 }
 
-export function isCompatecPhysicalZoneConfirmation(payload: string, response: string) {
-  return Boolean(getCompatecPhysicalZoneFrames(payload))
+export function isCompatecZoneConfigurationConfirmation(payload: string, response: string) {
+  return Boolean(getCompatecZoneConfigurationFrames(payload))
     && /^MB=KA1(?:\[[^\r\n]*\])?\r?\n?$/.test(response);
 }
 

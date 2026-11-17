@@ -10,12 +10,12 @@ export async function startSystemMaintenanceWithDb(db: any, input: { systemId: n
   if (input.endAt <= input.startAt || input.endAt <= operationalNow) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe um intervalo futuro válido para a manutenção." });
   return db.transaction(async (tx: any) => {
     await lockPanelActorSession(tx, actor);
-    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, input.systemId)).for("update").limit(1);
-    if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Central não encontrada." });
     const rows = await tx.select().from(incidents).where(and(eq(incidents.alarmSystemId, input.systemId), inArray(incidents.status, [...OPEN]))).orderBy(incidents.id).for("update");
     const selected = rows.find((row: any) => row.id === input.incidentId);
     if (!selected) throw new TRPCError({ code: "NOT_FOUND", message: "Ocorrência aberta não pertence à central selecionada." });
     await assertActivePanelLease(tx, selected.id, actor);
+    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, input.systemId)).for("update").limit(1);
+    if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Central não encontrada." });
     const activeNow = input.startAt <= operationalNow;
     for (const row of rows) {
       const lease = await readPanelLease(tx, row.id);
@@ -35,8 +35,6 @@ export async function startSystemMaintenanceWithDb(db: any, input: { systemId: n
 export async function endSystemMaintenanceWithDb(db: any, input: { systemId: number; incidentId: number }, actor: PanelActor) {
   return db.transaction(async (tx: any) => {
     await lockPanelActorSession(tx, actor);
-    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, input.systemId)).for("update").limit(1);
-    if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Central não encontrada." });
     const rows = await tx.select().from(incidents).where(and(eq(incidents.alarmSystemId, input.systemId), inArray(incidents.status, [...OPEN]))).orderBy(incidents.id).for("update");
     const selected = rows.find((row: any) => row.id === input.incidentId);
     if (!selected) throw new TRPCError({ code: "NOT_FOUND", message: "Abra uma ocorrência da central antes de retirar a manutenção." });
@@ -48,6 +46,8 @@ export async function endSystemMaintenanceWithDb(db: any, input: { systemId: num
         await assertActivePanelLease(tx, row.id, actor);
       }
     }
+    const [system] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, input.systemId)).for("update").limit(1);
+    if (!system) throw new TRPCError({ code: "NOT_FOUND", message: "Central não encontrada." });
     await tx.update(alarmSystems).set({ maintenanceStartAt: null, maintenanceEndAt: null, maintenanceNotes: null, maintenanceOperatorId: null }).where(eq(alarmSystems.id, input.systemId));
     for (const row of rows.filter((row: any) => row.status === "maintenance")) {
       const note = "Manutenção retirada pelo operador; ocorrência retornada à fila de atendimento.";
@@ -62,9 +62,9 @@ export async function endSystemMaintenanceWithDb(db: any, input: { systemId: num
 export async function reconcileOperationalIncidentWindowsWithDb(db: any, reference: Date) {
   const systems = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(lte(alarmSystems.maintenanceEndAt, reference));
   for (const system of systems) await db.transaction(async (tx: any) => {
+    const rows = await tx.select().from(incidents).where(and(eq(incidents.alarmSystemId, system.id), eq(incidents.status, "maintenance"))).orderBy(incidents.id).for("update");
     const [current] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, system.id)).for("update").limit(1);
     if (!current?.maintenanceEndAt || current.maintenanceEndAt > reference) return;
-    const rows = await tx.select().from(incidents).where(and(eq(incidents.alarmSystemId, system.id), eq(incidents.status, "maintenance"))).orderBy(incidents.id).for("update");
     await tx.update(alarmSystems).set({ maintenanceStartAt: null, maintenanceEndAt: null, maintenanceNotes: null, maintenanceOperatorId: null }).where(eq(alarmSystems.id, system.id));
     for (const row of rows) {
       const note = "Período de manutenção encerrado. Ocorrência retornada à fila de atendimento.";
@@ -86,9 +86,9 @@ export async function reconcileOperationalIncidentWindowsWithDb(db: any, referen
   // Contact ID/incident during a queue read, especially after manual finalization.
   const active = await db.select({ id: alarmSystems.id }).from(alarmSystems).where(and(lte(alarmSystems.maintenanceStartAt, reference), sql`${alarmSystems.maintenanceEndAt} > ${reference}`));
   for (const system of active) await db.transaction(async (tx: any) => {
+    const rows = await tx.select().from(incidents).where(and(eq(incidents.alarmSystemId, system.id), inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]))).orderBy(incidents.id).for("update");
     const [current] = await tx.select().from(alarmSystems).where(eq(alarmSystems.id, system.id)).for("update").limit(1);
     if (!current?.maintenanceStartAt || !current.maintenanceEndAt || current.maintenanceStartAt > reference || current.maintenanceEndAt <= reference) return;
-    const rows = await tx.select().from(incidents).where(and(eq(incidents.alarmSystemId, system.id), inArray(incidents.status, ["waiting", "attending", "observing", "dispatched"]))).orderBy(incidents.id).for("update");
     for (const row of rows) {
       if (isPanelLeaseActive(await readPanelLease(tx, row.id))) continue;
       const note = current.maintenanceNotes || "Janela de manutenção agendada ativada.";

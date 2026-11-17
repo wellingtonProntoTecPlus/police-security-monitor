@@ -1018,3 +1018,15 @@
 - [x] Revisão independente apontou retirada de manutenção sem painel e concessão órfã após restauração; corrigidos com regressões reais
 - [x] Validação da versão exata: pnpm check; 165 arquivos e 819 testes aprovados sem ignorados, incluindo MariaDB descartável por socket Unix; pnpm build e git diff --check aprovados. MariaDB encerrado. Aviso conhecido de chunk Vite >500 kB não bloqueante
 - [x] Nenhum acesso/alteração da VPS, comando físico ou acesso a câmeras foi executado nesta implementação; implantação e verificação visual na VPS continuam pendentes
+
+
+## Configuração Compatec multi-setorial AK2→AK1 e conferência manual — 17/11/2026
+- [x] Substituída a seleção temporária anterior por configuração simultânea dos setores no atendimento aberto: mapa AK2 seleciona campos, mapa AK1 configura ArmadoSet/estado desejado conforme exemplos enviados pelo suporte Compatec
+- [x] Um comando setorial transmite somente AK2 seguido de AK1. KA1 registra recebimento, não confirma estados finais. Nenhum AK4 é emitido automaticamente; Arme total AK4 permanece separado
+- [x] Exige ocorrência/painel aberto com lease e sessão do operador, central/cliente/zona ativos, identidade de conexão Compatec MAC ou IMEI válido de 6 hex + porta; serial/ISEP/conta/IP isolados não autorizam. Alteração da identidade cancela sem escrita; comandos setoriais legados em espera não são reenviados na reconexão
+- [x] Timeout sem resposta mantém `dispatch_unknown` e bloqueia novas ações Compatec na central até conferência manual autenticada, com resultado, método e detalhes obrigatórios; conferência não transmite quadros e ator/horário vêm do servidor
+- [x] Respostas/atualizações tardias de qualquer comando Compatec MicroBus mantêm o bloqueio; dispatcher obsoleto não sobrescreve comando reconciliado; updater genérico não pode forjar `reconciled`. Parceiros não podem listar nem reconciliar
+- [x] Histórico distingue quadros físicos enviados, possíveis/indeterminados e apenas previstos; KA1 não é exibido como confirmação do estado final
+- [x] Locks padronizados: ocorrência → cliente → central para reserva/dispatcher; ocorrência → central para manutenção manual/automática; snapshots de vínculo revalidados sob lock
+- [x] Revisão independente final sem bloqueadores concretos. Validação integral exata: TypeScript, 167 arquivos/830 testes aprovados, build e `git diff --check`; integrações MariaDB executadas em banco descartável privado por socket Unix
+- [x] Nenhuma VPS acessada/atualizada e nenhum comando físico foi transmitido; não houve teste na central real
