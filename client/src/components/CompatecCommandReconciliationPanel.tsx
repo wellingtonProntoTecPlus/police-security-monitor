@@ -124,7 +124,7 @@ export default function CompatecCommandReconciliationPanel({ alarmSystemId }: { 
             return <article key={command.id} className="space-y-2 rounded-md border border-red-300/30 bg-black/20 p-3">
               <div>
                 <p className="text-xs font-bold text-red-100">#{command.id} · {COMMAND_LABELS[command.commandType] || command.commandType}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">Solicitado por {command.operatorName || "operador"} · {formatDate(command.createdAt)}{command.incidentId ? ` · ocorrência #${command.incidentId}` : ""}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Executado por {command.operatorName || "operador"} · {formatDate(command.createdAt)}{command.incidentId ? ` · ocorrência #${command.incidentId}` : ""}</p>
                 <p className="mt-1 text-xs text-foreground">{commandSummary(command)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">Motivo: {command.reason}</p>
               </div>

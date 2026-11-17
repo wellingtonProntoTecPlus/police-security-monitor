@@ -49,11 +49,12 @@ describe("correlação de evento com comando remoto", () => {
     const notes = buildRemoteCommandIncidentNotes({
       commandId: 32,
       commandLabel: "Desarme remoto Vetti",
-      requestedBy: "Wellington de Sousa Portes",
+      operatorName: "Wellington de Sousa Portes",
       technicalUserCode: "399",
       panelUser: "001",
     });
-    expect(notes).toContain("Solicitado por: Wellington de Sousa Portes");
+    expect(notes).toContain("Operador: Wellington de Sousa Portes");
+    expect(notes).not.toContain("Solicitado por");
     expect(notes).toContain("Usuário informado pela central: 001");
     expect(notes).toContain("Usuário técnico do comando: 399");
     expect(notes).not.toContain("senha");

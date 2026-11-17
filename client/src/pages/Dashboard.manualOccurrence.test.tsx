@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
 import { toast } from "sonner";
+import { buildRemoteCommandIncidentNotes, buildRemoteCommandRequestNote } from "../../../server/remoteCommandEventCorrelation";
 
 const manualMutation = {
   mutate: vi.fn(),
@@ -399,7 +400,7 @@ describe("Dashboard — Ocorrência Manual", () => {
 
   it("retoma para atendimento uma ocorrência em observação atribuída ao próprio operador", async () => {
     mockedPersistedQueue = [{ ...defaultQueue[0], incidentStatus: "observing", incidentOperatorId: 1, incidentOperatorName: "Wellington" }];
-    openPanelMutation.mutateAsync.mockImplementationOnce(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: "observing", operatorId: 1, operatorName: "Wellington", notes: null, pauseReason: "Aguardando retorno", leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
+    openPanelMutation.mutateAsync.mockImplementationOnce(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: "observing", operatorId: 1, operatorName: "Wellington", notes: "Nota anterior\nAguardando retorno", pauseReason: "Aguardando retorno", leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(screen.getByTitle("Observação (1)"));
@@ -408,6 +409,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Finalizar" }).hasAttribute("disabled")).toBe(false));
     expect(screen.getByTestId("active-occurrence-inline")).toBeTruthy();
     expect(screen.getByText("Responsável pelo atendimento:")).toBeTruthy();
+    expect((screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências...") as HTMLTextAreaElement).value).toBe("Aguardando retorno");
     expect(standardMutation.mutateAsync).not.toHaveBeenCalled();
     expect(openPanelMutation.mutateAsync.mock.results[0].value).toBeInstanceOf(Promise);
   });
@@ -419,7 +421,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     { queueStatus: "maintenance", panelStatus: "maintenance", queueTitle: "Manutenção (1)" },
   ])("assume ocorrência pausada em $queueStatus por outro operador com lease novo e preserva status", async ({ queueStatus, panelStatus, queueTitle }) => {
     mockedPersistedQueue = [{ ...defaultQueue[0], incidentStatus: panelStatus, incidentOperatorId: 8, incidentOperatorName: "Amanda", pauseReason: "Retorno pendente" }];
-    openPanelMutation.mutateAsync.mockImplementationOnce(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: panelStatus, operatorId: 1, operatorName: "Wellington", notes: "Nota anterior", pauseReason: "Retorno pendente", leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
+    openPanelMutation.mutateAsync.mockImplementationOnce(async ({ incidentId, leaseToken }: any) => ({ id: incidentId, parentIncidentId: null, status: panelStatus, operatorId: 1, operatorName: "Wellington", notes: "Nota anterior\nRetorno pendente", pauseReason: "Retorno pendente", leaseToken, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString() }));
     const user = userEvent.setup();
     render(<Dashboard />);
     await user.click(screen.getByTitle(queueTitle));
@@ -430,6 +432,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(acquisition.leaseToken).toEqual(expect.any(String));
     expect(standardMutation.mutateAsync).not.toHaveBeenCalled();
     expect(standardMutation.mutate).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências...") as HTMLTextAreaElement).value).toBe("Retorno pendente");
     expect(screen.getByText("Responsável pelo atendimento:")).toBeTruthy();
     if (queueStatus === "maintenance") expect(screen.getByText(/Sistema em manutenção\./)).toBeTruthy();
     if (queueStatus === "tactical") expect(screen.getByLabelText("Atualizar status informado do patrulheiro")).toBeTruthy();
@@ -479,8 +482,14 @@ describe("Dashboard — Ocorrência Manual", () => {
     finalizeOptions.onSettled();
   });
 
-  it("oculta o bloco técnico do atendimento, mas preserva a auditoria remota no relatório final", async () => {
-    const commandAudit = "Operador anterior: confira o estado final no painel.\n[COMANDO REMOTO #109 SOLICITADO]\nAção: Arme remoto via PoliceCentral\n[COMANDO REMOTO #109 RESPOSTA KA4 RECEBIDA]\nResposta da central: MB=KA4\nAuditoria do comando: #109";
+  it("oculta auditoria técnica e envia apenas a descrição atual para o servidor compor o relatório persistido", async () => {
+    const commandAudit = [
+      "Operador anterior: confira o estado final no painel.",
+      buildRemoteCommandRequestNote({ commandId: 109, commandType: "arm", operatorName: "Wellington", reason: "Teste autorizado" }),
+      "Cliente solicitou retorno após verificação.",
+      buildRemoteCommandIncidentNotes({ commandId: 109, commandType: "arm", commandLabel: "Arme remoto", operatorName: "Wellington", response: "MB=KA4" }),
+      "Tático informou que não há anormalidades.",
+    ].join("\n");
     mockedPersistedQueue = [{ ...defaultQueue[0], incidentNotes: commandAudit }];
     openPanelMutation.mutateAsync.mockResolvedValueOnce({
       id: 91, parentIncidentId: null, status: "attending", operatorId: 1, operatorName: "Wellington",
@@ -491,15 +500,17 @@ describe("Dashboard — Ocorrência Manual", () => {
     render(<Dashboard />);
     await user.click(await screen.findByText("Disparo de alarme"));
     expect(screen.queryByText("Ação remota registrada")).toBeNull();
-    expect(screen.getByText("Operador anterior: confira o estado final no painel.")).toBeTruthy();
+    const displayedNotes = screen.getByText(/Operador anterior: confira o estado final no painel/).textContent;
+    expect(displayedNotes).toContain("Cliente solicitou retorno após verificação.");
+    expect(displayedNotes).toContain("Tático informou que não há anormalidades.");
     expect(screen.queryByText(/COMANDO REMOTO #109|MB=KA4/)).toBeNull();
     await user.type(screen.getByPlaceholderText("Registro do atendimento, contatos realizados e providências..."), "Conferi o estado do painel.");
     await user.click(screen.getByRole("button", { name: /^Finalizar$/ }));
 
     const payload = standardMutation.mutate.mock.calls[0][0];
-    expect(payload.observations).toContain("Conferi o estado do painel.");
-    expect(payload.observations).toContain("Auditoria do comando: #109");
-    expect(payload.observations).toContain("Resposta da central: MB=KA4");
+    expect(payload.observations).toBe("Conferi o estado do painel.");
+    expect(payload.observations).not.toContain("Auditoria do comando: #109");
+    expect(payload.observations).not.toContain("Solicitado por:");
   });
 
   it("finaliza só a ocorrência aberta e volta às filas mantendo outra central com mesma conta e hora", async () => {
@@ -743,15 +754,15 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(source).not.toContain('"Vetti VSec" : "Compatec"} · modo de simulação');
   });
 
-  it("mantém Arme/Desarme e guarda a auditoria remota sem exibi-la no formulário de atendimento", () => {
+  it("mantém Arme/Desarme e deixa o servidor anexar a auditoria persistida à finalização", () => {
     const source = readFileSync(resolve(process.cwd(), "client/src/pages/Dashboard.tsx"), "utf8");
 
     expect(source).toContain('selectedArmDisarmState === "armed"');
     expect(source).toContain(">DESARMAR</Button>");
     expect(source).toContain(">ARMAR</Button>");
     expect(source).toContain("Arme remoto ainda não homologado.");
-    expect(source).toContain("const remoteAuditText = selectedRemoteCommandNotes.join");
-    expect(source).toContain("const finalObservations = [attendingNotes.trim(), remoteAuditText]");
+    expect(source).toContain("const finalObservations = attendingNotes.trim();");
+    expect(source).not.toContain("selectedRemoteCommandNotes");
     expect(source).not.toContain("Ação remota registrada");
     expect(source).not.toContain("selectedRemoteCommandNotes.map");
   });

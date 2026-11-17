@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { and, eq } from "drizzle-orm";
 import fs from "node:fs";
 import { authSessions, alarmEvents, alarmRemoteCommands, alarmSystems, alarmZones, clients, incidentHistory, incidentPanelLeases, incidents, occurrences, users } from "../drizzle/schema";
-import { appendIncidentNote, createExclusiveCompatecPhysicalCommand, createExclusiveCompatecZoneConfiguration, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches, getPendingCompatecCommand, listIndeterminateCompatecCommands, reconcileCompatecCommand, recordRemoteCommandConfirmation, setDbForTesting, updateAlarmRemoteCommandDelivery } from "./db";
+import { appendIncidentNote, createExclusiveCompatecPhysicalCommand, createExclusiveCompatecZoneConfiguration, createOccurrenceAndCloseIncident, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches, getPendingCompatecCommand, listIndeterminateCompatecCommands, openIncidentPanel, pauseIncidentPanel, reconcileCompatecCommand, recordRemoteCommandConfirmation, setDbForTesting, updateAlarmRemoteCommandDelivery } from "./db";
 import { buildCompatecZoneConfigurationFrames } from "../shared/compatecZoneConfiguration";
 import type { PanelActor } from "./incidentPanelLease";
 
@@ -55,7 +55,6 @@ const zoneChanges = [
 const input = () => ({
   alarmSystemId: SYSTEM_ID,
   incidentId: INCIDENT_ID,
-  requestedBy: "Responsável fictício",
   reason: "Solicitação fictícia para teste de integração local",
   zoneChanges,
   actor,
@@ -167,6 +166,7 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(reservation.commandPayload).toContain("physical_zone_configuration");
     expect(JSON.parse(reservation.commandPayload).frames).toEqual(frames);
     expect(JSON.parse(reservation.commandPayload).frames.join("\n")).not.toContain("AK4");
+    expect(JSON.parse(reservation.commandPayload)).not.toHaveProperty("requestedBy");
 
     const commands = await commandRows();
     expect(commands).toHaveLength(1);
@@ -177,11 +177,65 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(incidentsAfterReservation.map((incident) => incident.id)).toEqual(existingIncidents.map((incident) => incident.id));
     const [incident] = await orm.select().from(incidents).where(eq(incidents.id, INCIDENT_ID));
     expect(incident.notes).toContain("Nota inicial da ocorrência preservada");
+    expect(incident.notes).toContain(`Operador: ${actor.operatorName}`);
+    expect(incident.notes).not.toContain("Solicitado por:");
     expect(incident.notes).toContain("Setor 1: armado");
     expect(incident.notes).toContain("Setor 3: anulado");
     const [report] = await reportRows();
     expect(report.observations).toContain("KA1 significa recebimento");
+    expect(report.observations).toContain(`Operador: ${actor.operatorName}`);
+    expect(report.observations).not.toContain("Solicitado por:");
     expect(await orm.select().from(occurrences)).toHaveLength(1);
+  });
+
+  it("finaliza com notas persistidas atuais mesmo quando a tela envia observações em cache antigo", async () => {
+    const reservation = await createExclusiveCompatecZoneConfiguration(input());
+    if (!reservation.created) throw new Error("Reserva de configuração não criada");
+    const staleClientObservations = "Conferi o estado e finalizei o atendimento.";
+
+    await createOccurrenceAndCloseIncident(INCIDENT_ID, {
+      account: "0342",
+      eventCode: "701",
+      observations: staleClientObservations,
+    } as any, OPERATOR_ID, actor.operatorName, SESSION_ID, LEASE_TOKEN);
+
+    const report = (await reportRows()).find((item) => item.incidentId === INCIDENT_ID && item.eventCode === "701");
+    expect(report).toBeTruthy();
+    if (!report) return;
+    expect(report.observations).toContain(staleClientObservations);
+    expect(report.observations).toContain("Nota inicial da ocorrência preservada");
+    expect(report.observations).toContain(`[COMANDO REMOTO #${reservation.id} SOLICITADO]`);
+    expect(report.observations).toContain(`Operador: ${actor.operatorName}`);
+    expect(report.observations).toContain("Auditoria do comando:");
+    expect(report.observations).toContain("Setor 1: armado");
+    expect(report.observations).not.toContain("Solicitado por:");
+    const [closedIncident] = await orm.select().from(incidents);
+    expect(closedIncident).toMatchObject({ status: "closed", resolution: report.observations });
+    const finalizedHistory = (await orm.select().from(incidentHistory)).find((row) => row.action === "finalized");
+    expect(finalizedHistory?.note).toBe(report.observations);
+  });
+
+  it("não duplica o motivo de pausa pré-preenchido ao retomar e mantém o texto igual em relatório, resolução e histórico", async () => {
+    const pauseReason = "Aguardar retorno do responsável";
+    await orm.update(incidents).set({ status: "observing" }).where(eq(incidents.id, INCIDENT_ID));
+    await pauseIncidentPanel(INCIDENT_ID, pauseReason, actor);
+    const resumedActor = { ...actor, leaseToken: "22222222-2222-4222-8222-222222222222" };
+    const resumed = await openIncidentPanel({ incidentId: INCIDENT_ID }, resumedActor);
+    expect(resumed.pauseReason).toBe(pauseReason);
+    await createOccurrenceAndCloseIncident(INCIDENT_ID, {
+      account: "0342",
+      eventCode: "130",
+      observations: pauseReason,
+    } as any, OPERATOR_ID, actor.operatorName, SESSION_ID, resumed.leaseToken);
+
+    const report = (await reportRows()).find((item) => item.incidentId === INCIDENT_ID && item.eventCode === "130");
+    expect(report).toBeTruthy();
+    if (!report) return;
+    expect(report.observations?.split(pauseReason)).toHaveLength(2);
+    const [closedIncident] = await orm.select().from(incidents);
+    expect(closedIncident.resolution).toBe(report.observations);
+    const finalizedHistory = (await orm.select().from(incidentHistory)).find((row) => row.action === "finalized");
+    expect(finalizedHistory?.note).toBe(report.observations);
   });
 
   it("impede que uma consulta AK0 seja reservada enquanto a configuração de setores está preparada", async () => {

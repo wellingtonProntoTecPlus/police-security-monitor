@@ -19,7 +19,6 @@ export const compatecZoneConfigurationInputSchema = z.object({
   alarmSystemId: z.number().int().positive(),
   incidentId: z.number().int().positive(),
   leaseToken: z.string().uuid(),
-  requestedBy: z.string().trim().min(2).max(255),
   reason: z.string().trim().min(5).max(2000),
   zoneChanges: z.array(compatecZoneConfigurationChangeSchema).min(1).max(COMPATEC_PHYSICAL_ZONE_LIMIT),
 }).superRefine((input, ctx) => {
@@ -212,7 +211,6 @@ export function buildCompatecSimulationFrames(input: {
 
 export function buildCompatecZoneConfigurationPayload(input: {
   zoneChanges: CompatecZoneConfigurationChange[];
-  requestedBy: string;
 }) {
   const zoneChanges = [...input.zoneChanges].sort((left, right) => left.zoneNumber - right.zoneNumber);
   const frames = buildCompatecZoneConfigurationFrames(zoneChanges);
@@ -221,7 +219,6 @@ export function buildCompatecZoneConfigurationPayload(input: {
     mode: "physical_zone_configuration",
     commandType: "configure_zones",
     zoneChanges,
-    requestedBy: input.requestedBy.trim(),
     frames,
     note: "Configuração multi-setorial AK2→AK1. KA1 indica somente recebimento; nenhum AK4 é enviado e o estado final deve ser conferido na central.",
   });

@@ -60,8 +60,8 @@ describe("Arme Compatec de bancada", () => {
     expect(dashboardSource).not.toContain("A inibição AK2→AK1 será enviada antes de AK4[4]");
     expect(zoneConfigurationSource).toContain("Comandos de zonas e setores");
     expect(zoneConfigurationSource).toContain("Aplicar alterações");
-    expect(zoneConfigurationSource).toContain("Solicitado por");
-    expect(zoneConfigurationSource).toContain("Motivo");
+    expect(zoneConfigurationSource).not.toContain("Solicitado por");
+    expect(zoneConfigurationSource).toContain("Descrição / motivo");
     expect(zoneConfigurationSource).not.toMatch(/\bAK[124]\b|\bKA1\b|quadro físico/i);
     expect(dashboardSource).toContain("Arme Stay/partição continua bloqueado até homologação Compatec");
     expect(dashboardSource).toContain("AK4[9–11] são toggle; não serão enviados");

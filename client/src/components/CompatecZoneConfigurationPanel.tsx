@@ -25,7 +25,6 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
   const zonesQuery = trpc.alarmZone.list.useQuery({ alarmSystemId }, { enabled: Boolean(alarmSystemId), retry: false });
   const utils = trpc.useUtils();
   const [drafts, setDrafts] = useState<Record<number, ZoneDraft>>({});
-  const [requestedBy, setRequestedBy] = useState("");
   const [reason, setReason] = useState("");
   const configure = trpc.remoteCommand.configureCompatecZones.useMutation({
     onSuccess: async (result) => {
@@ -34,7 +33,6 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
         utils.incident.openQueue.invalidate(),
       ]);
       setDrafts({});
-      setRequestedBy("");
       setReason("");
       if (result.status === "sent") {
         toast.success("Alterações enviadas à central. Confira o estado final dos setores no painel.", { duration: 12_000 });
@@ -56,10 +54,9 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
     .sort((left, right) => left.zoneNumber - right.zoneNumber), [drafts]);
 
   const identityAndPortReady = Boolean(getCompatecConnectionIdentity({ macAddress, imeiGprs, receiverPort }));
-  const normalizedRequester = requestedBy.trim();
   const normalizedReason = reason.trim();
   const canSubmit = canOperate && Boolean(leaseToken) && Boolean(incidentId) && identityAndPortReady
-    && zoneChanges.length > 0 && normalizedRequester.length >= 2 && normalizedReason.length >= 5 && !configure.isPending;
+    && zoneChanges.length > 0 && normalizedReason.length >= 5 && !configure.isPending;
 
   function updateDraft(zoneNumber: number, field: "armState" | "bypassState", value: string) {
     setDrafts((current) => {
@@ -93,8 +90,7 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       "",
       `Conta ${account} · ${model || "Compatec"}`,
       `Ocorrência #${incidentId}`,
-      `Solicitado por: ${normalizedRequester}`,
-      `Motivo: ${normalizedReason}`,
+      `Descrição / motivo: ${normalizedReason}`,
       "",
       changeSummary,
       "",
@@ -105,7 +101,6 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       alarmSystemId,
       incidentId,
       leaseToken,
-      requestedBy: normalizedRequester,
       reason: normalizedReason,
       zoneChanges,
     });
@@ -124,7 +119,7 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
         : zonesQuery.error ? <p role="alert" className="text-xs text-amber-100">Não foi possível consultar os setores. Nenhum comando será habilitado.</p>
           : activeZones.length === 0 ? <p className="text-xs text-muted-foreground">Nenhum setor ativo cadastrado para esta central.</p>
             : <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-              {activeZones.map((zone) => (
+      {activeZones.map((zone) => (
                 <div key={zone.id} className="grid gap-2 rounded-md border border-border/60 bg-black/20 p-2.5 sm:grid-cols-[minmax(100px,1fr)_1fr_1fr] sm:items-center">
                   <div className="min-w-0 text-xs">
                     <strong className="font-mono text-foreground">Setor {String(zone.zoneNumber).padStart(2, "0")}</strong>
@@ -142,14 +137,11 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
                   </label>
                 </div>
               ))}
-            </div>}
+      </div>}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-xs font-medium text-foreground">Solicitado por
-          <input aria-label="Solicitado por" value={requestedBy} onChange={(event) => setRequestedBy(event.target.value)} maxLength={255} disabled={!canOperate || configure.isPending} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Cliente ou responsável" />
-        </label>
-        <label className="text-xs font-medium text-foreground sm:col-span-2">Motivo
-          <Textarea aria-label="Motivo operacional da configuração de setores" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2000} disabled={!canOperate || configure.isPending} className="mt-1 min-h-16" placeholder="Descreva brevemente o motivo da solicitação." />
+        <label className="text-xs font-medium text-foreground sm:col-span-2">Descrição / motivo
+          <Textarea aria-label="Descrição / motivo da configuração de setores" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2000} disabled={!canOperate || configure.isPending} className="mt-1 min-h-16" placeholder="Descreva brevemente o motivo da solicitação." />
         </label>
       </div>
 

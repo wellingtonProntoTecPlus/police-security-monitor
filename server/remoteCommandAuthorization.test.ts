@@ -109,17 +109,17 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(windows.indexOf("const rows = await tx.select().from(incidents)")).toBeLessThan(windows.indexOf("const [current] = await tx.select().from(alarmSystems)"));
   });
 
-  it("mantém confirmação, solicitante, motivo e payload auditável sem expor o protocolo na tela", () => {
+  it("mantém confirmação, motivo e payload auditável sem campo de solicitante ou protocolo na tela", () => {
     expect(dashboardSource).toContain("<CompatecZoneConfigurationPanel");
     expect(dashboardSource).not.toContain("compatecZonePhysicalMut.mutate");
     expect(zonePanelSource).toContain("window.confirm(confirmation)");
     expect(zonePanelSource).toContain("configure.mutate({");
-    expect(zonePanelSource).toContain("requestedBy: normalizedRequester");
     expect(zonePanelSource).toContain("reason: normalizedReason");
     expect(zonePanelSource).toContain("leaseToken,");
     expect(zonePanelSource).toContain("zoneChanges,");
-    expect(zonePanelSource).toContain("Solicitado por: ${normalizedRequester}");
-    expect(zonePanelSource).toContain("Motivo: ${normalizedReason}");
+    expect(zonePanelSource).not.toContain("requestedBy");
+    expect(zonePanelSource).not.toContain("Solicitado por");
+    expect(zonePanelSource).toContain("Descrição / motivo: ${normalizedReason}");
     expect(zonePanelSource).not.toMatch(/buildCompatecZoneConfigurationFrames|\bAK[124]\b|\bKA1\b|quadros físicos/i);
     expect(dashboardSource).toContain('toast.success("Alteração dos setores recebida. Confira o estado final no painel."');
     expect(dashboardSource).toContain('toast.info(`${ev.actionLabel || "Comando Compatec"}: resposta ${responseCode} recebida. ${caution}`');

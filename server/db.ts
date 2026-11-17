@@ -1306,12 +1306,10 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     : [];
   const [operator] = await tx.select({ name: users.name }).from(users).where(eq(users.id, command.operatorId)).limit(1);
   const operatorName = operator?.name || "Operador autenticado";
-  let requesterName: string | null = null;
   let zoneNumber = command.zoneNumber;
   let zoneChanges: Array<{ zoneNumber: number; armState?: "armed" | "disarmed"; bypassState?: "annulled" | "restored" }> = [];
   try {
     const payload = JSON.parse(command.commandPayload);
-    if (typeof payload.requestedBy === "string") requesterName = payload.requestedBy;
     if (Number.isInteger(payload.zoneNumber)) zoneNumber = payload.zoneNumber;
     if (Array.isArray(payload.zoneChanges)) zoneChanges = payload.zoneChanges;
   } catch {
@@ -1335,7 +1333,6 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     reason: command.reason,
     status: command.status,
     response: command.responsePayload,
-    requestedBy: requesterName,
     zoneNumber,
     zoneChanges,
   });
@@ -1483,16 +1480,13 @@ export async function createExclusiveCompatecZoneConfiguration(input: {
   alarmSystemId: number;
   incidentId: number;
   reason: string;
-  requestedBy: string;
   zoneChanges: CompatecZoneConfigurationChange[];
   actor: PanelActor;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   const reason = requireOperationalReason(input.reason);
-  const requestedBy = input.requestedBy.trim();
-  if (requestedBy.length < 2 || requestedBy.length > 255) throw new Error("Informe quem solicitou a alteração dos setores.");
-  const commandPayload = buildCompatecZoneConfigurationPayload({ zoneChanges: input.zoneChanges, requestedBy });
+  const commandPayload = buildCompatecZoneConfigurationPayload({ zoneChanges: input.zoneChanges });
   return db.transaction(async (tx) => {
     await lockPanelActorSession(tx, input.actor);
     const [incident] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
@@ -1557,7 +1551,6 @@ export async function createExclusiveCompatecZoneConfiguration(input: {
       commandId: id,
       commandType: "configure_zones",
       operatorName: input.actor.operatorName,
-      requestedBy,
       reason,
       zoneChanges: input.zoneChanges,
     });
@@ -2110,18 +2103,15 @@ export async function recordRemoteCommandConfirmation(input: {
     const occurrenceId = isCompatecPhysicalAction
       ? await syncCompatecRemoteCommandOccurrence(tx, updatedCommand)
       : null;
-    let requesterName: string | null = null;
     let zoneChanges: CompatecZoneConfigurationChange[] = [];
     try {
       const payload = JSON.parse(command.commandPayload);
-      if (typeof payload.requestedBy === "string") requesterName = payload.requestedBy;
       if (Array.isArray(payload.zoneChanges)) zoneChanges = payload.zoneChanges;
-    } catch { /* Comandos legados não incluem solicitante separado. */ }
+    } catch { /* Comandos legados podem não incluir zonas estruturadas. */ }
     const incidentNote = buildRemoteCommandIncidentNotes({
       commandId: command.id,
       commandLabel: actionLabel,
-      requestedBy: operatorName,
-      requesterName,
+      operatorName,
       zoneNumber: command.zoneNumber,
       reason: command.reason,
       response: input.responsePayload,
@@ -2229,7 +2219,7 @@ export async function createConfirmedVettiDisarmEventWithOpenIncident(input: {
     const notes = buildRemoteCommandIncidentNotes({
       commandId: command.id,
       commandLabel: "Desarme remoto Vetti",
-      requestedBy: command.operatorName || "Operador autenticado",
+      operatorName: command.operatorName || "Operador autenticado",
       technicalUserCode: command.technicalUserCode,
       panelUser: input.event.zoneUser,
     });
@@ -4284,8 +4274,20 @@ export async function createOccurrenceAndCloseIncident(incidentId: number, occur
     if (current.status === "closed") throw new Error("Ocorrência já está finalizada");
     if (current.operatorId !== actingOperatorId) throw new Error("Este atendimento está atribuído a outro operador. Assuma o atendimento quando estiver em observação antes de finalizá-lo.");
     await assertActivePanelLease(tx, incidentId, { operatorId: actingOperatorId, authSessionId: authSessionId!, leaseToken: leaseToken || "" });
+    const submittedObservations = occurrence.observations?.trim() || "";
+    const persistedNotes = current.notes?.trim() || "";
+    const persistedLines = new Set(persistedNotes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+    const submittedOnlyLines: string[] = [];
+    for (const line of submittedObservations.split(/\r?\n/)) {
+      const normalizedLine = line.trim();
+      if (!normalizedLine || persistedLines.has(normalizedLine)) continue;
+      persistedLines.add(normalizedLine);
+      submittedOnlyLines.push(line);
+    }
+    const finalObservations = [persistedNotes, submittedOnlyLines.join("\n")].filter(Boolean).join("\n\n") || "Finalizada pelo operador";
     const reportResult = await tx.insert(occurrences).values({
       ...occurrence,
+      observations: finalObservations,
       incidentId,
       operatorId: actingOperatorId,
       operatorName: actingOperatorName.slice(0, 255),
@@ -4294,7 +4296,7 @@ export async function createOccurrenceAndCloseIncident(incidentId: number, occur
     if (!canCloseIncidentAfterReport(reportId)) throw new Error("Relatório não foi persistido; ocorrência permanece aberta");
     await tx.update(incidents).set({
       status: "closed",
-      resolution: occurrence.observations || "Finalizada pelo operador",
+      resolution: finalObservations || "Finalizada pelo operador",
       closedAt: new Date(),
       version: (current.version || 0) + 1,
     }).where(and(eq(incidents.id, incidentId), eq(incidents.operatorId, actingOperatorId), ne(incidents.status, "closed")));
@@ -4306,7 +4308,7 @@ export async function createOccurrenceAndCloseIncident(incidentId: number, occur
       action: "finalized",
       statusBefore: current.status,
       statusAfter: "closed",
-      note: occurrence.observations || "Finalizada pelo operador",
+      note: finalObservations || "Finalizada pelo operador",
     });
     if (authSessionId) await clearPanelLease(tx, incidentId, { operatorId: actingOperatorId, authSessionId, leaseToken: leaseToken! });
     return { id: reportId };

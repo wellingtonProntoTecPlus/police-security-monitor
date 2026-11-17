@@ -51,6 +51,8 @@ describe("CompatecCommandReconciliationPanel", () => {
     render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
     expect(screen.getByText("Comando sem resultado confirmado")).toBeTruthy();
     expect(screen.getByText("#77 · Configuração de setores AK2→AK1")).toBeTruthy();
+    expect(screen.getByText(/Executado por Operador anterior/)).toBeTruthy();
+    expect(screen.queryByText(/Solicitado por Operador anterior/)).toBeNull();
     expect(screen.getByText(/Setor 1: Armar · Setor 2: Anular/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Registrar conferência e liberar bloqueio" }) as HTMLButtonElement).disabled).toBe(true);
     expect(mocks.mutate).not.toHaveBeenCalled();

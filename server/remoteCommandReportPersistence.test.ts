@@ -14,6 +14,19 @@ function sourceBetween(source: string, start: string, end: string) {
 }
 
 describe("relatório de Arme/Desarme remoto Compatec", () => {
+  it("compõe notas persistidas dentro da transação ao finalizar, sem depender do cache do cliente", () => {
+    const finalize = sourceBetween(
+      dbSource,
+      "export async function createOccurrenceAndCloseIncident",
+      "export async function listOccurrences",
+    );
+    expect(finalize).toContain("await assertActivePanelLease(tx, incidentId");
+    expect(finalize).toContain("current.notes?.trim()");
+    expect(finalize).toContain("observations: finalObservations");
+    expect(finalize).toContain("resolution: finalObservations");
+    expect(finalize).toContain("note: finalObservations");
+  });
+
   it("cria o primeiro registro dentro da reserva e sincroniza cada mudança de resultado", () => {
     const reserve = sourceBetween(
       dbSource,
@@ -50,7 +63,9 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
     expect(sync).toContain("tx.insert(occurrences)");
     expect(sync).toContain("tx.update(occurrences)");
     expect(sync).toContain('"isolate_zone", "restore_zone"');
-    expect(sync).toContain("payload.requestedBy");
+    expect(sync).not.toContain("payload.requestedBy");
+    expect(sync).toContain("operatorName");
+    expect(sync).toContain("reason: command.reason");
     expect(sync).toContain("payload.zoneNumber");
     expect(sync).not.toContain("alarmEvents");
     expect(sync).not.toContain("tx.insert(incidents)");

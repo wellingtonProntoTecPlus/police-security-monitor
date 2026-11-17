@@ -103,17 +103,21 @@ describe("contrato de comandos remotos Compatec", () => {
 
     const payload = JSON.parse(buildCompatecZoneConfigurationPayload({
       zoneChanges: [{ zoneNumber: 2, armState: "armed" }, { zoneNumber: 4, bypassState: "annulled" }],
-      requestedBy: "Sr. Cliente",
     }));
-    expect(payload).toMatchObject({ mode: "physical_zone_configuration", commandType: "configure_zones", requestedBy: "Sr. Cliente" });
+    expect(payload).toMatchObject({ mode: "physical_zone_configuration", commandType: "configure_zones" });
+    expect(payload).not.toHaveProperty("requestedBy");
     expect(payload.frames).toHaveLength(2);
     expect(payload.note).toContain("nenhum AK4");
-    expect(compatecZoneConfigurationInputSchema.safeParse({
+    const validInput = {
       alarmSystemId: 1,
       incidentId: 9,
       leaseToken: "22222222-2222-4222-8222-222222222222",
-      requestedBy: "Cliente",
       reason: "Ajuste solicitado",
+      zoneChanges: [{ zoneNumber: 1, armState: "armed" }],
+    };
+    expect(compatecZoneConfigurationInputSchema.safeParse(validInput).success).toBe(true);
+    expect(compatecZoneConfigurationInputSchema.safeParse({
+      ...validInput,
       zoneChanges: [{ zoneNumber: 1, armState: "armed" }, { zoneNumber: 1, bypassState: "annulled" }],
     }).success).toBe(false);
   });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("./Dashboard.tsx", import.meta.url), "utf8");
+const routerSource = readFileSync(new URL("../../../server/routers.ts", import.meta.url), "utf8");
 
 describe("indicadores operacionais do Dashboard", () => {
   it("mantém as listas pesquisáveis por conta, cliente, fantasia ou parceira", () => {
@@ -23,17 +24,18 @@ describe("indicadores operacionais do Dashboard", () => {
     expect(source).toContain("monitoringStatusUntil");
   });
 
-  it("permite solicitar Arme e Desarme sem ocorrência com rastreabilidade obrigatória", () => {
+  it("permite solicitar Arme e Desarme sem ocorrência com operador automático e descrição/motivo", () => {
     expect(source).toContain("Armar");
     expect(source).toContain("Desarmar");
     expect(source).toContain("openStandaloneCommandRequest");
     expect(source).toContain("submitStandaloneCommandRequest");
-    expect(source).toContain("Solicitado por");
+    expect(source).not.toContain("Solicitado por");
     expect(source).not.toContain("Autorizado por");
-    expect(source).toContain("Operador autenticado: ${user?.name || \"Operador\"}");
-    expect(source).toContain("Solicitado por: ${requester}; Motivo: ${reason}");
-    expect(source).toContain("o operador autenticado, o solicitante e o motivo ficarão no histórico do comando");
-    expect(source).toContain("Motivo operacional");
+    expect(routerSource).toContain("operatorId: ctx.user.id");
+    expect(routerSource).toContain('ctx.user.name || "Operador autenticado"');
+    expect(source).toContain("const auditReason = reason;");
+    expect(source).toContain("o operador autenticado e a descrição/motivo ficarão no histórico do comando");
+    expect(source).toContain("Descrição / motivo");
     expect(source).toContain("isStandalonePhysicalCommandSupported");
     expect(source).toContain("ARMAR");
     expect(source).toContain("DESARMAR");

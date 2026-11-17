@@ -120,7 +120,6 @@ describe("transporte MicroBus Compatec de bancada", () => {
     const socket = fakeSocket();
     rememberActiveCompatecSession(socket, { id: 9401, account: "0401", receiverPort: 9271, capturedIdentifier: { identifierType: "mac_ascii", identifier: "C1BDCB" } });
     const payload = buildCompatecZoneConfigurationPayload({
-      requestedBy: "Cliente",
       zoneChanges: [
         { zoneNumber: 1, armState: "armed" },
         { zoneNumber: 2, armState: "armed" },

@@ -323,7 +323,6 @@ describe("partner tenant access", () => {
       alarmSystemId: 1,
       incidentId: 1,
       leaseToken: "11111111-1111-4111-8111-111111111111",
-      requestedBy: "Responsável fictício",
       reason: "Teste de bloqueio de acesso parceiro",
       zoneChanges: [{ zoneNumber: 1, armState: "armed" }],
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -331,7 +330,6 @@ describe("partner tenant access", () => {
       alarmSystemId: 1,
       commandType: "restore_zone",
       zoneNumber: 1,
-      requestedBy: "Responsável fictício",
       reason: "Teste de bloqueio de acesso parceiro",
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
@@ -342,7 +340,6 @@ describe("partner tenant access", () => {
       alarmSystemId: 1,
       commandType: "isolate_zone",
       zoneNumber: 3,
-      requestedBy: "Responsável fictício",
       reason: "Teste de bloqueio do comando avulso",
     })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });

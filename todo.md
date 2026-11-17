@@ -1034,8 +1034,20 @@
 
 ## Simplificação operacional dos comandos Compatec — 17/11/2026
 - [x] Manter Arme/Desarme total nos controles já homologados e disponibilizar comandos para armar/desarmar e anular/restaurar setores em uma tela operacional limpa
-- [x] Remover da tela do operador e da confirmação visível prévias de frames, códigos AK/KA e blocos extensos de auditoria; confirmação continua identificando solicitante, motivo, setores e ações
+- [x] Remover da tela do operador e da confirmação visível prévias de frames, códigos AK/KA, blocos extensos de auditoria e a pergunta sobre solicitante; confirmação exibe conta, setores/ações e descrição/motivo, enquanto o operador autenticado fica registrado automaticamente no relatório
 - [x] Ocultar blocos técnicos de comando remoto na apresentação do atendimento, preservando notas humanas e mantendo a auditoria persistente no histórico/relatório e nas observações da ocorrência finalizada
 - [x] Simplificar a mensagem realtime de configuração setorial sem mudar payload, endpoint, lease, validações, fluxo de envio ou regras de reconciliação; Arme/Desarme mantêm o aviso conservador sobre resposta versus estado final
 - [x] Validação integral da versão exata: TypeScript, 167 arquivos e 831 testes aprovados, build concluído e `git diff --check` limpo; MariaDB de validação privado/descartável encerrado
 - [x] Nenhuma VPS acessada, atualizada ou deployada; nenhum comando físico transmitido
+- [x] Revisão final encontrou filtro amplo ocultando notas humanas posteriores a blocos remotos; corrigido para ocultar somente blocos completos até o rodapé `Auditoria do comando: #mesmo-ID`, sem cruzar outro comando. Blocos incompletos ficam visíveis conservadoramente; conteúdo persistido permanece intacto
+- [x] Sete regressões unitárias com os geradores reais de auditoria e teste renderizado ampliado comprovam notas humanas antes/entre/depois, múltiplos blocos, CRLF e auditoria preservada na finalização
+- [x] Validação integral definitiva após essa correção: TypeScript, 168 arquivos/838 testes aprovados, build e `git diff --check` aprovados; banco descartável privado encerrado. Continua sem acesso/deploy VPS ou transmissão física
+- [x] Arme, Desarme e alterações de setores usam somente o campo Descrição / motivo; nenhum nome de responsável é solicitado. O backend registra automaticamente o operador autenticado (`operatorId`/`operatorName`); dados históricos não são apagados, mas não há campo separado exibido na nova operação
+- [x] Payload setorial e notas de comando novos deixaram de persistir “Solicitado por”; validações de lease, sessão/operador, confirmação, motivos obrigatórios, identidade da central, autorização, segurança física, frames e reconciliação permanecem
+- [x] Finalização agora combina a descrição do operador com as notas atuais persistidas do incidente dentro da transação de fechamento; não depende do cache da tela e preserva as notas humanas e auditorias técnicas até o relatório final
+- [x] Integração MariaDB comprova que, mesmo com observações antigas enviadas pelo navegador, o relatório final inclui notas humanas e bloco técnico persistidos, mantém operador e motivo e não acrescenta um solicitante nominal
+- [x] Validação integral após a correção transacional: TypeScript, 168 arquivos e 840 testes aprovados, build concluído e `git diff --check` limpo; banco MariaDB descartável local encerrado. Nenhuma VPS/deploy ou transmissão física
+- [x] Validação integral da versão final com operador automático e somente Descrição / motivo: `pnpm check`, 168 arquivos e 838 testes aprovados, build concluído e `git diff --check` limpo. MariaDB local descartável encerrado. Sem VPS, deploy ou comando físico.
+
+- [x] Regressão MariaDB pause→resume→finalize confirma que o motivo pré-preenchido não duplica; relatório, `incidents.resolution` e `incidentHistory.note` ficam idênticos, com notas humanas/auditoria persistidas preservadas
+- [x] Validação integral final após deduplicação: TypeScript, 168 arquivos e 841 testes aprovados, build concluído e `git diff --check` limpo; nenhuma VPS/deploy ou transmissão física

@@ -86,7 +86,6 @@ export function buildRemoteCommandRequestNote(input: {
   commandType: string;
   operatorName: string;
   reason: string;
-  requestedBy?: string | null;
   zoneNumber?: number | null;
   zoneChanges?: CompatecZoneChangeAudit[];
 }) {
@@ -95,7 +94,6 @@ export function buildRemoteCommandRequestNote(input: {
     `Ação: ${getRemoteCommandActionLabel(input.commandType)}`,
     "Origem: PoliceCentral (Central de Monitoramento)",
     `Operador: ${input.operatorName}`,
-    input.requestedBy ? `Solicitado por: ${input.requestedBy}` : null,
     input.zoneNumber ? `Zona: ${input.zoneNumber}` : null,
     ...(input.zoneChanges || []).length ? formatCompatecZoneChanges(input.zoneChanges) : [],
     `Motivo: ${input.reason}`,
@@ -115,7 +113,6 @@ export function buildRemoteCommandOccurrenceText(input: {
   reason: string;
   status: string;
   response?: string | null;
-  requestedBy?: string | null;
   zoneNumber?: number | null;
   zoneChanges?: CompatecZoneChangeAudit[];
 }) {
@@ -130,7 +127,6 @@ export function buildRemoteCommandOccurrenceText(input: {
       `Operação: ${action}`,
       "Origem: PoliceCentral (Central de Monitoramento)",
       `Operador: ${input.operatorName}`,
-      input.requestedBy ? `Solicitado por: ${input.requestedBy}` : null,
       input.zoneNumber ? `Zona: ${input.zoneNumber}` : null,
       ...(input.zoneChanges || []).length ? formatCompatecZoneChanges(input.zoneChanges) : [],
       `Motivo: ${input.reason}`,
@@ -167,8 +163,7 @@ export function isConfirmedRemoteCommandEventMatch(
 export function buildRemoteCommandIncidentNotes(input: {
   commandId: number;
   commandLabel: string;
-  requestedBy: string;
-  requesterName?: string | null;
+  operatorName: string;
   zoneNumber?: number | null;
   reason?: string;
   response?: string | null;
@@ -185,8 +180,7 @@ export function buildRemoteCommandIncidentNotes(input: {
     `[COMANDO REMOTO #${input.commandId} ${isZoneBypassCommand ? "RESPOSTA KA1 RECEBIDA" : isCompatecArmDisarmAck ? "RESPOSTA KA4 RECEBIDA" : "CONFIRMADO"}]`,
     `Ação: ${input.commandLabel}`,
     "Origem: PoliceCentral (Central de Monitoramento)",
-    `Operador: ${input.requestedBy}`,
-    `Solicitado por: ${input.requesterName || input.requestedBy}`,
+    `Operador: ${input.operatorName}`,
     input.zoneNumber ? `Zona: ${input.zoneNumber}` : null,
     ...(input.zoneChanges || []).length ? formatCompatecZoneChanges(input.zoneChanges) : [],
   ];

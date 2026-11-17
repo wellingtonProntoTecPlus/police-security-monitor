@@ -1336,7 +1336,6 @@ export const appRouter = router({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
       reason: z.string().trim().min(5, "Informe o motivo operacional do Arme").max(2000),
-      requestedBy: z.string().trim().min(2).max(255).optional(),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
@@ -1465,7 +1464,6 @@ export const appRouter = router({
       incidentId: z.number().optional(),
       commandType: z.enum(["isolate_zone", "restore_zone"]),
       zoneNumber: z.number().int().min(1).max(23),
-      requestedBy: z.string().trim().min(2, "Informe quem solicitou a alteração da zona").max(255),
       reason: z.string().trim().min(5, "Informe o motivo operacional").max(2000),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
@@ -1698,6 +1696,7 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const { incidentId, leaseToken, ...occurrence } = input;
       const operatorName = ctx.user.name || `Operador ${ctx.user.id}`;
+      if (incidentId && !occurrence.observations?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe a descrição da finalização antes de finalizar a ocorrência." });
       if (incidentId) await assertIncidentPartnerScope(ctx, incidentId);
       if (!incidentId) return db.createOccurrence({ ...occurrence, operatorId: ctx.user.id, operatorName });
       const result = await db.createOccurrenceAndCloseIncident(incidentId, occurrence, ctx.user.id, operatorName, ctx.authSessionId, leaseToken);

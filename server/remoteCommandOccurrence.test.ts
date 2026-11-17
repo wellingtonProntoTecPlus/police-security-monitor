@@ -68,12 +68,11 @@ describe("auditoria de comandos remotos", () => {
     expect(occurrence.observations).not.toContain("Confirmado pela central.");
   });
 
-  it("registra Inibir Zona e o ACK KA1 sem afirmar que o bypass foi confirmado", () => {
+  it("registra operador e motivo de Inibir Zona e o ACK KA1 sem afirmar confirmação", () => {
     const occurrence = buildRemoteCommandOccurrenceText({
       commandId: 64,
       commandType: "isolate_zone",
       operatorName: "Amanda",
-      requestedBy: "Sr. Wellington",
       zoneNumber: 23,
       reason: "Janela em manutenção",
       status: "responded",
@@ -83,25 +82,28 @@ describe("auditoria de comandos remotos", () => {
     expect(occurrence.description).toContain("Resposta KA1 recebida");
     expect(occurrence.description).toContain("não confirmação do estado final do bypass");
     expect(occurrence.observations).toContain("Operador: Amanda");
-    expect(occurrence.observations).toContain("Solicitado por: Sr. Wellington");
+    expect(occurrence.observations).not.toContain("Solicitado por");
+    expect(occurrence.observations).toContain("Motivo: Janela em manutenção");
     expect(occurrence.observations).toContain("Zona: 23");
     expect(occurrence.observations).not.toContain("Confirmado pela central.");
   });
 
-  it("distingue Restaurar Zona do isolamento e preserva o solicitante no atendimento", () => {
+  it("distingue Restaurar Zona do isolamento e registra operador e motivo", () => {
     expect(getRemoteCommandActionLabel("restore_zone")).toBe("Restauração de zona via PoliceCentral");
     expect(getRemoteCommandOutcomeLabel("responded", "restore_zone")).toContain("não confirmação do estado final do bypass");
     const note = buildRemoteCommandIncidentNotes({
       commandId: 65,
       commandLabel: "Restauração de zona via PoliceCentral",
       commandType: "restore_zone",
-      requestedBy: "Operador autenticado",
-      requesterName: "Cliente",
+      operatorName: "Operador autenticado",
+      reason: "Reparo concluído",
       zoneNumber: 1,
       response: "MB=KA1",
     });
     expect(note).toContain("RESPOSTA KA1 RECEBIDA");
-    expect(note).toContain("Solicitado por: Cliente");
+    expect(note).toContain("Operador: Operador autenticado");
+    expect(note).toContain("Motivo: Reparo concluído");
+    expect(note).not.toContain("Solicitado por");
     expect(note).toContain("não confirma o estado final do bypass");
     expect(note).not.toContain("CONFIRMADO]");
   });
@@ -115,7 +117,7 @@ describe("auditoria de comandos remotos", () => {
     const note = buildRemoteCommandIncidentNotes({
       commandId: 43,
       commandLabel: "Desarmado Remoto por Central de Monitoramento",
-      requestedBy: "Operador autenticado",
+      operatorName: "Operador autenticado",
     });
 
     expect(note).toContain("[COMANDO REMOTO #43 CONFIRMADO]");
@@ -137,7 +139,7 @@ describe("auditoria de comandos remotos", () => {
       commandId: 90,
       commandLabel: "Arme Compatec",
       commandType: "arm",
-      requestedBy: "Wellington",
+      operatorName: "Wellington",
       reason: "Teste autorizado",
       response: "MB=KA4",
     });
