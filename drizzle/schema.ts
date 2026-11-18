@@ -541,6 +541,7 @@ export const incidents = mysqlTable("incidents", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   index("incidents_event_id_idx").on(table.eventId),
+  index("incidents_system_status_idx").on(table.alarmSystemId, table.status),
   index("incidents_parent_status_idx").on(table.parentIncidentId, table.status),
 ]);
 

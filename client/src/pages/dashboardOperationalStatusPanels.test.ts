@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("./Dashboard.tsx", import.meta.url), "utf8");
 const routerSource = readFileSync(new URL("../../../server/routers.ts", import.meta.url), "utf8");
+const zonePanelSource = readFileSync(new URL("../components/CompatecZoneConfigurationPanel.tsx", import.meta.url), "utf8");
 
 describe("indicadores operacionais do Dashboard", () => {
   it("mantém as listas pesquisáveis por conta, cliente, fantasia ou parceira", () => {
@@ -39,5 +40,19 @@ describe("indicadores operacionais do Dashboard", () => {
     expect(source).toContain("isStandalonePhysicalCommandSupported");
     expect(source).toContain("ARMAR");
     expect(source).toContain("DESARMAR");
+  });
+
+  it("coloca Arme/Desarme total e alterações multi-setoriais no mesmo modal standalone Compatec", () => {
+    const modal = source.slice(source.indexOf("{standaloneRemoteRequest && ("), source.indexOf("{/* TOP BAR - Botões de Status */}"));
+    expect(modal).toContain("Arme/Desarme total");
+    expect(modal).toContain(">Setores</Button>");
+    expect(modal).toContain("standaloneRemoteMode === \"zones\"");
+    expect(modal).toContain("<CompatecZoneConfigurationPanel");
+    expect(modal).toContain("reasonValue={standaloneRemoteReason}");
+    expect(modal).toContain("onReasonValueChange={setStandaloneRemoteReason}");
+    expect(modal).toContain("submitStandaloneCommandRequest");
+    expect(modal).toContain("A solicitação não cria evento Contact ID nem cartão na fila");
+    expect(zonePanelSource).toContain("configureCompatecZonesStandalone");
+    expect(routerSource).toContain("configureCompatecZonesStandalone: operatorProcedure");
   });
 });

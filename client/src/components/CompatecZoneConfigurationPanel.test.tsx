@@ -6,6 +6,7 @@ import CompatecZoneConfigurationPanel from "./CompatecZoneConfigurationPanel";
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
+  standaloneMutate: vi.fn(),
   listInvalidate: vi.fn(),
   queueInvalidate: vi.fn(),
   toastInfo: vi.fn(),
@@ -23,10 +24,14 @@ vi.mock("@/lib/trpc", () => ({
       { id: 4, zoneNumber: 4, name: "Depósito", isActive: true },
       { id: 24, zoneNumber: 24, name: "Fora do escopo", isActive: true },
     ], isLoading: false, error: null }) } },
-    remoteCommand: { configureCompatecZones: { useMutation: () => ({ mutate: mocks.mutate, isPending: false }) } },
+    remoteCommand: {
+      configureCompatecZones: { useMutation: () => ({ mutate: mocks.mutate, isPending: false }) },
+      configureCompatecZonesStandalone: { useMutation: () => ({ mutate: mocks.standaloneMutate, isPending: false }) },
+    },
     useUtils: () => ({
       remoteCommand: { list: { invalidate: mocks.listInvalidate } },
       incident: { openQueue: { invalidate: mocks.queueInvalidate } },
+      dashboard: { armDisarmStatus: { invalidate: mocks.queueInvalidate } },
     }),
   },
 }));
@@ -56,8 +61,8 @@ describe("CompatecZoneConfigurationPanel", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 2" }), { target: { value: "armed" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Anulação do setor 3" }), { target: { value: "annulled" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Anulação do setor 4" }), { target: { value: "annulled" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Inibição do setor 3" }), { target: { value: "annulled" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Inibição do setor 4" }), { target: { value: "annulled" } });
 
     expect(screen.queryByLabelText("Prévia dos quadros AK2 e AK1")).toBeNull();
     expect(screen.queryByText(/MB=AK[0124]\[/)).toBeNull();
@@ -70,7 +75,7 @@ describe("CompatecZoneConfigurationPanel", () => {
     render(<CompatecZoneConfigurationPanel {...baseProps} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 2" }), { target: { value: "disarmed" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Anulação do setor 3" }), { target: { value: "annulled" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Inibição do setor 3" }), { target: { value: "annulled" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }), { target: { value: "Solicitação confirmada pelo responsável" } });
     fireEvent.click(screen.getByRole("button", { name: /Aplicar alterações/ }));
 
@@ -110,6 +115,47 @@ describe("CompatecZoneConfigurationPanel", () => {
     rerender(<CompatecZoneConfigurationPanel {...baseProps} receiverPort={undefined} />);
     expect((screen.getByRole("button", { name: /Aplicar alterações/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("permite o comando setorial standalone sem ocorrência, mas mantém motivo, identidade e confirmação", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<CompatecZoneConfigurationPanel {...baseProps} incidentId={undefined} leaseToken={undefined} standalone />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Inibição do setor 2" }), { target: { value: "annulled" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }), { target: { value: "Solicitação do cliente pelo telefone" } });
+    const applyButton = screen.getByRole("button", { name: "Aplicar alterações · 2 setor(es)" }) as HTMLButtonElement;
+    expect(applyButton.disabled).toBe(false);
+    fireEvent.click(applyButton);
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm.mock.calls[0][0]).not.toContain("Ocorrência #");
+    expect(confirm.mock.calls[0][0]).toContain("Conta 0001 · AW320 PRO");
+    expect(confirm.mock.calls[0][0]).toContain("Descrição / motivo: Solicitação do cliente pelo telefone");
+    expect(mocks.standaloneMutate).toHaveBeenCalledWith({
+      alarmSystemId: 78,
+      reason: "Solicitação do cliente pelo telefone",
+      zoneChanges: [
+        { zoneNumber: 1, armState: "armed" },
+        { zoneNumber: 2, bypassState: "annulled" },
+      ],
+    });
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("usa o mesmo estado de Descrição / motivo compartilhado pelo modal total", () => {
+    const onReasonValueChange = vi.fn();
+    render(<CompatecZoneConfigurationPanel
+      {...baseProps}
+      incidentId={undefined}
+      leaseToken={undefined}
+      standalone
+      reasonValue="Solicitação registrada no modo total"
+      onReasonValueChange={onReasonValueChange}
+    />);
+    const reason = screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }) as HTMLTextAreaElement;
+    expect(reason.value).toBe("Solicitação registrada no modo total");
+    fireEvent.change(reason, { target: { value: "Motivo atualizado no modo setores" } });
+    expect(onReasonValueChange).toHaveBeenCalledWith("Motivo atualizado no modo setores");
   });
 
   it("não envia se o operador cancelar a confirmação", () => {

@@ -31,6 +31,21 @@ export const compatecZoneConfigurationInputSchema = z.object({
   });
 });
 
+/** Ação setorial sem ocorrência aberta: continua vinculada à sessão autenticada e à auditoria do comando. */
+export const standaloneCompatecZoneConfigurationInputSchema = z.object({
+  alarmSystemId: z.number().int().positive(),
+  reason: z.string().trim().min(5).max(2000),
+  zoneChanges: z.array(compatecZoneConfigurationChangeSchema).min(1).max(COMPATEC_PHYSICAL_ZONE_LIMIT),
+}).superRefine((input, ctx) => {
+  const seen = new Set<number>();
+  input.zoneChanges.forEach((change, index) => {
+    if (seen.has(change.zoneNumber)) {
+      ctx.addIssue({ code: "custom", path: ["zoneChanges", index, "zoneNumber"], message: "Cada setor pode aparecer uma única vez" });
+    }
+    seen.add(change.zoneNumber);
+  });
+});
+
 export type CompatecZoneConfigurationChange = z.infer<typeof compatecZoneConfigurationChangeSchema>;
 
 export const remoteCommandSimulationInputSchema = z.object({

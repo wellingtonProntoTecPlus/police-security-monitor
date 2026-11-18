@@ -29,7 +29,7 @@ export async function startSystemMaintenanceWithDb(db: any, input: { systemId: n
     }
     await clearPanelLease(tx, selected.id, actor);
     return { success: true, incidentId: selected.id, status: activeNow ? "maintenance" : selected.status, pauseReason: reason };
-  });
+  }, { isolationLevel: "read committed" });
 }
 
 export async function endSystemMaintenanceWithDb(db: any, input: { systemId: number; incidentId: number }, actor: PanelActor) {
@@ -55,7 +55,7 @@ export async function endSystemMaintenanceWithDb(db: any, input: { systemId: num
       await tx.insert(incidentHistory).values({ incidentId: row.id, parentIncidentId: row.parentIncidentId, operatorId: actor.operatorId, operatorName: actor.operatorName.slice(0,255), action: "maintenance_released", statusBefore: row.status, statusAfter: "attending", note });
     }
     return { success: true };
-  });
+  }, { isolationLevel: "read committed" });
 }
 
 /** Lock/recheck each window before expiry so extension and finalization cannot be overwritten. */
@@ -71,7 +71,7 @@ export async function reconcileOperationalIncidentWindowsWithDb(db: any, referen
       await tx.update(incidents).set({ status: "attending", notes: [row.notes, note].filter(Boolean).join("\n"), version: row.version + 1 }).where(eq(incidents.id, row.id));
       await tx.insert(incidentHistory).values({ incidentId: row.id, parentIncidentId: row.parentIncidentId, operatorName: "Sistema", action: "maintenance_expired", statusBefore: "maintenance", statusAfter: "attending", note });
     }
-  });
+  }, { isolationLevel: "read committed" });
   const candidates = await db.select({ id: incidents.id }).from(incidents).where(and(eq(incidents.status, "observing"), lte(incidents.observationUntil, reference)));
   for (const candidate of candidates) await db.transaction(async (tx: any) => {
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, candidate.id)).for("update").limit(1);
@@ -95,5 +95,5 @@ export async function reconcileOperationalIncidentWindowsWithDb(db: any, referen
       await tx.update(incidents).set({ status: "maintenance", observationUntil: null, pauseReason: current.maintenanceNotes, notes: [row.notes, note].filter(Boolean).join("\n"), version: row.version + 1 }).where(eq(incidents.id, row.id));
       await tx.insert(incidentHistory).values({ incidentId: row.id, parentIncidentId: row.parentIncidentId, operatorName: "Sistema", action: "maintenance", statusBefore: row.status, statusAfter: "maintenance", note });
     }
-  });
+  }, { isolationLevel: "read committed" });
 }

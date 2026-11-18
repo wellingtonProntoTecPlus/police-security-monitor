@@ -8,6 +8,8 @@ const databaseSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8")
 const dashboardSource = readFileSync(new URL("../client/src/pages/Dashboard.tsx", import.meta.url), "utf8");
 const zonePanelSource = readFileSync(new URL("../client/src/components/CompatecZoneConfigurationPanel.tsx", import.meta.url), "utf8");
 const maintenanceSource = readFileSync(new URL("./incidentMaintenancePersistence.ts", import.meta.url), "utf8");
+const schemaSource = readFileSync(new URL("../drizzle/schema.ts", import.meta.url), "utf8");
+const upgradeSource = readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
 
 describe("autorização dos comandos MicroBus de bancada", () => {
   it("preserva a simulação Intelbras legada sem transformar seu quadro em transmissão física", () => {
@@ -87,6 +89,49 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(databaseSource).toContain("eq(incidents.alarmSystemId, alarmSystemId)");
   });
 
+  it("permite setores no modal sem ocorrência, mas exige sessão operacional, identidade física e auditoria", () => {
+    const route = source.slice(source.indexOf("configureCompatecZonesStandalone:"), source.indexOf("compatecZonePhysical: operatorProcedure"));
+    const reservation = databaseSource.slice(
+      databaseSource.indexOf("export async function createStandaloneCompatecZoneConfiguration"),
+      databaseSource.indexOf("export async function createExclusiveCompatecZoneConfiguration"),
+    );
+    expect(route).toContain("standaloneCompatecZoneConfigurationInputSchema");
+    expect(route).toContain("assertPartnerSystemScope(ctx, input.alarmSystemId)");
+    expect(route).toContain("if (!ctx.authSessionId)");
+    expect(route).toContain("createStandaloneCompatecZoneConfiguration");
+    expect(route).toContain("requiredOperatorSession: { operatorId: ctx.user.id, authSessionId: ctx.authSessionId }");
+    expect(route).toContain("requiredPhysicalIdentity: reservation.physicalIdentity");
+    expect(route).toContain("requiredZoneNumbers: reservation.zoneChanges.map");
+    expect(route).toContain('expectedStatuses: ["prepared"]');
+    expect(reservation).toContain("lockActiveOperatorSession(tx, input.operatorId, input.authSessionId)");
+    expect(reservation).toContain("getCompatecConnectionIdentity(systemRef)");
+    expect(reservation).toContain("incidentId: null");
+    expect(reservation).toContain("operatorId: input.operatorId");
+    expect(reservation).toContain("syncCompatecRemoteCommandOccurrence(tx, command)");
+  });
+
+  it("não deixa o modal standalone contornar atendimento aberto e serializa novos incidentes pela central", () => {
+    const reservation = databaseSource.slice(
+      databaseSource.indexOf("export async function createStandaloneCompatecZoneConfiguration"),
+      databaseSource.indexOf("export async function createExclusiveCompatecZoneConfiguration"),
+    );
+    const dispatcher = databaseSource.slice(
+      databaseSource.indexOf("export async function dispatchAlarmRemoteCommand"),
+      databaseSource.indexOf("export async function expireStaleRemoteCommandDispatches"),
+    );
+    expect(reservation).toContain("hasOpenIncidentForAlarmSystem(tx, input.alarmSystemId)");
+    expect(reservation).toContain("ocorrência aberta. Faça a configuração dentro do atendimento assumido");
+    expect(dispatcher.match(/hasOpenIncidentForAlarmSystem\(tx, input\.alarmSystemId\)/g)).toHaveLength(2);
+    expect(dispatcher).toContain("Comando standalone cancelado sem transmissão");
+    expect(databaseSource).toContain("async function lockAlarmSystemForIncidentInsert");
+    expect(databaseSource).toContain("await lockAlarmSystemForIncidentInsert(tx, input.alarmSystemId)");
+    expect(databaseSource).toContain("await lockAlarmSystemForIncidentInsert(tx, data.alarmSystemId)");
+    expect(databaseSource).toContain("await lockAlarmSystemForIncidentInsert(tx, system.id)");
+    expect(schemaSource).toContain('index("incidents_system_status_idx").on(table.alarmSystemId, table.status)');
+    expect(upgradeSource).toContain("CREATE INDEX `incidents_system_status_idx` ON `incidents` (`alarmSystemId`,`status`)");
+    expect(upgradeSource).toContain("INDEX_NAME='incidents_system_status_idx'");
+  });
+
   it("mantém ordem de locks cliente→central na reserva setorial, igual ao dispatcher e à exclusão do cliente", () => {
     const reservation = databaseSource.slice(
       databaseSource.indexOf("export async function createExclusiveCompatecZoneConfiguration"),
@@ -107,16 +152,20 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(end.indexOf(".from(incidents)")).toBeLessThan(end.indexOf(".from(alarmSystems)"));
     const windows = maintenanceSource.slice(maintenanceSource.indexOf("export async function reconcileOperationalIncidentWindowsWithDb"));
     expect(windows.indexOf("const rows = await tx.select().from(incidents)")).toBeLessThan(windows.indexOf("const [current] = await tx.select().from(alarmSystems)"));
+    expect(start).toContain('isolationLevel: "read committed"');
+    expect(end).toContain('isolationLevel: "read committed"');
+    expect(windows.match(/isolationLevel: "read committed"/g)).toHaveLength(2);
   });
 
   it("mantém confirmação, motivo e payload auditável sem campo de solicitante ou protocolo na tela", () => {
     expect(dashboardSource).toContain("<CompatecZoneConfigurationPanel");
     expect(dashboardSource).not.toContain("compatecZonePhysicalMut.mutate");
     expect(zonePanelSource).toContain("window.confirm(confirmation)");
-    expect(zonePanelSource).toContain("configure.mutate({");
+    expect(zonePanelSource).toContain("incidentConfigure.mutate({");
+    expect(zonePanelSource).toContain("standaloneConfigure.mutate({");
     expect(zonePanelSource).toContain("reason: normalizedReason");
     expect(zonePanelSource).toContain("leaseToken,");
-    expect(zonePanelSource).toContain("zoneChanges,");
+    expect(zonePanelSource).toContain("reason: normalizedReason, zoneChanges");
     expect(zonePanelSource).not.toContain("requestedBy");
     expect(zonePanelSource).not.toContain("Solicitado por");
     expect(zonePanelSource).toContain("Descrição / motivo: ${normalizedReason}");

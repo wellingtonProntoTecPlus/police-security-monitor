@@ -8,8 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 
 export type CompatecZoneConfigurationPanelProps = {
   alarmSystemId: number;
-  incidentId: number;
+  incidentId?: number;
   leaseToken?: string;
+  standalone?: boolean;
+  isVisible?: boolean;
+  reasonValue?: string;
+  onReasonValueChange?: (value: string) => void;
+  onSubmitted?: () => void;
   account: string;
   model?: string | null;
   macAddress?: string | null;
@@ -21,19 +26,21 @@ export type CompatecZoneConfigurationPanelProps = {
 type ZoneDraft = { armState?: "armed" | "disarmed"; bypassState?: "annulled" | "restored" };
 
 export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfigurationPanelProps) {
-  const { alarmSystemId, incidentId, leaseToken, account, model, macAddress, imeiGprs, receiverPort, canOperate } = props;
-  const zonesQuery = trpc.alarmZone.list.useQuery({ alarmSystemId }, { enabled: Boolean(alarmSystemId), retry: false });
+  const { alarmSystemId, incidentId, leaseToken, standalone = false, isVisible = true, reasonValue, onReasonValueChange, onSubmitted, account, model, macAddress, imeiGprs, receiverPort, canOperate } = props;
+  const zonesQuery = trpc.alarmZone.list.useQuery({ alarmSystemId }, { enabled: Boolean(alarmSystemId) && isVisible, retry: false });
   const utils = trpc.useUtils();
   const [drafts, setDrafts] = useState<Record<number, ZoneDraft>>({});
-  const [reason, setReason] = useState("");
-  const configure = trpc.remoteCommand.configureCompatecZones.useMutation({
-    onSuccess: async (result) => {
+  const [internalReason, setInternalReason] = useState("");
+  const reason = reasonValue ?? internalReason;
+  const setReason = onReasonValueChange ?? setInternalReason;
+  const finishConfiguration = async (result: { status: string; message?: string }, isStandalone: boolean) => {
       await Promise.all([
         utils.remoteCommand.list.invalidate({ alarmSystemId, limit: 8 }),
-        utils.incident.openQueue.invalidate(),
+        isStandalone ? utils.dashboard.armDisarmStatus.invalidate() : utils.incident.openQueue.invalidate(),
       ]);
       setDrafts({});
       setReason("");
+      if (isStandalone) onSubmitted?.();
       if (result.status === "sent") {
         toast.success("Alterações enviadas à central. Confira o estado final dos setores no painel.", { duration: 12_000 });
       } else if (result.status === "failed" || result.status === "dispatch_unknown") {
@@ -41,9 +48,16 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       } else {
         toast.warning(result.message || "Confira o histórico antes de fazer outra solicitação.", { duration: 12_000 });
       }
-    },
+  };
+  const incidentConfigure = trpc.remoteCommand.configureCompatecZones.useMutation({
+    onSuccess: (result) => finishConfiguration(result, false),
     onError: (error) => toast.error(error.message),
   });
+  const standaloneConfigure = trpc.remoteCommand.configureCompatecZonesStandalone.useMutation({
+    onSuccess: (result) => finishConfiguration(result, true),
+    onError: (error) => toast.error(error.message),
+  });
+  const configure = standalone ? standaloneConfigure : incidentConfigure;
 
   const activeZones = (zonesQuery.data || [])
     .filter((zone) => zone.isActive && zone.zoneNumber >= 1 && zone.zoneNumber <= 23)
@@ -55,7 +69,8 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
 
   const identityAndPortReady = Boolean(getCompatecConnectionIdentity({ macAddress, imeiGprs, receiverPort }));
   const normalizedReason = reason.trim();
-  const canSubmit = canOperate && Boolean(leaseToken) && Boolean(incidentId) && identityAndPortReady
+  const hasRequiredPanelAccess = standalone || (Boolean(leaseToken) && Boolean(incidentId));
+  const canSubmit = canOperate && hasRequiredPanelAccess && identityAndPortReady
     && zoneChanges.length > 0 && normalizedReason.length >= 5 && !configure.isPending;
 
   function updateDraft(zoneNumber: number, field: "armState" | "bypassState", value: string) {
@@ -76,12 +91,12 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
   }
 
   function submitConfiguration() {
-    if (!canSubmit || !leaseToken) return;
+    if (!canSubmit || (!standalone && !leaseToken)) return;
     const changeSummary = zoneChanges.map((change) => {
       const zone = activeZones.find((candidate) => candidate.zoneNumber === change.zoneNumber);
       const details = [
         change.armState === "armed" ? "Armar" : change.armState === "disarmed" ? "Desarmar" : null,
-        change.bypassState === "annulled" ? "Anular" : change.bypassState === "restored" ? "Retirar anulação" : null,
+        change.bypassState === "annulled" ? "Inibir" : change.bypassState === "restored" ? "Retirar inibição" : null,
       ].filter(Boolean).join(" + ");
       return `Setor ${change.zoneNumber}${zone?.name ? ` · ${zone.name}` : ""}: ${details}`;
     }).join("\n");
@@ -89,7 +104,7 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       "CONFIRMAR ALTERAÇÕES DOS SETORES?",
       "",
       `Conta ${account} · ${model || "Compatec"}`,
-      `Ocorrência #${incidentId}`,
+      ...(!standalone ? [`Ocorrência #${incidentId}`] : []),
       `Descrição / motivo: ${normalizedReason}`,
       "",
       changeSummary,
@@ -97,13 +112,11 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       "Esta ação altera somente os setores listados. Confira o estado final diretamente na central.",
     ].join("\n");
     if (!window.confirm(confirmation)) return;
-    configure.mutate({
-      alarmSystemId,
-      incidentId,
-      leaseToken,
-      reason: normalizedReason,
-      zoneChanges,
-    });
+    if (standalone) {
+      standaloneConfigure.mutate({ alarmSystemId, reason: normalizedReason, zoneChanges });
+    } else if (incidentId && leaseToken) {
+      incidentConfigure.mutate({ alarmSystemId, incidentId, leaseToken, reason: normalizedReason, zoneChanges });
+    }
   }
 
   return (
@@ -111,7 +124,7 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       <div>
         <h3 className="text-sm font-bold text-amber-100">Comandos de zonas e setores</h3>
         <p className="mt-1 text-xs leading-relaxed text-amber-50/90">
-          Selecione os setores e indique o que deseja alterar. Arme e Desarme total continuam nos controles habituais.
+          Selecione os setores para armar, desarmar, inibir ou restaurar. Todas as mudanças ficam em uma solicitação.
         </p>
       </div>
 
@@ -130,9 +143,9 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
                       <option value="unchanged">Sem alteração</option><option value="armed">Armar</option><option value="disarmed">Desarmar</option>
                     </select>
                   </label>
-                  <label className="text-xs text-muted-foreground">Anulação
-                    <select aria-label={`Anulação do setor ${zone.zoneNumber}`} value={drafts[zone.zoneNumber]?.bypassState || "unchanged"} disabled={!canOperate || configure.isPending} onChange={(event) => updateDraft(zone.zoneNumber, "bypassState", event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-foreground">
-                      <option value="unchanged">Sem alteração</option><option value="annulled">Anular</option><option value="restored">Retirar anulação</option>
+                  <label className="text-xs text-muted-foreground">Inibição
+                    <select aria-label={`Inibição do setor ${zone.zoneNumber}`} value={drafts[zone.zoneNumber]?.bypassState || "unchanged"} disabled={!canOperate || configure.isPending} onChange={(event) => updateDraft(zone.zoneNumber, "bypassState", event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-foreground">
+                      <option value="unchanged">Sem alteração</option><option value="annulled">Inibir</option><option value="restored">Retirar inibição</option>
                     </select>
                   </label>
                 </div>
@@ -146,7 +159,7 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       </div>
 
       {!identityAndPortReady && <p role="alert" className="text-xs text-red-200">Comando indisponível: identificação da central incompleta. Solicite ajuda ao supervisor.</p>}
-      {!leaseToken && <p role="alert" className="text-xs text-amber-100">Abra ou assuma o atendimento para habilitar os comandos de setores.</p>}
+      {!standalone && !leaseToken && <p role="alert" className="text-xs text-amber-100">Abra ou assuma o atendimento para habilitar os comandos de setores.</p>}
       <Button type="button" className="w-full border border-amber-300/50 bg-amber-500/20 text-amber-50 hover:bg-amber-500/30" disabled={!canSubmit} onClick={submitConfiguration}>
         {configure.isPending ? "Enviando alterações..." : `Aplicar alterações${zoneChanges.length ? ` · ${zoneChanges.length} setor(es)` : ""}`}
       </Button>

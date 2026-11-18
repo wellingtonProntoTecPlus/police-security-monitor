@@ -9,7 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { AUTH_SESSION_LIFETIME_MS, createAuthSessionToken, hashAuthSessionToken } from "./_core/localSession";
 import { notifyAuthSessionsRevoked } from "./_core/authSessionRuntime";
 import { INTELBRAS_PHYSICAL_COMMAND_DISABLED_MESSAGE, remoteCommandCredentialKinds } from "@shared/remoteCommandCredentialProfiles";
-import { buildCompatecSimulationPayload, compatecZoneConfigurationInputSchema, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, validateRemoteCommandTarget } from "./remoteCommandContract";
+import { buildCompatecSimulationPayload, compatecZoneConfigurationInputSchema, intelbrasPhysicalCommandInputSchema, isConfirmedCompatecBenchSystem, isConfirmedVettiBenchSystem, isKnownRemoteCommandBenchSystem, remoteCommandSimulationInputSchema, remoteCommandTypes, standaloneCompatecZoneConfigurationInputSchema, validateRemoteCommandTarget } from "./remoteCommandContract";
 import { buildVettiSimulationPayload, validateVettiSimulationTarget } from "./vettiCommandSimulation";
 import { canRestoreVettiZone } from "@shared/vettiZoneRules";
 import { sendCompatecMw1PhysicalCommand, sendCompatecMw1StatusQuery } from "./receiver";
@@ -1455,6 +1455,46 @@ export const appRouter = router({
         status: dispatched.status,
         message: dispatched.sent
           ? "Quadros AK2→AK1 enviados. Aguarde KA1: ele indica recebimento, não confirma os estados finais dos setores. Nenhum AK4 foi enviado."
+          : dispatched.message,
+      };
+    }),
+    configureCompatecZonesStandalone: operatorProcedure.input(standaloneCompatecZoneConfigurationInputSchema).mutation(async ({ input, ctx }) => {
+      await assertPartnerSystemScope(ctx, input.alarmSystemId);
+      if (!ctx.authSessionId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Sessão operacional não identificada. Atualize o painel antes de comandar a central." });
+      const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
+      if (!system || system.brand !== "COMPATEC" || system.isActive === false) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "A configuração física de setores está disponível somente para uma central Compatec ativa." });
+      }
+      let reservation: Awaited<ReturnType<typeof db.createStandaloneCompatecZoneConfiguration>>;
+      try {
+        reservation = await db.createStandaloneCompatecZoneConfiguration({
+          ...input,
+          operatorId: ctx.user.id,
+          authSessionId: ctx.authSessionId,
+        });
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "Não foi possível reservar a configuração de setores." });
+      }
+      if (!reservation.created) {
+        throw new TRPCError({ code: "CONFLICT", message: `Já existe comando Compatec em andamento (${reservation.activeCommandId}, ${reservation.activeStatus}). Aguarde o resultado antes de solicitar outro.` });
+      }
+      const dispatched = await db.dispatchAlarmRemoteCommand({
+        alarmSystemId: system.id,
+        commandId: reservation.id,
+        requiredOperatorSession: { operatorId: ctx.user.id, authSessionId: ctx.authSessionId },
+        requiredPhysicalIdentity: reservation.physicalIdentity,
+        requiredZoneNumbers: reservation.zoneChanges.map((change) => change.zoneNumber),
+        expectedStatuses: ["prepared"],
+        unavailableStatus: "failed",
+        sentResponsePayload: "AK2→AK1 enviado para configurar setores; aguardando resposta de recebimento. O estado final ainda não está confirmado.",
+        send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: reservation.id, payload: reservation.commandPayload, expectedIdentity: reservation.physicalIdentity }),
+      });
+      return {
+        id: reservation.id,
+        status: dispatched.status,
+        message: dispatched.sent
+          ? "Alterações dos setores enviadas à central. Confira o estado final diretamente no painel."
           : dispatched.message,
       };
     }),

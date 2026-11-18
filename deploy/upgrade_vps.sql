@@ -1004,6 +1004,11 @@ SET @statement = (
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
 SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `incidents_system_status_idx` ON `incidents` (`alarmSystemId`,`status`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND INDEX_NAME='incidents_system_status_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
   SELECT IF(COUNT(*) = 0, 'CREATE INDEX `incidents_parent_status_idx` ON `incidents` (`parentIncidentId`,`status`)', 'SELECT 1')
   FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=@schema_name AND TABLE_NAME='incidents' AND INDEX_NAME='incidents_parent_status_idx'
 );

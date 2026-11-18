@@ -1,0 +1,1 @@
+CREATE INDEX `incidents_system_status_idx` ON `incidents` (`alarmSystemId`,`status`);

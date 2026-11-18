@@ -299,6 +299,7 @@ export default function Dashboard() {
   const [scheduleAlertsModal, setScheduleAlertsModal] = useState(false);
   const [standaloneRemoteRequest, setStandaloneRemoteRequest] = useState<(any & { commandType: "arm" | "disarm" }) | null>(null);
   const [standaloneRemoteReason, setStandaloneRemoteReason] = useState("");
+  const [standaloneRemoteMode, setStandaloneRemoteMode] = useState<"total" | "zones">("total");
   const [connectionStatusModal, setConnectionStatusModal] = useState<'online' | 'offline' | null>(null);
   const [blockedClientsModal, setBlockedClientsModal] = useState(false);
   const [operationalStatusSearch, setOperationalStatusSearch] = useState("");
@@ -750,6 +751,8 @@ export default function Dashboard() {
     const systems = armDisarmModal === "armed" ? armDisarmData?.armed || [] : armDisarmData?.disarmed || [];
     return systems.filter((system: any) => operationalSearchMatches(system, clientsById.get(system.clientId)));
   }, [armDisarmModal, armDisarmData, operationalSearchMatches, clientsById]);
+  const standaloneRemoteSystemId = Number(standaloneRemoteRequest?.alarmSystemId || standaloneRemoteRequest?.systemId || 0);
+  const standaloneRemoteSystem = (systemData || []).find((item: any) => item.id === standaloneRemoteSystemId);
   const filteredBlockedClients = useMemo(() => blockedClients.filter((client: any) => operationalSearchMatches({ accounts: client.accounts }, client)), [blockedClients, operationalSearchMatches]);
 
   // Processar novos eventos em tempo real
@@ -1869,6 +1872,7 @@ export default function Dashboard() {
     }
     setStandaloneRemoteRequest({ ...item, commandType });
     setStandaloneRemoteReason("");
+    setStandaloneRemoteMode("total");
   }
 
   async function submitStandaloneCommandRequest() {
@@ -2297,31 +2301,55 @@ export default function Dashboard() {
 
       {standaloneRemoteRequest && (
         <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/75 p-4" onClick={() => setStandaloneRemoteRequest(null)}>
-          <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-emerald-400/35 bg-card p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div className={`max-h-[92dvh] w-full overflow-y-auto rounded-xl border border-emerald-400/35 bg-card p-5 shadow-2xl ${standaloneRemoteMode === "zones" ? "max-w-3xl" : "max-w-lg"}`} onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-300">Solicitação operacional</p>
-                <h3 className="mt-1 text-lg font-bold text-foreground">{standaloneRemoteRequest.commandType === "arm" ? "Armar" : "Desarmar"} sem ocorrência</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Use quando o cliente pedir o {standaloneRemoteRequest.commandType === "arm" ? "Arme" : "Desarme"} e não existir alarme aberto. Esta ação não cria um evento falso.</p>
+                <h3 className="mt-1 text-lg font-bold text-foreground">Comando sem ocorrência</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Use quando o cliente pedir a alteração e não existir alarme aberto. A solicitação não cria evento Contact ID nem cartão na fila.</p>
               </div>
-              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setStandaloneRemoteRequest(null)} aria-label="Fechar solicitação de comando"><X className="h-5 w-5" /></button>
+              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setStandaloneRemoteRequest(null); setStandaloneRemoteMode("total"); }} aria-label="Fechar solicitação de comando"><X className="h-5 w-5" /></button>
             </div>
             <div className="mt-4 rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm">
               <p className="font-bold text-foreground">{standaloneRemoteRequest.clientName || "Cliente não identificado"}</p>
               <p className="mt-1 text-xs text-muted-foreground">Conta {standaloneRemoteRequest.account} · {standaloneRemoteRequest.brand} {standaloneRemoteRequest.model || ""}</p>
             </div>
-            <div className="mt-4 space-y-3">
-              <label className="block text-sm font-medium text-foreground">Descrição / motivo
-                <Textarea className="mt-1 min-h-24" value={standaloneRemoteReason} onChange={(event) => setStandaloneRemoteReason(event.target.value)} placeholder={standaloneRemoteRequest.commandType === "arm" ? "Ex.: empresa encerrada; responsável solicitou o Arme por telefone." : "Ex.: Desarmado para entrada de funcionários."} />
-              </label>
-              <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado e a descrição/motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente. Os registros anteriores são preservados.</div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setStandaloneRemoteRequest(null)}>Cancelar</Button>
-              <Button className={standaloneRemoteRequest.commandType === "arm" ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-red-600 text-white hover:bg-red-700"} disabled={armCompatecAllMut.isPending || disarmBenchAllMut.isPending || standaloneRemoteReason.trim().length < 5} onClick={submitStandaloneCommandRequest}>
-                {armCompatecAllMut.isPending || disarmBenchAllMut.isPending ? "Enviando..." : `Confirmar ${standaloneRemoteRequest.commandType === "arm" ? "ARMAR" : "DESARMAR"}`}
-              </Button>
-            </div>
+            {isStandalonePhysicalCommandSupported(standaloneRemoteRequest.brand) && <div role="tablist" aria-label="Tipo de comando Compatec" className="mt-4 grid grid-cols-2 gap-2">
+              <Button type="button" role="tab" aria-selected={standaloneRemoteMode === "total"} variant={standaloneRemoteMode === "total" ? "default" : "outline"} onClick={() => setStandaloneRemoteMode("total")}>Arme/Desarme total</Button>
+              <Button type="button" role="tab" aria-selected={standaloneRemoteMode === "zones"} variant={standaloneRemoteMode === "zones" ? "default" : "outline"} onClick={() => setStandaloneRemoteMode("zones")}>Setores</Button>
+            </div>}
+            {standaloneRemoteMode === "zones" && isStandalonePhysicalCommandSupported(standaloneRemoteRequest.brand) ? (
+              standaloneRemoteSystem ? <div className="mt-4 space-y-3">
+                <CompatecZoneConfigurationPanel
+                  standalone
+                  isVisible={standaloneRemoteMode === "zones"}
+                  reasonValue={standaloneRemoteReason}
+                  onReasonValueChange={setStandaloneRemoteReason}
+                  alarmSystemId={standaloneRemoteSystemId}
+                  account={String(standaloneRemoteRequest.account || "")}
+                  model={standaloneRemoteSystem.model}
+                  macAddress={standaloneRemoteSystem.macAddress}
+                  imeiGprs={standaloneRemoteSystem.imeiGprs}
+                  receiverPort={standaloneRemoteSystem.receiverPort}
+                  canOperate={Boolean(user && ["admin", "supervisor", "operator"].includes(user.role))}
+                  onSubmitted={() => { setStandaloneRemoteRequest(null); setStandaloneRemoteMode("total"); }}
+                />
+                <div className="flex justify-end"><Button variant="outline" onClick={() => setStandaloneRemoteRequest(null)}>Cancelar</Button></div>
+              </div> : <p role="alert" className="mt-4 rounded-md border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Não foi possível carregar a central cadastrada. Nenhum comando está habilitado.</p>
+            ) : <>
+              <div className="mt-4 space-y-3">
+                <label className="block text-sm font-medium text-foreground">Descrição / motivo
+                  <Textarea className="mt-1 min-h-24" value={standaloneRemoteReason} onChange={(event) => setStandaloneRemoteReason(event.target.value)} placeholder={standaloneRemoteRequest.commandType === "arm" ? "Ex.: empresa encerrada; responsável solicitou o Arme por telefone." : "Ex.: Desarmado para entrada de funcionários."} />
+                </label>
+                <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado e a descrição/motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente. Os registros anteriores são preservados.</div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setStandaloneRemoteRequest(null)}>Cancelar</Button>
+                <Button className={standaloneRemoteRequest.commandType === "arm" ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-red-600 text-white hover:bg-red-700"} disabled={armCompatecAllMut.isPending || disarmBenchAllMut.isPending || standaloneRemoteReason.trim().length < 5} onClick={submitStandaloneCommandRequest}>
+                  {armCompatecAllMut.isPending || disarmBenchAllMut.isPending ? "Enviando..." : `Confirmar ${standaloneRemoteRequest.commandType === "arm" ? "ARMAR" : "DESARMAR"} total`}
+                </Button>
+              </div>
+            </>}
           </div>
         </div>
       )}

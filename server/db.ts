@@ -873,6 +873,7 @@ export async function sweepKeepAliveDisconnects(referenceTime = new Date()) {
 
     try {
       const opening = await db.transaction(async (tx) => {
+        await lockAlarmSystemForIncidentInsert(tx, system.id);
         // A reserva vem antes do evento. Caso outro disparo concorrente já tenha
         // criado a mesma ocorrência, a chave única interrompe esta transação.
         const claim = await tx.insert(systemDisconnectAlerts).values({
@@ -1468,6 +1469,91 @@ export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRe
   });
 }
 
+/** Reserva configuração de setores sem ocorrência, mas presa à sessão operacional e ao mesmo dispatcher auditado. */
+export async function createStandaloneCompatecZoneConfiguration(input: {
+  alarmSystemId: number;
+  reason: string;
+  zoneChanges: CompatecZoneConfigurationChange[];
+  operatorId: number;
+  authSessionId: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const reason = requireOperationalReason(input.reason);
+  const uniqueZones = new Set(input.zoneChanges.map((change) => change.zoneNumber));
+  if (input.zoneChanges.length < 1 || input.zoneChanges.length > 23 || uniqueZones.size !== input.zoneChanges.length) {
+    throw new Error("Informe alterações válidas e sem setores repetidos.");
+  }
+  const commandPayload = buildCompatecZoneConfigurationPayload({ zoneChanges: input.zoneChanges });
+  return db.transaction(async (tx) => {
+    await lockActiveOperatorSession(tx, input.operatorId, input.authSessionId);
+    const [systemSnapshot] = await tx.select({ clientId: alarmSystems.clientId }).from(alarmSystems)
+      .where(eq(alarmSystems.id, input.alarmSystemId)).limit(1);
+    if (!systemSnapshot?.clientId) throw new Error("A central Compatec não está vinculada a um cliente ativo.");
+    const [client] = await tx.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, systemSnapshot.clientId), eq(clients.isActive, true))).for("update").limit(1);
+    if (!client) throw new Error("O cliente da central não está ativo.");
+    const [systemRef] = await tx.select({
+      id: alarmSystems.id, clientId: alarmSystems.clientId, isActive: alarmSystems.isActive, brand: alarmSystems.brand,
+      macAddress: alarmSystems.macAddress, imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort,
+    }).from(alarmSystems).where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id)))
+      .for("update").limit(1);
+    if (!systemRef || systemRef.brand !== "COMPATEC" || !systemRef.isActive) {
+      throw new Error("Comando de setores disponível somente para uma central Compatec ativa.");
+    }
+    if (!getCompatecConnectionIdentity(systemRef)) {
+      throw new Error("A central precisa ter MAC ou IMEI reconhecido e porta do receptor cadastrada.");
+    }
+    if (await hasOpenIncidentForAlarmSystem(tx, input.alarmSystemId)) {
+      throw new Error("Esta central possui uma ocorrência aberta. Faça a configuração dentro do atendimento assumido para manter a exclusividade do painel.");
+    }
+    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
+      .from(alarmRemoteCommands)
+      .where(and(
+        eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId),
+        eq(alarmRemoteCommands.brand, "COMPATEC"),
+        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
+        inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"]),
+        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "dispatch_unknown", "sent"]),
+      )).orderBy(alarmRemoteCommands.id).limit(1);
+    if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
+
+    for (const change of input.zoneChanges) {
+      const [zone] = await tx.select({ id: alarmZones.id }).from(alarmZones).where(and(
+        eq(alarmZones.alarmSystemId, input.alarmSystemId), eq(alarmZones.zoneNumber, change.zoneNumber), eq(alarmZones.isActive, true),
+      )).for("update").limit(1);
+      if (!zone) throw new Error(`Setor ${change.zoneNumber} não está cadastrado como ativo para esta central.`);
+    }
+
+    const commandResult = await tx.insert(alarmRemoteCommands).values({
+      alarmSystemId: input.alarmSystemId,
+      incidentId: null,
+      operatorId: input.operatorId,
+      brand: "COMPATEC",
+      commandType: "configure_zones",
+      transportMode: "microbus_compatec",
+      status: "prepared",
+      partition: null,
+      zoneNumber: null,
+      pgmNumber: null,
+      reason,
+      commandPayload,
+      responsePayload: "Configuração reservada para despacho único; nenhuma transmissão ocorreu ainda. A resposta informará somente o recebimento, não o estado final dos setores.",
+    });
+    const id = Number(commandResult[0].insertId);
+    const [command] = await tx.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, id)).limit(1);
+    if (!command) throw new Error("Não foi possível reler o comando reservado.");
+    await syncCompatecRemoteCommandOccurrence(tx, command);
+    return {
+      created: true as const,
+      id,
+      commandPayload,
+      zoneChanges: input.zoneChanges,
+      physicalIdentity: { brand: systemRef.brand, macAddress: systemRef.macAddress, imeiGprs: systemRef.imeiGprs, receiverPort: systemRef.receiverPort },
+    };
+  }, { isolationLevel: "read committed" });
+}
+
 /** Reserva e audita uma única configuração setorial, vinculada ao painel exclusivo do incidente. */
 export async function createExclusiveCompatecZoneConfiguration(input: {
   alarmSystemId: number;
@@ -1685,6 +1771,7 @@ export async function dispatchAlarmRemoteCommand(input: {
   alarmSystemId: number;
   commandId: number;
   requiredPanelActor?: PanelActor;
+  requiredOperatorSession?: { operatorId: number; authSessionId: number };
   requiredZoneNumbers?: number[];
   requiredZoneNumber?: number;
   requiredPhysicalIdentity?: CompatecIdentitySource;
@@ -1720,6 +1807,19 @@ export async function dispatchAlarmRemoteCommand(input: {
         }
         return { claimed: false as const, status: "cancelled", message: "Painel de atendimento não está mais reservado a esta sessão; nenhum quadro foi transmitido." };
       }
+    } else if (input.requiredOperatorSession) {
+      try {
+        await lockActiveOperatorSession(tx, input.requiredOperatorSession.operatorId, input.requiredOperatorSession.authSessionId);
+      } catch (error) {
+        const [command] = await tx.select().from(alarmRemoteCommands)
+          .where(and(eq(alarmRemoteCommands.id, input.commandId), eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId))).for("update").limit(1);
+        if (command && input.expectedStatuses.includes(command.status)) {
+          const responsePayload = `Comando cancelado sem transmissão: sessão operacional inválida. ${error instanceof Error ? error.message : ""}`.trim();
+          await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+          await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+        }
+        return { claimed: false as const, status: "cancelled", message: "Sessão operacional encerrada ou substituída; nenhum quadro foi transmitido." };
+      }
     }
     const [systemRef] = await tx.select({ id: alarmSystems.id, clientId: alarmSystems.clientId })
       .from(alarmSystems).where(eq(alarmSystems.id, input.alarmSystemId)).limit(1);
@@ -1735,6 +1835,12 @@ export async function dispatchAlarmRemoteCommand(input: {
     if (!command) return { claimed: false as const, status: "cancelled", message: "Comando não encontrado para esta central." };
     if (!input.expectedStatuses.includes(command.status)) {
       return { claimed: false as const, status: command.status, message: `O comando já mudou de estado (${command.status}); não será transmitido novamente.` };
+    }
+    if (input.requiredOperatorSession && await hasOpenIncidentForAlarmSystem(tx, input.alarmSystemId)) {
+      const responsePayload = "Comando standalone cancelado sem transmissão: a central agora possui ocorrência aberta. Continue pelo atendimento exclusivo.";
+      await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+      return { claimed: false as const, status: "cancelled", message: responsePayload };
     }
     if (input.requiredPhysicalIdentity && (!system || system.brand !== "COMPATEC"
       || system.macAddress !== input.requiredPhysicalIdentity.macAddress
@@ -1784,7 +1890,7 @@ export async function dispatchAlarmRemoteCommand(input: {
     await tx.update(alarmRemoteCommands).set({ status: "dispatching", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
     await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "dispatching", responsePayload });
     return { claimed: true as const };
-  });
+  }, { isolationLevel: "read committed" });
   if (!claim.claimed) return { sent: false as const, status: claim.status, message: claim.message };
 
   return db.transaction(async (tx) => {
@@ -1808,6 +1914,19 @@ export async function dispatchAlarmRemoteCommand(input: {
         }
         return { sent: false as const, status: "cancelled", message: "Painel de atendimento não está mais reservado a esta sessão; nenhum quadro foi transmitido." };
       }
+    } else if (input.requiredOperatorSession) {
+      try {
+        await lockActiveOperatorSession(tx, input.requiredOperatorSession.operatorId, input.requiredOperatorSession.authSessionId);
+      } catch (error) {
+        const [command] = await tx.select().from(alarmRemoteCommands)
+          .where(and(eq(alarmRemoteCommands.id, input.commandId), eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId))).for("update").limit(1);
+        if (command?.status === "dispatching" && !command.executedAt) {
+          const responsePayload = `Comando cancelado sem transmissão: sessão operacional inválida. ${error instanceof Error ? error.message : ""}`.trim();
+          await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+          await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+        }
+        return { sent: false as const, status: "cancelled", message: "Sessão operacional encerrada antes da transmissão; nenhum quadro foi transmitido." };
+      }
     }
     const [systemRef] = await tx.select({ id: alarmSystems.id, clientId: alarmSystems.clientId })
       .from(alarmSystems).where(eq(alarmSystems.id, input.alarmSystemId)).limit(1);
@@ -1821,6 +1940,12 @@ export async function dispatchAlarmRemoteCommand(input: {
       .for("update").limit(1);
     if (!command || command.status !== "dispatching") {
       return { sent: false as const, status: command?.status || "cancelled", message: "O comando deixou de estar reservado para transmissão." };
+    }
+    if (input.requiredOperatorSession && await hasOpenIncidentForAlarmSystem(tx, input.alarmSystemId)) {
+      const responsePayload = "Comando standalone cancelado sem transmissão: a central agora possui ocorrência aberta. Continue pelo atendimento exclusivo.";
+      await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+      return { sent: false as const, status: "cancelled", message: responsePayload };
     }
     if (input.requiredPhysicalIdentity && (!system || system.brand !== "COMPATEC"
       || system.macAddress !== input.requiredPhysicalIdentity.macAddress
@@ -1896,7 +2021,7 @@ export async function dispatchAlarmRemoteCommand(input: {
     await tx.update(alarmRemoteCommands).set(updates).where(eq(alarmRemoteCommands.id, command.id));
     await syncCompatecRemoteCommandOccurrence(tx, { ...command, ...updates, status, responsePayload });
     return { ...result, status };
-  });
+  }, { isolationLevel: "read committed" });
 }
 
 /** Marca como indeterminado um despacho interrompido; nunca o devolve à fila física. */
@@ -2180,6 +2305,7 @@ export async function createConfirmedVettiDisarmEventWithOpenIncident(input: {
   const windowEnd = new Date(input.eventReceivedAt.getTime() + 60_000);
 
   return db.transaction(async (tx) => {
+    await lockAlarmSystemForIncidentInsert(tx, input.alarmSystemId);
     const candidates = await tx.select({
       id: alarmRemoteCommands.id,
       brand: alarmRemoteCommands.brand,
@@ -2793,6 +2919,7 @@ export async function createAlarmEventWithOpenIncident(input: {
   if (!db) throw new Error("Banco de dados indisponível");
 
   return db.transaction(async (tx) => {
+    await lockAlarmSystemForIncidentInsert(tx, input.incident.alarmSystemId);
     const eventResult = await tx.insert(alarmEvents).values(input.event);
     const eventId = Number(eventResult[0].insertId);
     const incidentResult = await tx.insert(incidents).values({ ...input.incident, eventId });
@@ -3125,11 +3252,27 @@ export async function getRecentEvents(minutes = 5) {
 // ============================================================
 // INCIDENTS
 // ============================================================
+async function lockAlarmSystemForIncidentInsert(tx: any, alarmSystemId?: number | null) {
+  if (!alarmSystemId) return;
+  await tx.select({ id: alarmSystems.id }).from(alarmSystems).where(eq(alarmSystems.id, alarmSystemId)).for("update").limit(1);
+}
+
+async function hasOpenIncidentForAlarmSystem(tx: any, alarmSystemId: number) {
+  // Leitura atual READ COMMITTED; caller já mantém a central bloqueada.
+  // Os criadores de incidentes usam o mesmo lock. Não inverter central→incidente
+  // contra o fluxo de atendimento, que bloqueia incidente→central.
+  const [incident] = await tx.select({ id: incidents.id }).from(incidents)
+    .where(and(eq(incidents.alarmSystemId, alarmSystemId), ne(incidents.status, "closed")))
+    .limit(1);
+  return Boolean(incident);
+}
+
 export async function createIncident(data: InsertIncident, authSessionId?: number | null) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.transaction(async (tx) => {
     if (data.operatorId) await lockActiveOperatorSession(tx, data.operatorId, authSessionId);
+    await lockAlarmSystemForIncidentInsert(tx, data.alarmSystemId);
     const result = await tx.insert(incidents).values(data);
     return { id: result[0].insertId };
   });

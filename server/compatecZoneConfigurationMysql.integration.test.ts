@@ -1,10 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { and, eq } from "drizzle-orm";
 import fs from "node:fs";
 import { authSessions, alarmEvents, alarmRemoteCommands, alarmSystems, alarmZones, clients, incidentHistory, incidentPanelLeases, incidents, occurrences, users } from "../drizzle/schema";
-import { appendIncidentNote, createExclusiveCompatecPhysicalCommand, createExclusiveCompatecZoneConfiguration, createOccurrenceAndCloseIncident, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches, getPendingCompatecCommand, listIndeterminateCompatecCommands, openIncidentPanel, pauseIncidentPanel, reconcileCompatecCommand, recordRemoteCommandConfirmation, setDbForTesting, updateAlarmRemoteCommandDelivery } from "./db";
+import { appendIncidentNote, createAlarmEventWithOpenIncident, createExclusiveCompatecPhysicalCommand, createExclusiveCompatecZoneConfiguration, createOccurrenceAndCloseIncident, createStandaloneCompatecZoneConfiguration, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches, getPendingCompatecCommand, listIndeterminateCompatecCommands, openIncidentPanel, pauseIncidentPanel, reconcileCompatecCommand, recordRemoteCommandConfirmation, setDbForTesting, updateAlarmRemoteCommandDelivery } from "./db";
 import { buildCompatecZoneConfigurationFrames } from "../shared/compatecZoneConfiguration";
 import type { PanelActor } from "./incidentPanelLease";
 
@@ -23,7 +23,7 @@ let pool!: mysql.Pool;
 let orm!: ReturnType<typeof drizzle>;
 
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0057_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     if (!table) throw new Error(`Tabela ${name} ausente no snapshot de schema`);
@@ -126,6 +126,10 @@ async function fixture() {
 
 async function commandRows() { return orm.select().from(alarmRemoteCommands); }
 async function reportRows() { return orm.select().from(occurrences); }
+async function removeOpenFixtureIncident() {
+  await orm.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, INCIDENT_ID));
+  await orm.delete(incidents).where(eq(incidents.id, INCIDENT_ID));
+}
 
 // Só habilitado pelo script de validação privada, que cria e remove um MariaDB em /tmp.
 describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integração MariaDB privado", () => {
@@ -190,6 +194,148 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(report.logs).toContain(`[COMANDO REMOTO #${commands[0].id}]`);
     expect(commands[0].responsePayload).toContain("KA1");
     expect(await orm.select().from(occurrences)).toHaveLength(1);
+  });
+
+  it("recusa configuração standalone enquanto a central possui ocorrência e lease de atendimento abertos", async () => {
+    await expect(createStandaloneCompatecZoneConfiguration({
+      alarmSystemId: SYSTEM_ID,
+      operatorId: OPERATOR_ID,
+      authSessionId: SESSION_ID,
+      reason: "Solicitação standalone enquanto existe atendimento",
+      zoneChanges: [{ zoneNumber: 1, armState: "armed" }],
+    })).rejects.toThrow("Esta central possui uma ocorrência aberta");
+    expect(await commandRows()).toHaveLength(0);
+    expect(await reportRows()).toHaveLength(0);
+  });
+
+  it("envia a configuração standalone com uma sessão autenticada e grava o relatório sem criar ocorrência ou Contact ID", async () => {
+    await removeOpenFixtureIncident();
+    const eventsBefore = await orm.select().from(alarmEvents);
+    const incidentsBefore = await orm.select().from(incidents);
+    const reservation = await createStandaloneCompatecZoneConfiguration({
+      alarmSystemId: SYSTEM_ID,
+      operatorId: OPERATOR_ID,
+      authSessionId: SESSION_ID,
+      reason: "Cliente pediu setores",
+      zoneChanges: [
+        { zoneNumber: 1, armState: "armed" },
+        { zoneNumber: 2, armState: "disarmed", bypassState: "annulled" },
+      ],
+    });
+    expect(reservation.created).toBe(true);
+    if (!reservation.created) return;
+    expect(reservation.physicalIdentity).toMatchObject({ brand: "COMPATEC", ...expectedPhysicalIdentity });
+
+    const send = vi.fn(() => ({ sent: true, payload: "fake local socket write" }));
+    const dispatched = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID,
+      commandId: reservation.id,
+      requiredOperatorSession: { operatorId: OPERATOR_ID, authSessionId: SESSION_ID },
+      requiredPhysicalIdentity: reservation.physicalIdentity,
+      requiredZoneNumbers: reservation.zoneChanges.map((change) => change.zoneNumber),
+      expectedStatuses: ["prepared"],
+      unavailableStatus: "failed",
+      sentResponsePayload: "Fake local dispatch accepted; panel response pending.",
+      send,
+    });
+    expect(dispatched).toMatchObject({ sent: true, status: "sent" });
+    expect(send).toHaveBeenCalledOnce();
+
+    const [command] = await commandRows();
+    expect(command).toMatchObject({
+      id: reservation.id,
+      incidentId: null,
+      operatorId: OPERATOR_ID,
+      commandType: "configure_zones",
+      status: "sent",
+    });
+    expect(command.commandPayload).toContain("physical_zone_configuration");
+    const reports = await reportRows();
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({ eventCode: "REMOTE", description: expect.stringContaining("Alteração de setores 1, 2") });
+    expect(reports[0].observations).toContain("Motivo: Cliente pediu setores");
+    expect(reports[0].logs).toContain(`[COMANDO REMOTO #${reservation.id}]`);
+    expect(reports[0].observations).not.toMatch(/COMANDO REMOTO|AK2|AK1|KA1|frame|payload|fake local/i);
+    expect(await orm.select().from(alarmEvents)).toEqual(eventsBefore);
+    expect((await orm.select().from(incidents)).map((incident) => incident.id)).toEqual(incidentsBefore.map((incident) => incident.id));
+  });
+
+  it("cancela o despacho standalone antes do socket se a sessão operacional for revogada", async () => {
+    await removeOpenFixtureIncident();
+    const reservation = await createStandaloneCompatecZoneConfiguration({
+      alarmSystemId: SYSTEM_ID,
+      operatorId: OPERATOR_ID,
+      authSessionId: SESSION_ID,
+      reason: "Solicitação standalone para teste de sessão",
+      zoneChanges: [{ zoneNumber: 1, armState: "armed" }],
+    });
+    if (!reservation.created) throw new Error("Reserva standalone não criada");
+    await orm.update(authSessions).set({ revokedAt: new Date() }).where(eq(authSessions.id, SESSION_ID));
+    const send = vi.fn(() => ({ sent: true, payload: "fake local socket write" }));
+
+    const dispatched = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID,
+      commandId: reservation.id,
+      requiredOperatorSession: { operatorId: OPERATOR_ID, authSessionId: SESSION_ID },
+      requiredPhysicalIdentity: reservation.physicalIdentity,
+      requiredZoneNumbers: reservation.zoneChanges.map((change) => change.zoneNumber),
+      expectedStatuses: ["prepared"],
+      unavailableStatus: "failed",
+      sentResponsePayload: "Fake local dispatch accepted.",
+      send,
+    });
+
+    expect(dispatched).toMatchObject({ sent: false, status: "cancelled" });
+    expect(send).not.toHaveBeenCalled();
+    const [command] = await commandRows();
+    expect(command.status).toBe("cancelled");
+    expect(command.responsePayload).toContain("sessão operacional inválida");
+    expect((await reportRows())[0].observations).not.toContain("fake local socket");
+  });
+
+  it("cancela antes do socket se uma ocorrência surgir depois da reserva standalone", async () => {
+    await removeOpenFixtureIncident();
+    const reservation = await createStandaloneCompatecZoneConfiguration({
+      alarmSystemId: SYSTEM_ID,
+      operatorId: OPERATOR_ID,
+      authSessionId: SESSION_ID,
+      reason: "Configuração solicitada antes do novo atendimento",
+      zoneChanges: [{ zoneNumber: 1, armState: "armed" }],
+    });
+    if (!reservation.created) throw new Error("Reserva standalone não criada");
+    await createAlarmEventWithOpenIncident({
+      event: {
+        alarmSystemId: SYSTEM_ID,
+        account: "0342",
+        brand: "COMPATEC",
+        qualifier: "E",
+        eventCode: "E130",
+        description: "Novo evento durante a configuração standalone",
+        priority: "high",
+        receiverPort: 9271,
+        remoteIp: "127.0.0.1",
+        rawData: "LOCAL_TEST_EVENT",
+        receivedAt: new Date(),
+      },
+      incident: { alarmSystemId: SYSTEM_ID, clientId: CLIENT_ID, status: "waiting", priority: "high", notes: "Novo atendimento local de teste" },
+    });
+    const send = vi.fn(() => ({ sent: true, payload: "fake local socket write" }));
+
+    const dispatched = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID,
+      commandId: reservation.id,
+      requiredOperatorSession: { operatorId: OPERATOR_ID, authSessionId: SESSION_ID },
+      requiredPhysicalIdentity: reservation.physicalIdentity,
+      requiredZoneNumbers: reservation.zoneChanges.map((change) => change.zoneNumber),
+      expectedStatuses: ["prepared"],
+      unavailableStatus: "failed",
+      sentResponsePayload: "Fake local dispatch accepted.",
+      send,
+    });
+    expect(dispatched).toMatchObject({ sent: false, status: "cancelled" });
+    expect(dispatched.message).toContain("central agora possui ocorrência aberta");
+    expect(send).not.toHaveBeenCalled();
+    expect((await commandRows())[0].status).toBe("cancelled");
   });
 
   it("finaliza com notas persistidas atuais mesmo quando a tela envia observações em cache antigo", async () => {

@@ -31,6 +31,7 @@ const invalidateAuditTrail = vi.fn().mockResolvedValue(undefined);
 let mockedAuditItems: any[] = [];
 let mockedCameras: any[] = [];
 let mockedContacts: any[] = [];
+let mockedZones: any[] = [];
 const defaultQueue = [{
   id: 701, incidentId: 91, incidentStatus: "waiting", incidentClientId: 4, incidentSystemId: 6,
   account: "0001", brand: "COMPATEC", qualifier: "E", eventCode: "130", description: "Disparo de alarme",
@@ -86,7 +87,7 @@ vi.mock("@/lib/trpc", () => ({
     alarmSystem: {
       list: { useQuery: () => ({ data: [
         { id: 7, account: "0001", clientId: 5, brand: "COMPATEC", model: "Outro" },
-        { id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X" },
+        { id: 6, account: "0001", clientId: 4, brand: "COMPATEC", model: "X", macAddress: "C1BDCB", receiverPort: 9271 },
       ] }) },
       remoteCommandCredentialStatus: { useQuery: () => ({ data: { credentials: [] } }) },
       startMaintenance: { useMutation: () => standardMutation },
@@ -98,6 +99,7 @@ vi.mock("@/lib/trpc", () => ({
       simulate: { useMutation: () => standardMutation },
       compatecZonePhysical: { useMutation: () => standardMutation },
       configureCompatecZones: { useMutation: () => standardMutation },
+      configureCompatecZonesStandalone: { useMutation: () => standardMutation },
       queryBenchStatus: { useMutation: () => standardMutation },
       queryVettiBenchStatus: { useMutation: () => standardMutation },
       disarmVettiBench: { useMutation: () => standardMutation },
@@ -106,7 +108,7 @@ vi.mock("@/lib/trpc", () => ({
     },
     clientContact: { list: { useQuery: () => ({ data: mockedContacts }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) }, treatment: { useQuery: () => ({ data: undefined, isLoading: false, error: null, refetch: vi.fn() }) } },
-    alarmZone: { list: { useQuery: () => ({ data: [] }) } },
+    alarmZone: { list: { useQuery: () => ({ data: mockedZones }) } },
     alarmUser: {
       list: { useQuery: () => ({ data: [] }) },
       operationalList: { useQuery: () => ({ data: [] }) },
@@ -196,6 +198,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     ];
     mockedPartnerCompanyData = [{ id: 8, name: "Parceira de Teste" }];
     mockedArmDisarmStatus = { armed: [], disarmed: [] };
+    mockedZones = [];
     bulkMutation.mutateAsync.mockReset();
     mockedBulkPreview = { totalCount: 3, eventCount: 3, eligibleCount: 2, eligibleIncidentIds: [91, 92], protectedCount: 1, protectedRows: [] };
     refetchBulkPreview.mockClear();
@@ -648,6 +651,30 @@ describe("Dashboard — Ocorrência Manual", () => {
 
     expect(screen.getByText("Última confirmação automática")).toBeTruthy();
     expect(screen.getByText(/ARMADO · Conta 0336 · VETTI · Arme/)).toBeTruthy();
+  });
+
+  it("abre total e Setores no mesmo modal de ARMAR de Desarmados e preserva descrição ao alternar", async () => {
+    mockedArmDisarmStatus = {
+      armed: [],
+      disarmed: [{ alarmSystemId: 6, clientId: 4, account: "0001", brand: "COMPATEC", model: "X", clientName: "Cliente de Teste" }],
+    };
+    mockedZones = [{ id: 21, zoneNumber: 1, name: "Portão", isActive: true }];
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(screen.getByRole("button", { name: /^Desarmados \(1\)$/i }));
+    await user.click(screen.getByRole("button", { name: /^ARMAR$/ }));
+    expect(screen.getByRole("heading", { name: "Comando sem ocorrência" })).toBeTruthy();
+    const totalReason = screen.getByRole("textbox", { name: "Descrição / motivo" });
+    await user.type(totalReason, "Cliente solicitou pelo telefone");
+    await user.click(screen.getByRole("tab", { name: "Setores" }));
+    expect(screen.getAllByRole("heading", { name: "Comando sem ocorrência" })).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "Estado de arme do setor 1" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Inibição do setor 1" })).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
+    await user.click(screen.getByRole("tab", { name: "Arme/Desarme total" }));
+    expect((screen.getByRole("textbox", { name: "Descrição / motivo" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
+    expect(screen.getByRole("button", { name: "Confirmar ARMAR total" })).toBeTruthy();
+    expect(standardMutation.mutate).not.toHaveBeenCalled();
   });
 
   it("filtra Armados e Desarmados pelo partnerName mesmo com as listas de clientes e parceiras vazias", async () => {

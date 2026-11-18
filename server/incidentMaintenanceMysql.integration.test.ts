@@ -20,7 +20,7 @@ const other = { operatorId: 2, operatorName: "Yasmin", authSessionId: 102, lease
 const reason = "Cliente informou falta de energia; aguardar equipe técnica.";
 const reference = new Date("2030-01-01T12:00:00Z");
 function ddl() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0057_snapshot.json", import.meta.url), "utf8"));
   return tables.map((name) => {
     const table = snapshot.tables[name];
     const cols = Object.values(table.columns).map((c: any) => `\`${c.name}\` ${c.type}${c.notNull ? " NOT NULL" : " NULL"}${c.autoincrement ? " AUTO_INCREMENT" : ""}${Object.hasOwn(c, "default") ? ` DEFAULT ${typeof c.default === "boolean" ? Number(c.default) : c.default}` : ""}`);
@@ -81,6 +81,56 @@ describe.skipIf(!enabled)("Encaminhamento, manutenção e token · MariaDB priva
     expect(await orm.select().from(operatorShiftMessages)).toHaveLength(0);
     expect((await pool.query("SELECT COUNT(*) AS n FROM alarm_events"))[0]).toEqual([{n:1}]);
     expect((await orm.select().from(incidentHistory)).at(-1)?.action).toBe("maintenance");
+  });
+
+  it("não bloqueia insert de evento quando manutenção aguarda a central após ler incidentes", async () => {
+    await open();
+    let rowsLocked!: () => void;
+    const rowsRead = new Promise<void>((resolve) => { rowsLocked = resolve; });
+    const wrapSelect = (query: any): any => new Proxy(query, {
+      get(target, key) {
+        if (key === "then") return (resolve: any, reject: any) => target.then((rows: any) => {
+          const statement = target.toSQL().sql;
+          if (statement.includes('from `incidents`') && statement.includes("for update")) rowsLocked();
+          return rows;
+        }).then(resolve, reject);
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? (...args: any[]) => wrapSelect(value.apply(target, args)) : value;
+      },
+    });
+    const gatedDb = {
+      transaction: (callback: any, config: any) => orm.transaction((tx) => callback(new Proxy(tx, {
+        get(target, key) {
+          if (key === "select") return (...args: any[]) => wrapSelect((target.select as any)(...args));
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      })), config),
+    };
+    const creator = await pool.getConnection();
+    let maintenance!: Promise<any>;
+    try {
+      await creator.query("SET SESSION innodb_lock_wait_timeout = 2");
+      await creator.beginTransaction();
+      await creator.query("SELECT id FROM alarm_systems WHERE id = 10 FOR UPDATE");
+      maintenance = startSystemMaintenanceWithDb(gatedDb, maintenanceInput(), actor, reference);
+      const outcome = maintenance.then((value) => ({ value }), (error) => ({ error }));
+      await rowsRead;
+      // Manutenção bloqueou as ocorrências e agora espera a central, mantida
+      // pelo receptor. READ COMMITTED não pode bloquear a inserção na faixa.
+      await creator.query("INSERT INTO alarm_events(id,account,brand,eventCode,qualifier,alarmSystemId) VALUES(31,'0010','COMPATEC','130','E',10)");
+      await creator.query("INSERT INTO incidents(id,eventId,alarmSystemId,clientId,status,notes) VALUES(21,31,10,1,'waiting','Novo evento concorrente preservado')");
+      await creator.commit();
+      const result = await outcome;
+      if ("error" in result) throw result.error;
+      expect(result.value).toMatchObject({ success: true });
+      expect((await orm.select().from(incidents).where(eq(incidents.id, 21)))[0].notes).toBe("Novo evento concorrente preservado");
+      expect((await orm.select().from(incidents).where(eq(incidents.id, 20)))[0].status).toBe("maintenance");
+    } finally {
+      await creator.rollback();
+      creator.release();
+      if (maintenance) await maintenance.catch(() => undefined);
+    }
   });
 
   it("não altera a central nem ocorrências se outra ocorrência da mesma central possui painel ativo", async () => {

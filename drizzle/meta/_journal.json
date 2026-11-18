@@ -400,6 +400,13 @@
       "when": 1794851003314,
       "tag": "0056_living_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "5",
+      "when": 1794971515213,
+      "tag": "0057_bumpy_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

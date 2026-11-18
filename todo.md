@@ -1067,3 +1067,14 @@
 - [x] Regressões adicionais: preserva texto humano livre como “o pacote chega amanhã” dentro de nota incompleta; remove linhas realmente rotuladas/formatadas como bytes ou quadros; negações de recebimento não viram sucesso e respostas contraditórias ficam como resultado incerto
 - [x] Validação integral definitiva após a segunda revisão independente: `pnpm check`, 168 arquivos / 848 testes aprovados, build concluído e `git diff --check` limpo; MariaDB descartável encerrado. Sem VPS, deploy ou transmissão física
 - [x] Validação integral final pós-revisão: TypeScript, 168 arquivos / 849 testes aprovados, build concluído e `git diff --check` limpo; MariaDB descartável encerrado. Sem VPS, deploy ou transmissão física
+
+## Comandos setoriais no modal de Arme/Desarme standalone — 18/11/2026
+- [x] Na lista Clientes Desarmados/Armados, o mesmo modal agora oferece alternância entre Arme/Desarme total e Setores para Compatec; por setor permite armar/desarmar e inibir/retirar inibição em uma solicitação única
+- [x] Mantido o fluxo existente de Arme/Desarme total; a opção setorial reutiliza o painel simples e a confirmação, com o mesmo campo de Descrição/motivo preservado ao alternar entre os modos, sem códigos ou prévias técnicas
+- [x] Rota standalone grava operador autenticado e relatório informativo, sem Contact ID/incidente/cartão de fila; rejeita quando a mesma central tem atendimento aberto. Criação de ocorrências e despacho são serializados pela linha da central, e o dispatcher revalida novamente o atendimento antes do socket
+- [x] Antes do despacho, valida cliente/central/setores/identidade física e sessão ativa. A configuração em atendimento continua vinculada à ocorrência e lease. MariaDB privado comprovou bloqueio com lease, cancelamento de corrida com ocorrência criada após a reserva e cancelamento por sessão revogada, sem chamar o socket fake
+- [x] Migration Drizzle aditiva `0057_bumpy_lady_bullseye.sql` adiciona índice `incidents_system_status_idx`; aplicado e confirmado apenas no banco WebDev de desenvolvimento. Upgrade VPS idempotente preparado, sem executar migration na VPS
+- [x] Reserva standalone e dispatcher usam READ COMMITTED para consultar atendimento sob o lock da central sem inverter locks incidente→central; teste renderizado abre ARMAR na lista Desarmados, alterna Total/Setores no mesmo modal e preserva descrição/motivo sem mutação física
+- [x] Transações de manutenção por central usam READ COMMITTED para não reter locks next-key de incidentes contra inserts de novos eventos; teste MariaDB força a manutenção a esperar a central após bloquear incidentes, insere evento/ocorrência na conexão concorrente e verifica que ambos concluem sem deadlock ou perda de evento
+- [x] Validação integral final: TypeScript, 168 arquivos e 860 testes aprovados, build concluído, `git diff --check` limpo e banco MariaDB descartável encerrado
+- [x] Nenhuma VPS acessada/atualizada/deployada e nenhum comando físico enviado
