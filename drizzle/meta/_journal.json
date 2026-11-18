@@ -407,6 +407,13 @@
       "when": 1794971515213,
       "tag": "0057_bumpy_lady_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "5",
+      "when": 1795038392809,
+      "tag": "0058_crazy_vermin",
+      "breakpoints": true
     }
   ]
 }

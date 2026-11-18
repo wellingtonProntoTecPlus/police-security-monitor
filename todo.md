@@ -1079,3 +1079,16 @@
 - [x] Transações de manutenção por central usam READ COMMITTED para não reter locks next-key de incidentes contra inserts de novos eventos; teste MariaDB força a manutenção a esperar a central após bloquear incidentes, insere evento/ocorrência na conexão concorrente e verifica que ambos concluem sem deadlock ou perda de evento
 - [x] Validação integral final: TypeScript, 168 arquivos e 861 testes aprovados, build concluído, `git diff --check` limpo e banco MariaDB descartável encerrado
 - [x] Nenhuma VPS acessada/atualizada/deployada e nenhum comando físico enviado
+
+
+## Sino e mensagens internas por grupos — 18/11/2026
+- [x] Substituído balão por sino de tamanho fixo acima do operador; contador sobreposto no menu recolhido e indicação de Mensagens no expandido. Notificações incluem recados individuais, grupos e passagens vinculadas ao atendimento, mantendo VER AGORA e visibilidade até a finalização.
+- [x] Diálogo preserva envio individual e permite Uma pessoa / Um grupo. Operadores enviam aos seus grupos; administradores e supervisores podem direcionar recados a grupos ativos sem obter leitura do conteúdo sem recibo próprio.
+- [x] Escalas e Presença → Grupos de mensagens permite a Administrador/Supervisor criar, renomear, incluir/remover participantes e desativar grupos. Remoção do último membro permitida em grupo existente. Usa perfis atuais Admin/Supervisor/Operador; não cria permissão de técnico nem concede acesso adicional.
+- [x] Mensagem armazenada uma vez com snapshot de autoria/nome e recibos individuais de destinatário/data/leitura. Removidos não recebem novas mensagens; textos e entregas anteriores persistem. Novos membros não recebem retroativamente recados anteriores.
+- [x] Envio revalida sessão ativa e membership em transação sob lock do grupo com READ COMMITTED; integração MariaDB comprova remoção concorrente. Recibo alheio, não membro, grupo inativo e sessão revogada são recusados.
+- [x] Auditoria persistente de criação, nome, inclusão/remoção e desativação inclui os participantes removidos ao desativar. Mensagens não criam ocorrência, Contact ID nem comando físico.
+- [x] Migration Drizzle 0058 aditiva de cinco tabelas/índices aplicada apenas ao banco WebDev. Upgrade VPS IF NOT EXISTS testado duas vezes em MariaDB privado sem perda de mensagens/recibos. IDs de grupo/diretos separados na inbox e notices realtime.
+- [x] Validação final: pnpm check, 170 arquivos / 870 testes aprovados sem ignorados, build concluído e git diff --check limpo; MariaDB local por socket Unix sem rede encerrado. Testes renderizados de sino, envio e gestão de participantes aprovados; revisão independente sem bloqueadores críticos/altos/médios.
+- [ ] Melhoria de baixa prioridade: unicidade transacional de nomes ativos em criações simultâneas; não afeta autorização, entrega ou leitura.
+- [x] Nenhuma VPS acessada/implantada e nenhum comando físico transmitido. Grupos reais e participantes ficam para escolha do usuário, sem exemplos inseridos no banco WebDev.

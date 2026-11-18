@@ -1272,6 +1272,69 @@ JOIN (
 ) AS latest ON latest.`latestId` = m.`id`
 SET m.`isCurrent` = TRUE;
 
+-- Grupos de mensagens operacionais; histórico, associação de membros e recibos individuais são aditivos.
+CREATE TABLE IF NOT EXISTS `operator_message_groups` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(100) NOT NULL,
+  `isActive` TINYINT(1) NOT NULL DEFAULT 1,
+  `createdBy` INT NOT NULL,
+  `updatedBy` INT NOT NULL,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `operator_message_group_active_name_idx` (`isActive`,`name`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_message_group_members` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `groupId` BIGINT NOT NULL,
+  `userId` INT NOT NULL,
+  `addedBy` INT NOT NULL,
+  `addedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `removedBy` INT NULL,
+  `removedAt` TIMESTAMP NULL,
+  PRIMARY KEY (`id`),
+  KEY `operator_message_group_member_current_idx` (`groupId`,`userId`,`removedAt`),
+  KEY `operator_message_group_member_user_idx` (`userId`,`removedAt`,`groupId`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_message_group_messages` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `groupId` BIGINT NOT NULL,
+  `groupName` VARCHAR(100) NOT NULL,
+  `fromUserId` INT NOT NULL,
+  `fromOperatorName` VARCHAR(255) NOT NULL,
+  `fromAttendanceId` BIGINT NOT NULL,
+  `message` TEXT NOT NULL,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `operator_group_message_history_idx` (`groupId`,`createdAt`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_message_group_deliveries` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `groupMessageId` BIGINT NOT NULL,
+  `userId` INT NOT NULL,
+  `recipientName` VARCHAR(255) NOT NULL,
+  `deliveredAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `readAt` TIMESTAMP NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `operator_group_delivery_unique` (`groupMessageId`,`userId`),
+  KEY `operator_group_delivery_inbox_idx` (`userId`,`readAt`,`deliveredAt`)
+);
+
+CREATE TABLE IF NOT EXISTS `operator_message_group_audit` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `groupId` BIGINT NOT NULL,
+  `actorUserId` INT NOT NULL,
+  `action` ENUM('created','renamed','member_added','member_removed','deactivated') NOT NULL,
+  `subjectUserId` INT NULL,
+  `groupName` VARCHAR(100) NOT NULL,
+  `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `operator_message_group_audit_history_idx` (`groupId`,`createdAt`)
+);
+
 CREATE TABLE IF NOT EXISTS `operator_shift_reminders` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `attendanceId` BIGINT NOT NULL,

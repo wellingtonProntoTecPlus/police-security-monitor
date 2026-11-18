@@ -1,14 +1,14 @@
 import { onAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import { setDbForTesting, replaceActiveAuthSession, transitionIncidentForOperator, putIncidentInObservation, assumeObservedIncident, openIncidentPanel, pauseIncidentPanel, getActiveAuthSessionByTokenHash, createOccurrenceAndCloseIncident, finalizeIncidentWithRestoration, createClient, createPartnerCompany, updatePartnerCompany, getAlarmSystemByPanelIdentifier, getOperationalAlarmSystem, recordSystemKeepAlive, listSystemsConnectionStatus, deleteClient, deleteAlarmSystem, createAlarmSystem, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches } from "./db";
-import { endOperatorSessionWithHandoff, getOperatorLogoutPreview, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException } from "./operatorShiftDb";
+import { endOperatorSessionWithHandoff, getOperatorLogoutPreview, listOperatorShiftInbox, markOperatorShiftMessageRead, sendOperatorShiftMessage, sweepOperatorShiftOperations, createOperatorShiftExceptionSwap, getOperatorShiftReport, getLoginScheduleDecision, confirmLoginScheduleException, saveOperatorMessageGroup, sendOperatorGroupMessage, listOperatorMessageGroupsForUser, listOperatorMessageGroupsForManager, deactivateOperatorMessageGroup } from "./operatorShiftDb";
 import { saveOperatorShiftAssignmentWithTransaction } from "./operatorShiftPersistence";
 import { getUserShiftAttendanceWindow } from "./operatorShiftSchedule";
-import { authSessions, incidents, incidentHistory, incidentPanelLeases, occurrences, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, clients, partnerCompanies, registrationDocuments, alarmSystems, alarmEvents, alarmRemoteCommands, systemKeepAliveSamples } from "../drizzle/schema";
+import { authSessions, incidents, incidentHistory, incidentPanelLeases, occurrences, operatorAttendanceRecords, operatorShiftMessages, operatorShiftReminders, operatorShiftAssignments, operatorShiftExceptions, operatorMessageGroups, operatorMessageGroupMembers, operatorMessageGroupDeliveries, operatorMessageGroupMessages, operatorMessageGroupAudit, clients, partnerCompanies, registrationDocuments, alarmSystems, alarmEvents, alarmRemoteCommands, systemKeepAliveSamples } from "../drizzle/schema";
 
 // Explicit opt-in, Unix socket only. Never reads DATABASE_URL or connects to a VPS.
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
@@ -18,9 +18,9 @@ const until = new Date("2026-11-04T16:30:00Z");
 let pool: mysql.Pool;
 let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
-const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_panel_leases", "incident_history", "occurrences", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts", "client_procedures"];
+const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_panel_leases", "incident_history", "occurrences", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "operator_message_groups", "operator_message_group_members", "operator_message_group_messages", "operator_message_group_deliveries", "operator_message_group_audit", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts", "client_procedures"];
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0058_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {
@@ -35,7 +35,7 @@ function snapshotDDL() {
   }).join(";\n");
 }
 async function fixture() {
-  await pool.query("INSERT INTO users (id,openId,name,role) VALUES (1,'test-amanda','Amanda','operator'),(2,'test-yasmin','Yasmin','operator'),(3,'test-stephane','Stephane','operator'),(4,'test-partner','Parceiro','partner')");
+  await pool.query("INSERT INTO users (id,openId,name,role) VALUES (1,'test-amanda','Amanda','operator'),(2,'test-yasmin','Yasmin','operator'),(3,'test-stephane','Stephane','operator'),(4,'test-partner','Parceiro','partner'),(5,'test-supervisor','Supervisor','supervisor')");
   await orm.insert(authSessions).values({ id: 101, userId: 1, tokenHash: "a".repeat(64), createdAt: new Date("2026-11-04T09:50:00Z"), expiresAt: new Date("2027-01-01T00:00:00Z") });
   await orm.insert(operatorAttendanceRecords).values({ id: 201, authSessionId: 101, userId: 1, operatorName: "Amanda", role: "operator", loginAt: new Date("2026-11-04T09:50:00Z"), shiftCode: "first", workDate: "2026-11-04", scheduledStartAt: new Date("2026-11-04T10:00:00Z"), scheduledEndAt: new Date("2026-11-04T16:00:00Z") });
   await pool.query("INSERT INTO alarm_events (id,account,brand,eventCode,qualifier,description) VALUES (301,'TEST-001','COMPATEC','130','E','Alarme fictício de teste')");
@@ -109,6 +109,107 @@ describe.skipIf(!localEnabled)("escala e passagem · MariaDB isolado real", () =
     expect(messages[0]).toMatchObject({ isCurrent: true, fromOperatorName: "Amanda", toOperatorName: "Yasmin", message: handoff.message });
     expect(messages[0].readAt).not.toBeNull();
     expect(messages[1]).toMatchObject({ incidentId: null, isCurrent: true, fromOperatorName: "Yasmin", toOperatorName: "Stephane" });
+  });
+
+  it("administra grupos com histórico e entrega/leitura individual, interrompendo novas entregas a quem foi removido", async () => {
+    const group = await saveOperatorMessageGroup({ actorUserId: 5, name: "Operadoras da noite", memberUserIds: [1, 2, 3] });
+    expect(group).toMatchObject({ name: "Operadoras da noite", memberUserIds: [1, 2, 3] });
+    expect(await listOperatorMessageGroupsForManager(5)).toHaveLength(1);
+    expect(await listOperatorMessageGroupsForUser(2)).toEqual([{ id: group.id, name: "Operadoras da noite" }]);
+    await expect(saveOperatorMessageGroup({ actorUserId: 5, name: "Grupo inválido", memberUserIds: [4] })).rejects.toThrow(/usuários operacionais/i);
+    await expect(saveOperatorMessageGroup({ actorUserId: 1, name: "Sem permissão", memberUserIds: [1, 2] })).rejects.toThrow(/administrador ou supervisor/i);
+
+    const first = await sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Orientação para o turno da noite." });
+    expect(first.recipients.map((recipient) => recipient.userId)).toEqual([2, 3]);
+    let yasminInbox = await listOperatorShiftInbox(2);
+    let stephaneInbox = await listOperatorShiftInbox(3);
+    expect(yasminInbox.map((message: any) => [message.messageType, message.groupName, message.fromOperatorName])).toEqual([["group", "Operadoras da noite", "Amanda"]]);
+    expect(stephaneInbox).toHaveLength(1);
+    const yasminDeliveryId = Number((yasminInbox[0] as any).deliveryId);
+    await expect(markOperatorShiftMessageRead({ messageId: yasminDeliveryId, userId: 3, messageType: "group" })).rejects.toThrow(/não encontrada/i);
+    await markOperatorShiftMessageRead({ messageId: yasminDeliveryId, userId: 2, messageType: "group" });
+    expect(await listOperatorShiftInbox(2)).toHaveLength(0);
+    expect(await listOperatorShiftInbox(3)).toHaveLength(1);
+
+    await saveOperatorMessageGroup({ groupId: group.id, actorUserId: 5, name: "Equipe noturna", memberUserIds: [1, 2] });
+    const second = await sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Nova orientação para participantes atuais." });
+    expect(second.recipients.map((recipient) => recipient.userId)).toEqual([2]);
+    stephaneInbox = await listOperatorShiftInbox(3);
+    expect(stephaneInbox).toHaveLength(1);
+    expect(Number((stephaneInbox[0] as any).groupMessageId)).toBe(first.id);
+    expect(await listOperatorMessageGroupsForUser(3)).toHaveLength(0);
+    const memberHistory = await orm.select().from(operatorMessageGroupMembers).where(eq(operatorMessageGroupMembers.groupId, group.id));
+    expect(memberHistory.some((member: any) => Number(member.userId) === 3 && member.removedAt instanceof Date && Number(member.removedBy) === 5)).toBe(true);
+    expect(await orm.select().from(operatorMessageGroupDeliveries)).toHaveLength(3);
+    expect(await orm.select().from(operatorMessageGroupMessages)).toHaveLength(2);
+    expect((await orm.select().from(operatorMessageGroupAudit)).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("desativa grupos sem excluir dados e reaplica o upgrade dos grupos sem duplicar nem apagar conteúdo", async () => {
+    const group = await saveOperatorMessageGroup({ actorUserId: 5, name: "Equipe operacional", memberUserIds: [1, 2, 3] });
+    await sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Mensagem que deve permanecer no histórico." });
+    const source = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    const start = source.indexOf("-- Grupos de mensagens operacionais; histórico, associação de membros e recibos individuais são aditivos.");
+    const end = source.indexOf("CREATE TABLE IF NOT EXISTS `operator_shift_reminders`", start);
+    const migration = source.slice(start, end);
+    await pool.query(migration);
+    await pool.query(migration);
+    expect(await orm.select().from(operatorMessageGroups)).toHaveLength(1);
+    expect(await orm.select().from(operatorMessageGroupMessages)).toMatchObject([expect.objectContaining({ groupName: "Equipe operacional", message: "Mensagem que deve permanecer no histórico." })]);
+    expect(await orm.select().from(operatorMessageGroupDeliveries)).toHaveLength(2);
+    await deactivateOperatorMessageGroup({ groupId: group.id, actorUserId: 5 });
+    expect(await listOperatorMessageGroupsForUser(2)).toHaveLength(0);
+    expect(await orm.select().from(operatorMessageGroups)).toMatchObject([expect.objectContaining({ id: group.id, isActive: false })]);
+    expect(await orm.select().from(operatorMessageGroupMessages)).toHaveLength(1);
+    expect(await orm.select().from(operatorMessageGroupDeliveries)).toHaveLength(2);
+    const removals = (await orm.select().from(operatorMessageGroupAudit)).filter((entry) => entry.action === "member_removed");
+    expect(removals.map((entry) => Number(entry.subjectUserId)).sort()).toEqual([1, 2, 3]);
+    expect(removals.every((entry) => Number(entry.actorUserId) === 5)).toBe(true);
+    await expect(sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Tentativa em grupo desativado." })).rejects.toThrow(/inativo/i);
+  });
+
+  it("recusa envio de não membro e sessão revogada sem gravar mensagens ou afetar ocorrências", async () => {
+    const group = await saveOperatorMessageGroup({ actorUserId: 5, name: "Equipe reservada", memberUserIds: [2, 3] });
+    await expect(sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Mensagem enviada por não participante." })).rejects.toThrow(/não pertence/i);
+    await saveOperatorMessageGroup({ groupId: group.id, actorUserId: 5, name: "Equipe reservada", memberUserIds: [1, 2, 3] });
+    await orm.update(authSessions).set({ revokedAt: new Date() }).where(eq(authSessions.id, 101));
+    await expect(sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Mensagem com sessão já revogada." })).rejects.toThrow(/encerrada ou substituída/i);
+    expect(await orm.select().from(operatorMessageGroupMessages)).toHaveLength(0);
+    expect(await orm.select().from(operatorMessageGroupDeliveries)).toHaveLength(0);
+    expect(await orm.select().from(incidents)).toHaveLength(1);
+    expect(await orm.select().from(alarmEvents)).toHaveLength(1);
+  });
+
+  it("revalida participantes após esperar o lock de uma remoção concorrente", async () => {
+    const group = await saveOperatorMessageGroup({ actorUserId: 5, name: "Grupo concorrente", memberUserIds: [1, 2, 3] });
+    let unlock!: () => void;
+    let ready!: () => void;
+    const gate = new Promise<void>((resolve) => { unlock = resolve; });
+    const locked = new Promise<void>((resolve) => { ready = resolve; });
+    const removal = orm.transaction(async (tx) => {
+      await tx.select().from(operatorMessageGroups).where(eq(operatorMessageGroups.id, group.id)).for("update");
+      await tx.update(operatorMessageGroupMembers).set({ removedAt: new Date(), removedBy: 5 })
+        .where(eq(operatorMessageGroupMembers.userId, 3));
+      ready();
+      await gate;
+    });
+    await locked;
+    const sending = sendOperatorGroupMessage({ userId: 1, authSessionId: 101, groupId: group.id, message: "Envio simultâneo à remoção de uma participante." });
+    try {
+      await vi.waitFor(async () => {
+        const [waiting] = await pool.query<mysql.RowDataPacket[]>(`SELECT COUNT(*) AS n
+          FROM information_schema.PROCESSLIST
+          WHERE DB = ? AND ID <> CONNECTION_ID()
+            AND INFO LIKE '%operator_message_groups%' AND INFO LIKE '%for update%'`, [database]);
+        expect(Number(waiting[0].n)).toBeGreaterThan(0);
+      }, { timeout: 4000, interval: 25 });
+    } finally {
+      unlock();
+      await removal;
+    }
+    const sent = await sending;
+    expect(sent.recipients.map((recipient) => recipient.userId)).toEqual([2]);
+    expect(await listOperatorShiftInbox(3)).toHaveLength(0);
   });
 
   it("assume preserva id, status dispatched, anotação e registra auditoria sem criar filho", async () => {

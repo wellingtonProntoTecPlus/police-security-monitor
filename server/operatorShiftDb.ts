@@ -3,6 +3,8 @@ import {
   authSessions, incidents, incidentPanelLeases, alarmEvents, incidentHistory, users,
   operatorAttendanceRecords, operatorShiftAssignments, operatorShiftExceptions,
   operatorShiftMessages, operatorShiftReminders,
+  operatorMessageGroups, operatorMessageGroupMembers, operatorMessageGroupMessages,
+  operatorMessageGroupDeliveries, operatorMessageGroupAudit,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { isPanelLeaseActive } from "./incidentPanelLeasePolicy";
@@ -445,6 +447,153 @@ export async function listOperatorMessageRecipients(userId: number) {
   )).orderBy(users.name);
 }
 
+async function requireMessageGroupManager(db: DbLike, userId: number) {
+  const [actor] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!actor || !["admin", "supervisor"].includes(actor.role)) throw new Error("Somente administrador ou supervisor pode administrar grupos de mensagens");
+  return actor;
+}
+
+export async function listOperationalUsersForMessageGroups() {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  return db.select({ id: users.id, name: users.name, role: users.role }).from(users)
+    .where(inArray(users.role, [...OPERATIONAL_ROLES])).orderBy(users.name);
+}
+
+export async function listOperatorMessageGroupsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const [actor] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!actor || !OPERATIONAL_ROLES.includes(actor.role as any)) throw new Error("Usuário operacional não encontrado");
+  if (["admin", "supervisor"].includes(actor.role)) {
+    return db.select({ id: operatorMessageGroups.id, name: operatorMessageGroups.name }).from(operatorMessageGroups)
+      .where(eq(operatorMessageGroups.isActive, true)).orderBy(operatorMessageGroups.name);
+  }
+  return db.select({ id: operatorMessageGroups.id, name: operatorMessageGroups.name }).from(operatorMessageGroups)
+    .innerJoin(operatorMessageGroupMembers, and(
+      eq(operatorMessageGroupMembers.groupId, operatorMessageGroups.id),
+      eq(operatorMessageGroupMembers.userId, userId), isNull(operatorMessageGroupMembers.removedAt),
+    )).where(eq(operatorMessageGroups.isActive, true)).orderBy(operatorMessageGroups.name);
+}
+
+export async function listOperatorMessageGroupsForManager(actorUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await requireMessageGroupManager(db, actorUserId);
+  const groups = await db.select().from(operatorMessageGroups).orderBy(desc(operatorMessageGroups.isActive), operatorMessageGroups.name);
+  if (!groups.length) return [];
+  const members = await db.select({ groupId: operatorMessageGroupMembers.groupId, userId: users.id, name: users.name, role: users.role })
+    .from(operatorMessageGroupMembers).innerJoin(users, eq(users.id, operatorMessageGroupMembers.userId))
+    .where(and(inArray(operatorMessageGroupMembers.groupId, groups.map((group: any) => Number(group.id))), isNull(operatorMessageGroupMembers.removedAt)))
+    .orderBy(users.name);
+  return groups.map((group: any) => ({ ...group, members: members.filter((member: any) => Number(member.groupId) === Number(group.id)) }));
+}
+
+export async function saveOperatorMessageGroup(input: { groupId?: number; actorUserId: number; name: string; memberUserIds: number[] }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const name = input.name.trim();
+  if (name.length < 2 || name.length > 100) throw new Error("O nome do grupo deve ter de 2 a 100 caracteres");
+  const memberUserIds = Array.from(new Set(input.memberUserIds.filter((id) => Number.isInteger(id) && id > 0)));
+  if (!input.groupId && memberUserIds.length === 0) throw new Error("Selecione pelo menos um participante para criar o grupo");
+  return db.transaction(async (tx: DbLike) => {
+    await requireMessageGroupManager(tx, input.actorUserId);
+    const [duplicate] = await tx.select({ id: operatorMessageGroups.id }).from(operatorMessageGroups).where(and(
+      eq(operatorMessageGroups.name, name), eq(operatorMessageGroups.isActive, true),
+      input.groupId ? sql`${operatorMessageGroups.id} <> ${input.groupId}` : undefined,
+    )).limit(1);
+    if (duplicate) throw new Error("Já existe um grupo ativo com esse nome");
+    if (memberUserIds.length) {
+      const roles = await tx.select({ id: users.id, role: users.role }).from(users).where(inArray(users.id, memberUserIds));
+      if (roles.length !== memberUserIds.length || roles.some((row: any) => !OPERATIONAL_ROLES.includes(row.role))) throw new Error("Todos os participantes precisam ser usuários operacionais ativos");
+    }
+    let groupId = Number(input.groupId || 0);
+    let previousName = name;
+    if (input.groupId) {
+      const [group] = await tx.select().from(operatorMessageGroups).where(eq(operatorMessageGroups.id, input.groupId)).for("update").limit(1);
+      if (!group || !group.isActive) throw new Error("Grupo ativo não encontrado");
+      previousName = group.name;
+      await tx.update(operatorMessageGroups).set({ name, updatedBy: input.actorUserId, updatedAt: new Date() }).where(eq(operatorMessageGroups.id, group.id));
+      groupId = Number(group.id);
+      if (previousName !== name) await tx.insert(operatorMessageGroupAudit).values({ groupId, actorUserId: input.actorUserId, action: "renamed", groupName: name });
+    } else {
+      const inserted = await tx.insert(operatorMessageGroups).values({ name, createdBy: input.actorUserId, updatedBy: input.actorUserId });
+      groupId = Number(inserted[0].insertId);
+      await tx.insert(operatorMessageGroupAudit).values({ groupId, actorUserId: input.actorUserId, action: "created", groupName: name });
+    }
+    const current = await tx.select({ id: operatorMessageGroupMembers.id, userId: operatorMessageGroupMembers.userId }).from(operatorMessageGroupMembers)
+      .where(and(eq(operatorMessageGroupMembers.groupId, groupId), isNull(operatorMessageGroupMembers.removedAt))).for("update");
+    const currentIds = new Set<number>(current.map((row: any) => Number(row.userId)));
+    const desiredIds = new Set(memberUserIds);
+    const toRemove = current.filter((row: any) => !desiredIds.has(Number(row.userId)));
+    const toAdd = memberUserIds.filter((userId) => !currentIds.has(userId));
+    const now = new Date();
+    for (const row of toRemove) {
+      await tx.update(operatorMessageGroupMembers).set({ removedBy: input.actorUserId, removedAt: now }).where(eq(operatorMessageGroupMembers.id, row.id));
+      await tx.insert(operatorMessageGroupAudit).values({ groupId, actorUserId: input.actorUserId, action: "member_removed", subjectUserId: Number(row.userId), groupName: name, createdAt: now });
+    }
+    for (const userId of toAdd) {
+      await tx.insert(operatorMessageGroupMembers).values({ groupId, userId, addedBy: input.actorUserId, addedAt: now });
+      await tx.insert(operatorMessageGroupAudit).values({ groupId, actorUserId: input.actorUserId, action: "member_added", subjectUserId: userId, groupName: name, createdAt: now });
+    }
+    return { id: groupId, name, memberUserIds };
+  });
+}
+
+export async function deactivateOperatorMessageGroup(input: { groupId: number; actorUserId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  await db.transaction(async (tx: DbLike) => {
+    await requireMessageGroupManager(tx, input.actorUserId);
+    const [group] = await tx.select().from(operatorMessageGroups).where(eq(operatorMessageGroups.id, input.groupId)).for("update").limit(1);
+    if (!group || !group.isActive) throw new Error("Grupo ativo não encontrado");
+    const now = new Date();
+    const members = await tx.select({ userId: operatorMessageGroupMembers.userId }).from(operatorMessageGroupMembers)
+      .where(and(eq(operatorMessageGroupMembers.groupId, input.groupId), isNull(operatorMessageGroupMembers.removedAt))).for("update");
+    await tx.update(operatorMessageGroups).set({ isActive: false, updatedBy: input.actorUserId, updatedAt: now }).where(eq(operatorMessageGroups.id, input.groupId));
+    await tx.update(operatorMessageGroupMembers).set({ removedBy: input.actorUserId, removedAt: now }).where(and(eq(operatorMessageGroupMembers.groupId, input.groupId), isNull(operatorMessageGroupMembers.removedAt)));
+    await tx.insert(operatorMessageGroupAudit).values([
+      { groupId: input.groupId, actorUserId: input.actorUserId, action: "deactivated", groupName: group.name, createdAt: now },
+      ...members.map((member: any) => ({ groupId: input.groupId, actorUserId: input.actorUserId, action: "member_removed", subjectUserId: Number(member.userId), groupName: group.name, createdAt: now })),
+    ]);
+  });
+  return { success: true };
+}
+
+export async function sendOperatorGroupMessage(input: { userId: number; authSessionId: number; groupId: number; message: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const message = input.message.trim();
+  if (message.length < 10 || message.length > 4000) throw new Error("Escreva uma mensagem de 10 a 4000 caracteres");
+  return db.transaction(async (tx: DbLike) => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("update").limit(1);
+    const [session] = await tx.select().from(authSessions).where(and(eq(authSessions.id, input.authSessionId), eq(authSessions.userId, input.userId), isNull(authSessions.revokedAt), gt(authSessions.expiresAt, new Date()))).for("update").limit(1);
+    if (!session) throw new Error("A sessão foi encerrada ou substituída; faça login novamente");
+    const [sender] = await tx.select({ name: users.name, role: users.role }).from(users).where(eq(users.id, input.userId)).limit(1);
+    if (!sender || !OPERATIONAL_ROLES.includes(sender.role as any)) throw new Error("Usuário operacional não encontrado");
+    const [group] = await tx.select().from(operatorMessageGroups).where(and(eq(operatorMessageGroups.id, input.groupId), eq(operatorMessageGroups.isActive, true))).for("update").limit(1);
+    if (!group) throw new Error("Grupo de mensagens não encontrado ou inativo");
+    const actorCanManage = ["admin", "supervisor"].includes(sender.role);
+    const senderMembership = await tx.select({ id: operatorMessageGroupMembers.id }).from(operatorMessageGroupMembers).where(and(eq(operatorMessageGroupMembers.groupId, input.groupId), eq(operatorMessageGroupMembers.userId, input.userId), isNull(operatorMessageGroupMembers.removedAt))).limit(1);
+    if (!actorCanManage && !senderMembership.length) throw new Error("Você não pertence a este grupo");
+    const recipients = await tx.select({ id: users.id, name: users.name }).from(operatorMessageGroupMembers)
+      .innerJoin(users, eq(users.id, operatorMessageGroupMembers.userId))
+      .where(and(eq(operatorMessageGroupMembers.groupId, input.groupId), isNull(operatorMessageGroupMembers.removedAt), inArray(users.role, [...OPERATIONAL_ROLES])));
+    const deliveries = recipients.filter((person: any) => Number(person.id) !== input.userId);
+    if (!deliveries.length) throw new Error("O grupo não tem outros participantes ativos para receber a mensagem");
+    const attendance = await ensureSessionAttendance(tx, input.userId, input.authSessionId, session.createdAt, new Date());
+    const now = new Date();
+    const inserted = await tx.insert(operatorMessageGroupMessages).values({ groupId: input.groupId, groupName: group.name,
+      fromUserId: input.userId, fromOperatorName: attendance.operatorName, fromAttendanceId: attendance.id, message, createdAt: now });
+    const groupMessageId = Number(inserted[0].insertId);
+    await tx.insert(operatorMessageGroupDeliveries).values(deliveries.map((recipient: any) => ({
+      groupMessageId, userId: Number(recipient.id), recipientName: recipient.name || `Operador ${recipient.id}`, deliveredAt: now,
+    })));
+    return { id: groupMessageId, groupId: input.groupId, groupName: group.name, fromUserId: input.userId,
+      fromOperatorName: attendance.operatorName, recipients: deliveries.map((recipient: any) => ({ userId: Number(recipient.id), name: recipient.name || `Operador ${recipient.id}` })) };
+  }, { isolationLevel: "read committed" });
+}
+
 export async function sendOperatorShiftMessage(input: { userId: number; authSessionId: number; toUserId: number; message: string }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -477,15 +626,39 @@ export async function listOperatorShiftInbox(userId: number) {
   const unreadDirectMessages = await db.select().from(operatorShiftMessages).where(and(
     eq(operatorShiftMessages.toUserId, userId), isNull(operatorShiftMessages.incidentId), isNull(operatorShiftMessages.readAt),
   )).orderBy(desc(operatorShiftMessages.createdAt), desc(operatorShiftMessages.id)).limit(50);
+  const unreadGroupMessages = await db.select({ delivery: operatorMessageGroupDeliveries, groupMessage: operatorMessageGroupMessages })
+    .from(operatorMessageGroupDeliveries).innerJoin(operatorMessageGroupMessages, eq(operatorMessageGroupDeliveries.groupMessageId, operatorMessageGroupMessages.id))
+    .where(and(eq(operatorMessageGroupDeliveries.userId, userId), isNull(operatorMessageGroupDeliveries.readAt)))
+    .orderBy(desc(operatorMessageGroupDeliveries.deliveredAt), desc(operatorMessageGroupDeliveries.id)).limit(50);
   return [
-    ...activeIncidentMessages.map((row: any) => ({ ...row.message, incidentStatus: row.incidentStatus })),
-    ...unreadDirectMessages.map((message: any) => ({ ...message, incidentStatus: null })),
-  ];
+    ...activeIncidentMessages.map((row: any) => ({ ...row.message, incidentStatus: row.incidentStatus, messageType: "direct" as const })),
+    ...unreadDirectMessages.map((message: any) => ({ ...message, incidentStatus: null, messageType: "direct" as const })),
+    ...unreadGroupMessages.map((row: any) => ({
+      id: -Number(row.delivery.id), deliveryId: Number(row.delivery.id), messageId: Number(row.groupMessage.id), groupMessageId: Number(row.groupMessage.id),
+      groupId: Number(row.groupMessage.groupId), groupName: row.groupMessage.groupName,
+      fromUserId: Number(row.groupMessage.fromUserId), fromOperatorName: row.groupMessage.fromOperatorName,
+      toUserId: Number(row.delivery.userId), toOperatorName: row.delivery.recipientName,
+      fromAttendanceId: Number(row.groupMessage.fromAttendanceId), message: row.groupMessage.message,
+      createdAt: row.groupMessage.createdAt, deliveredAt: row.delivery.deliveredAt, readAt: row.delivery.readAt,
+      incidentId: null, account: null, incidentStatus: null, messageType: "group" as const,
+    })),
+  ].sort((left: any, right: any) => new Date(right.deliveredAt || right.createdAt).getTime() - new Date(left.deliveredAt || left.createdAt).getTime()).slice(0, 100);
 }
 
-export async function markOperatorShiftMessageRead(input: { messageId: number; userId: number }) {
+export async function markOperatorShiftMessageRead(input: { messageId: number; userId: number; messageType?: "direct" | "group" }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
+  if (input.messageType === "group") {
+    const updated = await db.update(operatorMessageGroupDeliveries).set({ readAt: new Date() }).where(and(
+      eq(operatorMessageGroupDeliveries.id, input.messageId), eq(operatorMessageGroupDeliveries.userId, input.userId), isNull(operatorMessageGroupDeliveries.readAt),
+    ));
+    if (Number(updated[0]?.affectedRows) !== 1) {
+      const [owned] = await db.select({ id: operatorMessageGroupDeliveries.id }).from(operatorMessageGroupDeliveries)
+        .where(and(eq(operatorMessageGroupDeliveries.id, input.messageId), eq(operatorMessageGroupDeliveries.userId, input.userId))).limit(1);
+      if (!owned) throw new Error("Mensagem de grupo não encontrada para este operador");
+    }
+    return { success: true };
+  }
   const [message] = await db.select({ id: operatorShiftMessages.id }).from(operatorShiftMessages).where(and(eq(operatorShiftMessages.id, input.messageId), eq(operatorShiftMessages.toUserId, input.userId))).limit(1);
   if (!message) throw new Error("Mensagem não encontrada para este operador");
   await db.update(operatorShiftMessages).set({ readAt: new Date() }).where(and(

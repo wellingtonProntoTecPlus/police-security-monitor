@@ -43,7 +43,7 @@ export interface IncidentStateUpdate {
 
 export type OperatorShiftNotice =
   | { kind: "shift_reminder"; reminderId: number; userId: number; operatorName: string; shiftCode: "first" | "second" | "third" | "commercial"; minutesBefore: 20 | 40; shiftEndsAt: string | Date }
-  | { kind: "shift_message"; messageId: number; userId: number; fromOperatorName: string; toOperatorName: string; incidentId: number | null; account: string | null };
+  | { kind: "shift_message"; messageId: number; userId: number; fromOperatorName: string; toOperatorName: string; incidentId: number | null; account: string | null; messageType?: "direct" | "group" };
 
 // A single authenticated connection per tab, even when both layout and Dashboard subscribe.
 let sharedSocket: Socket | null = null;
@@ -78,7 +78,7 @@ export function useSocket(options: { operationalNoticesOnly?: boolean; incidentU
     const onAlarm = (event: AlarmEvent) => setRealtimeEvents((previous) => [event, ...previous].slice(0, 200));
     const onIncident = (event: IncidentStateUpdate) => setIncidentUpdates((previous) => [event, ...previous].slice(0, 100));
     const onNotice = (event: OperatorShiftNotice) => setOperatorNotices((previous) => [...previous.filter((notice) => !(
-      notice.kind === event.kind && (notice.kind === "shift_reminder" && event.kind === "shift_reminder" ? notice.reminderId === event.reminderId : notice.kind === "shift_message" && event.kind === "shift_message" && notice.messageId === event.messageId)
+      notice.kind === event.kind && (notice.kind === "shift_reminder" && event.kind === "shift_reminder" ? notice.reminderId === event.reminderId : notice.kind === "shift_message" && event.kind === "shift_message" && notice.messageId === event.messageId && (notice.messageType || "direct") === (event.messageType || "direct"))
     )), event].slice(-100));
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);

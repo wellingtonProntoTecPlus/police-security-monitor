@@ -126,6 +126,73 @@ export const operatorShiftMessages = mysqlTable("operator_shift_messages", {
   index("operator_shift_message_active_incident_idx").on(table.incidentId, table.isCurrent, table.toUserId, table.createdAt),
 ]);
 
+/** Grupos persistentes usados apenas para recados internos entre usuários operacionais. */
+export const operatorMessageGroups = mysqlTable("operator_message_groups", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdBy: int("createdBy").notNull(),
+  updatedBy: int("updatedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("operator_message_group_active_name_idx").on(table.isActive, table.name),
+]);
+
+/** Histórico de participação: remoções são marcadas, não apagadas. */
+export const operatorMessageGroupMembers = mysqlTable("operator_message_group_members", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  groupId: bigint("groupId", { mode: "number" }).notNull(),
+  userId: int("userId").notNull(),
+  addedBy: int("addedBy").notNull(),
+  addedAt: timestamp("addedAt").defaultNow().notNull(),
+  removedBy: int("removedBy"),
+  removedAt: timestamp("removedAt"),
+}, (table) => [
+  index("operator_message_group_member_current_idx").on(table.groupId, table.userId, table.removedAt),
+  index("operator_message_group_member_user_idx").on(table.userId, table.removedAt, table.groupId),
+]);
+
+/** Mensagem única do grupo; conteúdo e autoria são preservados independentemente de leituras. */
+export const operatorMessageGroupMessages = mysqlTable("operator_message_group_messages", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  groupId: bigint("groupId", { mode: "number" }).notNull(),
+  groupName: varchar("groupName", { length: 100 }).notNull(),
+  fromUserId: int("fromUserId").notNull(),
+  fromOperatorName: varchar("fromOperatorName", { length: 255 }).notNull(),
+  fromAttendanceId: bigint("fromAttendanceId", { mode: "number" }).notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("operator_group_message_history_idx").on(table.groupId, table.createdAt),
+]);
+
+/** Recibo por participante: a leitura de uma pessoa não altera os demais recibos. */
+export const operatorMessageGroupDeliveries = mysqlTable("operator_message_group_deliveries", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  groupMessageId: bigint("groupMessageId", { mode: "number" }).notNull(),
+  userId: int("userId").notNull(),
+  recipientName: varchar("recipientName", { length: 255 }).notNull(),
+  deliveredAt: timestamp("deliveredAt").defaultNow().notNull(),
+  readAt: timestamp("readAt"),
+}, (table) => [
+  uniqueIndex("operator_group_delivery_unique").on(table.groupMessageId, table.userId),
+  index("operator_group_delivery_inbox_idx").on(table.userId, table.readAt, table.deliveredAt),
+]);
+
+/** Auditoria de criação, alteração do nome e associação de membros. */
+export const operatorMessageGroupAudit = mysqlTable("operator_message_group_audit", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  groupId: bigint("groupId", { mode: "number" }).notNull(),
+  actorUserId: int("actorUserId").notNull(),
+  action: mysqlEnum("action", ["created", "renamed", "member_added", "member_removed", "deactivated"]).notNull(),
+  subjectUserId: int("subjectUserId"),
+  groupName: varchar("groupName", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("operator_message_group_audit_history_idx").on(table.groupId, table.createdAt),
+]);
+
 // ============================================================
 // EMPRESA GESTORA
 // ============================================================

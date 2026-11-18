@@ -1756,17 +1756,32 @@ export const appRouter = router({
     }),
     reportUsers: supervisorProcedure.query(() => operatorShiftDb.listOperatorShiftAssignments()),
     recipients: operatorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorMessageRecipients(ctx.user.id)),
+    messageGroups: operatorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorMessageGroupsForUser(ctx.user.id)),
+    managedMessageGroups: supervisorProcedure.query(({ ctx }) => operatorShiftDb.listOperatorMessageGroupsForManager(ctx.user.id)),
+    messageGroupUsers: supervisorProcedure.query(() => operatorShiftDb.listOperationalUsersForMessageGroups()),
+    saveMessageGroup: supervisorProcedure.input(z.object({
+      groupId: z.number().int().positive().optional(),
+      name: z.string().trim().min(2).max(100),
+      memberUserIds: z.array(z.number().int().positive()).max(200),
+    }).strict()).mutation(({ input, ctx }) => operatorShiftDb.saveOperatorMessageGroup({ ...input, actorUserId: ctx.user.id })),
+    deactivateMessageGroup: supervisorProcedure.input(z.object({ groupId: z.number().int().positive() }).strict()).mutation(({ input, ctx }) => operatorShiftDb.deactivateOperatorMessageGroup({ ...input, actorUserId: ctx.user.id })),
     sendMessage: operatorProcedure.input(z.object({ toUserId: z.number().int().positive(), message: z.string().trim().min(10).max(4000) })).mutation(async ({ input, ctx }) => {
       if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
       const result = await operatorShiftDb.sendOperatorShiftMessage({ ...input, userId: ctx.user.id, authSessionId: ctx.authSessionId });
       emitOperatorShiftNotice({ kind: "shift_message", messageId: result.id, userId: result.toUserId, fromOperatorName: result.fromOperatorName, toOperatorName: result.toOperatorName, incidentId: null, account: null });
       return { success: true, id: result.id };
     }),
+    sendGroupMessage: operatorProcedure.input(z.object({ groupId: z.number().int().positive(), message: z.string().trim().min(10).max(4000) }).strict()).mutation(async ({ input, ctx }) => {
+      if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
+      const result = await operatorShiftDb.sendOperatorGroupMessage({ ...input, userId: ctx.user.id, authSessionId: ctx.authSessionId });
+      for (const recipient of result.recipients) emitOperatorShiftNotice({ kind: "shift_message", messageId: result.id, userId: recipient.userId, fromOperatorName: result.fromOperatorName, toOperatorName: result.groupName, incidentId: null, account: null, messageType: "group" });
+      return { success: true, id: result.id, recipientCount: result.recipients.length };
+    }),
     inbox: operatorProcedure.query(async ({ ctx }) => {
       const messages = await operatorShiftDb.listOperatorShiftInbox(ctx.user.id);
       return messages.map((message) => ({ ...message, notificationSessionId: ctx.authSessionId ?? null }));
     }),
-    markRead: operatorProcedure.input(z.object({ messageId: z.number().int().positive() })).mutation(({ input, ctx }) => operatorShiftDb.markOperatorShiftMessageRead({ messageId: input.messageId, userId: ctx.user.id })),
+    markRead: operatorProcedure.input(z.object({ messageId: z.number().int().positive(), messageType: z.enum(["direct", "group"]).optional() })).mutation(({ input, ctx }) => operatorShiftDb.markOperatorShiftMessageRead({ messageId: input.messageId, userId: ctx.user.id, messageType: input.messageType })),
     pendingReminders: operatorProcedure.query(({ ctx }) => {
       if (!ctx.authSessionId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão operacional não identificada" });
       return operatorShiftDb.listPendingOperatorShiftReminders({ userId: ctx.user.id, authSessionId: ctx.authSessionId });

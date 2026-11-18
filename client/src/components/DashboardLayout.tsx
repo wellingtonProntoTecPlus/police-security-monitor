@@ -21,7 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { AlertTriangle, LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X, CalendarClock, MessageSquareText, ExternalLink } from "lucide-react";
+import { AlertTriangle, LayoutDashboard, LogOut, PanelLeft, Users, Building2, Shield, Camera, Settings, Radio, KeyRound, UserRound, X, CalendarClock, Bell, ExternalLink } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -177,9 +177,10 @@ function DashboardLayoutContent({
   const inboxQuery = trpc.operatorShift.inbox.useQuery(undefined, {
     enabled: isOperational && scheduleConfirmed,
     refetchOnWindowFocus: true,
-    refetchInterval: (query) => query.state.data?.some((message) => Boolean(message.incidentId && message.incidentStatus && message.incidentStatus !== "closed")) ? 15_000 : false,
+    refetchInterval: (query) => query.state.data?.length ? 15_000 : false,
     retry: false,
   });
+  const inboxMessages = inboxQuery.data || [];
   const remindersQuery = trpc.operatorShift.pendingReminders.useQuery(undefined, { enabled: isOperational && scheduleConfirmed, refetchOnWindowFocus: true, retry: false });
   const { operatorNotices, incidentUpdates, connected: noticesConnected } = useSocket({ operationalNoticesOnly: true, incidentUpdatesOnly: true, enabled: isOperational && scheduleConfirmed });
   const noticeRefetchers = useRef({ inbox: inboxQuery.refetch, reminders: remindersQuery.refetch });
@@ -193,15 +194,21 @@ function DashboardLayoutContent({
     setHandledInboxMessageIds((previous) => new Set(previous).add(id));
     setActiveInboxMessageId(null);
   };
-  const confirmMessageRead = async (id: number) => {
+  const confirmMessageRead = async (id: number, messageType: "direct" | "group" = "direct") => {
     setNoticeError("");
-    try { await markMessageRead.mutateAsync({ messageId: id }); recordMessageSeen(id); }
+    try {
+      const message = inboxMessages.find((item) => Number(item.id) === id);
+      const messageId = messageType === "group" ? Number(message?.deliveryId || 0) : id;
+      if (!messageId) throw new Error("Não foi possível identificar o recibo desta mensagem.");
+      await markMessageRead.mutateAsync({ messageId, messageType });
+      recordMessageSeen(id);
+    }
     catch (error) { setNoticeError(error instanceof Error ? error.message : "Não foi possível registrar a leitura. Tente novamente."); }
   };
   const viewIncidentMessage = async (id: number, incidentId: number) => {
     setNoticeError("");
     try {
-      await markMessageRead.mutateAsync({ messageId: id });
+      await markMessageRead.mutateAsync({ messageId: id, messageType: "direct" });
       recordMessageSeen(id);
       setLocation(`/dashboard?incidentId=${incidentId}`);
     } catch (error) { setNoticeError(error instanceof Error ? error.message : "Não foi possível abrir o atendimento. Tente novamente."); }
@@ -411,22 +418,27 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3">
-            {scheduleConfirmed && inboxQuery.data?.some((message) => message.incidentId && message.incidentStatus && message.incidentStatus !== "closed") && (
-              <section aria-label="Mensagens de atendimentos pendentes" className="mb-2 rounded-lg border border-amber-500/50 bg-amber-500/10 text-card-foreground">
-                <button type="button" aria-label="Ver mensagens de atendimentos pendentes" title="Mensagens de atendimentos pendentes: disponíveis até finalizar" className="flex min-h-10 w-full items-center justify-center gap-2 px-2 py-2 text-sm font-semibold text-amber-300" onClick={() => {
-                  const message = inboxQuery.data?.find((item) => Boolean(item.incidentId && item.incidentStatus && item.incidentStatus !== "closed"));
+            {scheduleConfirmed && inboxMessages.length > 0 && (
+              <section aria-label="Notificações de mensagens pendentes" className="mb-2 rounded-lg border border-amber-500/50 bg-amber-500/10 text-card-foreground">
+                <button type="button" aria-label={`Ver notificações de mensagens (${inboxMessages.length})`} title="Sino de mensagens: recados individuais, de grupo e de atendimento" className="flex min-h-10 w-full items-center justify-center gap-2 px-2 py-2 text-sm font-semibold text-amber-300 group-data-[collapsible=icon]:px-0" onClick={() => {
+                  const message = inboxMessages[0];
                   if (message) { setNoticeError(""); setActiveInboxMessageId(Number(message.id)); }
                 }}>
-                  <MessageSquareText className="h-4 w-4 shrink-0" />
+                  <span className="relative block h-5 w-5 shrink-0">
+                    <Bell className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span aria-hidden="true" className="absolute -right-2 -top-1 hidden min-w-3.5 rounded-full bg-amber-400 px-0.5 text-center text-[9px] leading-3.5 text-black group-data-[collapsible=icon]:block">{inboxMessages.length > 99 ? "99+" : inboxMessages.length}</span>
+                  </span>
                   <span className="group-data-[collapsible=icon]:hidden">Mensagens</span>
-                  <span className="rounded bg-amber-500/25 px-1 text-xs">{inboxQuery.data.filter((message) => message.incidentId && message.incidentStatus && message.incidentStatus !== "closed").length}</span>
+                  <span className="rounded bg-amber-500/25 px-1 text-xs group-data-[collapsible=icon]:hidden">{inboxMessages.length}</span>
                 </button>
                 <div className="max-h-[25vh] space-y-2 overflow-y-auto p-2 pt-0 group-data-[collapsible=icon]:hidden">
-                  {inboxQuery.data.filter((message) => message.incidentId && message.incidentStatus && message.incidentStatus !== "closed").map((message) => (
+                  {inboxMessages.map((message) => (
                     <article key={message.id} className="rounded-md bg-background/70 p-2">
-                      <p className="text-xs font-semibold">{message.fromOperatorName} → {message.toOperatorName} · Conta {message.account || "—"} · #{message.incidentId}</p>
+                      <p className="text-xs font-semibold">{message.fromOperatorName} → {message.messageType === "group" ? `Grupo ${message.groupName}` : message.incidentId ? `${message.toOperatorName} · Conta ${message.account || "—"} · #${message.incidentId}` : message.toOperatorName}</p>
                       <p className="mt-1 whitespace-pre-wrap text-xs">{message.message}</p>
-                      <Button size="sm" variant="outline" className="mt-2 h-8 gap-1.5 border-amber-500/50 text-amber-200" onClick={() => setLocation(`/dashboard?incidentId=${message.incidentId}`)}><ExternalLink className="h-3.5 w-3.5" /> Abrir atendimento</Button>
+                      {message.incidentId && message.incidentStatus && message.incidentStatus !== "closed"
+                        ? <Button size="sm" variant="outline" className="mt-2 h-8 gap-1.5 border-amber-500/50 text-amber-200" onClick={() => void viewIncidentMessage(Number(message.id), Number(message.incidentId))}><ExternalLink className="h-3.5 w-3.5" /> Abrir atendimento</Button>
+                        : <Button size="sm" variant="outline" className="mt-2 h-8 gap-1.5 border-amber-500/50 text-amber-200" onClick={() => { setNoticeError(""); setActiveInboxMessageId(Number(message.id)); }}>Ver mensagem</Button>}
                     </article>
                   ))}
                 </div>
@@ -557,15 +569,15 @@ function DashboardLayoutContent({
           const message = inboxQuery.data.find((entry) => Number(entry.id) === activeInboxMessageId)!;
           return <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Mensagem de passagem de turno">
             <div className="w-full max-w-lg rounded-xl border border-primary/40 bg-card p-5 text-card-foreground shadow-2xl">
-              <p className="text-lg font-semibold">Mensagem de {message.fromOperatorName} para {message.toOperatorName}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{message.account ? `Conta ${message.account}` : "Recado de passagem"}{message.incidentId ? ` · atendimento #${message.incidentId}` : ""}</p>
+              <p className="text-lg font-semibold">{message.messageType === "group" ? `Mensagem de ${message.fromOperatorName} para o grupo ${message.groupName}` : `Mensagem de ${message.fromOperatorName} para ${message.toOperatorName}`}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{message.messageType === "group" ? "Recado para a equipe" : message.account ? `Conta ${message.account}` : "Recado de passagem"}{message.incidentId ? ` · atendimento #${message.incidentId}` : ""}</p>
               <p className="my-4 whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm">{message.message}</p>
               <p className="text-xs text-muted-foreground">Recebida em {new Date(message.createdAt).toLocaleString("pt-BR")}</p>
               {noticeError ? <p role="alert" className="mt-2 text-sm text-destructive">{noticeError}</p> : null}
               <div className="mt-4 flex justify-end gap-2">
                 {message.incidentId && message.incidentStatus && message.incidentStatus !== "closed"
                   ? <Button disabled={markMessageRead.isPending} onClick={() => { void viewIncidentMessage(Number(message.id), Number(message.incidentId)); }}>VER AGORA</Button>
-                  : <Button disabled={markMessageRead.isPending} onClick={() => { void confirmMessageRead(Number(message.id)); }}>Entendi</Button>}
+                  : <Button disabled={markMessageRead.isPending} onClick={() => { void confirmMessageRead(Number(message.id), message.messageType || "direct"); }}>Entendi</Button>}
               </div>
             </div>
           </div>;

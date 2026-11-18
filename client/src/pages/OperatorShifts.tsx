@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { CalendarClock, RefreshCw, Users } from "lucide-react";
 import { OPERATOR_SHIFT_LABELS, localDateKey, type OperatorShiftCode } from "@shared/operatorShift";
 import { buildOperatorAttendanceCsv, OPERATOR_SCHEDULE_REASON_LABELS } from "./operatorAttendanceExport";
+import OperatorMessageGroupManager from "@/components/OperatorMessageGroupManager";
 
 const ROLE_LABELS: Record<string, string> = { admin: "Administrador", supervisor: "Supervisor", operator: "Operador" };
 const LOGOUT_LABELS: Record<string, string> = { logout: "Logoff normal", session_replaced: "Sessão substituída por novo login", session_expired: "Sessão expirada", revoked: "Sessão revogada" };
@@ -101,6 +102,8 @@ export default function OperatorShiftsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <OperatorMessageGroupManager />
 
       <Card><CardHeader><CardTitle className="text-base">Escala prevista no período</CardTitle><p className="text-xs text-muted-foreground">A escala é uma previsão. Login e logoff são registros reais independentes; trabalhar num dia diferente não muda o ciclo permanente.</p></CardHeader><CardContent>
         <div className="max-h-[320px] overflow-auto rounded border border-border"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-muted"><tr><th className="p-2">Data</th><th className="p-2">Operador</th><th className="p-2">Turno</th><th className="p-2">Origem</th></tr></thead><tbody>

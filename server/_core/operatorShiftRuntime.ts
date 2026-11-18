@@ -1,6 +1,6 @@
 export type OperatorShiftNotice =
   | { kind: "shift_reminder"; reminderId: number; authSessionId: number; userId: number; operatorName: string; shiftCode: "first" | "second" | "third" | "commercial"; minutesBefore: 20 | 40; shiftEndsAt: Date }
-  | { kind: "shift_message"; messageId: number; userId: number; fromOperatorName: string; toOperatorName: string; incidentId: number | null; account: string | null };
+  | { kind: "shift_message"; messageId: number; userId: number; fromOperatorName: string; toOperatorName: string; incidentId: number | null; account: string | null; messageType?: "direct" | "group" };
 
 type NoticeEmitter = (notice: OperatorShiftNotice) => void;
 let emitNotice: NoticeEmitter | null = null;

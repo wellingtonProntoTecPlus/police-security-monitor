@@ -22,6 +22,7 @@ const mockState = vi.hoisted(() => ({
   remindersQueryResults: [] as Array<ReturnType<typeof vi.fn>>,
   dynamicQueryObjects: false,
   setLocation: vi.fn(),
+  markRead: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({ user: mockState.user, loading: false, error: null, refresh: mockState.refresh, logout: mockState.logout }),
@@ -60,10 +61,12 @@ vi.mock("@/lib/trpc", () => {
           mockState.remindersQueryResults.push(refetch);
           return { data: mockState.remindersData, isLoading: false, isFetching: false, error: null, refetch };
         } },
-        markRead: { useMutation: mutation },
+        markRead: { useMutation: () => ({ ...mutation(), mutateAsync: mockState.markRead }) },
         acknowledgeReminder: { useMutation: mutation },
         recipients: { useQuery: () => ({ data: [], error: null }) },
+        messageGroups: { useQuery: () => ({ data: [], error: null, isLoading: false }) },
         sendMessage: { useMutation: mutation },
+        sendGroupMessage: { useMutation: mutation },
       },
     },
   };
@@ -172,18 +175,37 @@ describe("DashboardLayout — logout seguro por preview", () => {
     await user.click(screen.getByRole("button", { name: "VER AGORA" }));
     await waitFor(() => expect(mockState.setLocation).toHaveBeenCalledWith("/dashboard?incidentId=31"));
     expect(screen.queryByRole("dialog", { name: /mensagem de passagem/i })).toBeNull();
-    expect(screen.getByRole("region", { name: "Mensagens de atendimentos pendentes" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Notificações de mensagens pendentes" })).toBeTruthy();
     expect(screen.getByText("Cliente confirmou o acesso do técnico amanhã cedo.")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Mensagens de atendimentos pendentes" }).className).not.toContain("fixed");
+    expect(screen.getByRole("region", { name: "Notificações de mensagens pendentes" }).className).not.toContain("fixed");
     rendered.unmount();
     renderLayout();
     expect(screen.queryByRole("dialog", { name: /mensagem de passagem/i })).toBeNull();
-    expect(screen.getByRole("button", { name: "Ver mensagens de atendimentos pendentes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ver notificações de mensagens (1)" })).toBeTruthy();
     mockState.inboxData = [];
     cleanup();
     renderLayout();
-    expect(screen.queryByRole("region", { name: "Mensagens de atendimentos pendentes" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Notificações de mensagens pendentes" })).toBeNull();
   });
+
+  it("usa o sino e identifica mensagens recebidas por grupo", async () => {
+    mockState.inboxData = [{
+      id: -71, deliveryId: 71, messageId: 91, messageType: "group", groupId: 8,
+      groupName: "Operadoras da noite", fromOperatorName: "Amanda", toOperatorName: "Yasmin",
+      incidentId: null, account: null, message: "Atenção para a troca de turno.", createdAt: "2026-11-18T20:00:00.000Z",
+    }];
+    renderLayout();
+    expect(screen.getByRole("button", { name: "Ver notificações de mensagens (1)" })).toBeTruthy();
+    expect(await screen.findByText("Mensagem de Amanda para o grupo Operadoras da noite")).toBeTruthy();
+    expect(screen.getByText("Recado para a equipe")).toBeTruthy();
+    expect(screen.getAllByText("Atenção para a troca de turno.")).toHaveLength(2);
+    const bell = screen.getByRole("button", { name: "Ver notificações de mensagens (1)" }).querySelector("svg");
+    expect(bell?.classList.contains("lucide-bell")).toBe(true);
+    expect(bell?.classList.contains("shrink-0")).toBe(true);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Entendi" }));
+    expect(mockState.markRead).toHaveBeenCalledWith({ messageId: 71, messageType: "group" });
+  });
+
   it.each([40, 20])("exibe o texto do reminder de término em %i minutos", async (minutesBefore) => {
     mockState.remindersData = [{ reminder: { id: minutesBefore, minutesBefore, shiftEndsAt: "2099-12-31T23:59:00.000Z" } }];
     renderLayout();
