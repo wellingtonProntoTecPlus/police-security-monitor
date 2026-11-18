@@ -2337,10 +2337,14 @@ export default function Dashboard() {
                 <div className="flex justify-end"><Button variant="outline" onClick={() => setStandaloneRemoteRequest(null)}>Cancelar</Button></div>
               </div> : <p role="alert" className="mt-4 rounded-md border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">Não foi possível carregar a central cadastrada. Nenhum comando está habilitado.</p>
             ) : <>
+              {standaloneRemoteMode === "total" && <p role="status" className="mt-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                Estado na lista: <strong>{standaloneRemoteRequest.commandType === "arm" ? "DESARMADO" : "ARMADO"}</strong>. Esta opção permite somente <strong>{standaloneRemoteRequest.commandType === "arm" ? "ARMAR" : "DESARMAR"} total</strong>.
+              </p>}
               <div className="mt-4 space-y-3">
-                <label className="block text-sm font-medium text-foreground">Descrição / motivo
+                <label className="block text-sm font-medium text-foreground">Descrição / motivo (mínimo 5 caracteres)
                   <Textarea className="mt-1 min-h-24" value={standaloneRemoteReason} onChange={(event) => setStandaloneRemoteReason(event.target.value)} placeholder={standaloneRemoteRequest.commandType === "arm" ? "Ex.: empresa encerrada; responsável solicitou o Arme por telefone." : "Ex.: Desarmado para entrada de funcionários."} />
                 </label>
+                {standaloneRemoteReason.trim().length < 5 && <p className="text-xs text-amber-200">Digite um motivo com pelo menos 5 caracteres para liberar a confirmação.</p>}
                 <div className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs leading-relaxed text-cyan-50"><strong>Registro obrigatório:</strong> o operador autenticado e a descrição/motivo ficarão no histórico do comando. A confirmação da central será registrada separadamente. Os registros anteriores são preservados.</div>
               </div>
               <div className="mt-5 flex justify-end gap-2">

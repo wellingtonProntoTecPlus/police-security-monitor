@@ -664,16 +664,44 @@ describe("Dashboard — Ocorrência Manual", () => {
     await user.click(screen.getByRole("button", { name: /^Desarmados \(1\)$/i }));
     await user.click(screen.getByRole("button", { name: /^ARMAR$/ }));
     expect(screen.getByRole("heading", { name: "Comando sem ocorrência" })).toBeTruthy();
-    const totalReason = screen.getByRole("textbox", { name: "Descrição / motivo" });
+    expect(screen.getByRole("status").textContent).toContain("DESARMADO");
+    expect(screen.getByRole("status").textContent).toContain("somente ARMAR total");
+    const totalReason = screen.getByRole("textbox", { name: "Descrição / motivo (mínimo 5 caracteres)" });
     await user.type(totalReason, "Cliente solicitou pelo telefone");
     await user.click(screen.getByRole("tab", { name: "Setores" }));
     expect(screen.getAllByRole("heading", { name: "Comando sem ocorrência" })).toHaveLength(1);
     expect(screen.getByRole("combobox", { name: "Estado de arme do setor 1" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Inibição do setor 1" })).toBeTruthy();
-    expect((screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
+    expect((screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
     await user.click(screen.getByRole("tab", { name: "Arme/Desarme total" }));
-    expect((screen.getByRole("textbox", { name: "Descrição / motivo" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
+    expect((screen.getByRole("textbox", { name: "Descrição / motivo (mínimo 5 caracteres)" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
     expect(screen.getByRole("button", { name: "Confirmar ARMAR total" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^DESARMAR$/ })).toBeNull();
+    expect(standardMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it("oferece só DESARMAR para clientes Armados e explica que o motivo libera a confirmação", async () => {
+    mockedArmDisarmStatus = {
+      armed: [{ alarmSystemId: 6, clientId: 4, account: "0001", brand: "COMPATEC", model: "X", clientName: "Cliente de Teste" }],
+      disarmed: [],
+    };
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(screen.getByRole("button", { name: /^Armados \(1\)$/i }));
+    expect(screen.getByRole("button", { name: /^DESARMAR$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^ARMAR$/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^DESARMAR$/ }));
+    expect(screen.getByRole("status").textContent).toContain("ARMADO");
+    expect(screen.getByRole("status").textContent).toContain("somente DESARMAR total");
+    const confirmDisarm = screen.getByRole("button", { name: "Confirmar DESARMAR total" }) as HTMLButtonElement;
+    const reason = screen.getByRole("textbox", { name: "Descrição / motivo (mínimo 5 caracteres)" });
+    expect(confirmDisarm.disabled).toBe(true);
+    await user.type(reason, "tese");
+    expect(screen.getByText("Digite um motivo com pelo menos 5 caracteres para liberar a confirmação.")).toBeTruthy();
+    expect(confirmDisarm.disabled).toBe(true);
+    await user.type(reason, "s");
+    expect(confirmDisarm.disabled).toBe(false);
+    expect(screen.queryByText("Digite um motivo com pelo menos 5 caracteres para liberar a confirmação.")).toBeNull();
     expect(standardMutation.mutate).not.toHaveBeenCalled();
   });
 

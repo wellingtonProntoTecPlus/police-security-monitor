@@ -57,6 +57,7 @@ describe("CompatecZoneConfigurationPanel", () => {
     expect(screen.getByRole("heading", { name: "Comandos de zonas e setores" })).toBeTruthy();
     expect(screen.queryByLabelText("Solicitado por")).toBeNull();
     expect(screen.getByRole("combobox", { name: "Estado de arme do setor 1" })).toBeTruthy();
+    const reason = screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" });
     expect(screen.queryByText("Fora do escopo")).toBeNull();
 
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
@@ -67,7 +68,11 @@ describe("CompatecZoneConfigurationPanel", () => {
     expect(screen.queryByLabelText("Prévia dos quadros AK2 e AK1")).toBeNull();
     expect(screen.queryByText(/MB=AK[0124]\[/)).toBeNull();
     expect(screen.queryByText(/KA1|AK4|AK2/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Aplicar alterações · 4 setor(es)" })).toBeTruthy();
+    const apply = screen.getByRole("button", { name: "Aplicar alterações · 4 setor(es)" }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    expect(screen.getByText("Digite um motivo com pelo menos 5 caracteres para liberar a confirmação.")).toBeTruthy();
+    fireEvent.change(reason, { target: { value: "teste" } });
+    expect(apply.disabled).toBe(false);
   });
 
   it("confirma conta, ocorrência, alterações e motivo, sem pedir solicitante, e envia tudo numa requisição", () => {
@@ -76,7 +81,7 @@ describe("CompatecZoneConfigurationPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 2" }), { target: { value: "disarmed" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Inibição do setor 3" }), { target: { value: "annulled" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }), { target: { value: "Solicitação confirmada pelo responsável" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" }), { target: { value: "Solicitação confirmada pelo responsável" } });
     fireEvent.click(screen.getByRole("button", { name: /Aplicar alterações/ }));
 
     expect(confirm).toHaveBeenCalledOnce();
@@ -122,7 +127,7 @@ describe("CompatecZoneConfigurationPanel", () => {
     render(<CompatecZoneConfigurationPanel {...baseProps} incidentId={undefined} leaseToken={undefined} standalone />);
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Inibição do setor 2" }), { target: { value: "annulled" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }), { target: { value: "Solicitação do cliente pelo telefone" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" }), { target: { value: "Solicitação do cliente pelo telefone" } });
     const applyButton = screen.getByRole("button", { name: "Aplicar alterações · 2 setor(es)" }) as HTMLButtonElement;
     expect(applyButton.disabled).toBe(false);
     fireEvent.click(applyButton);
@@ -152,7 +157,7 @@ describe("CompatecZoneConfigurationPanel", () => {
       reasonValue="Solicitação registrada no modo total"
       onReasonValueChange={onReasonValueChange}
     />);
-    const reason = screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }) as HTMLTextAreaElement;
+    const reason = screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" }) as HTMLTextAreaElement;
     expect(reason.value).toBe("Solicitação registrada no modo total");
     fireEvent.change(reason, { target: { value: "Motivo atualizado no modo setores" } });
     expect(onReasonValueChange).toHaveBeenCalledWith("Motivo atualizado no modo setores");
@@ -162,7 +167,7 @@ describe("CompatecZoneConfigurationPanel", () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<CompatecZoneConfigurationPanel {...baseProps} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Estado de arme do setor 1" }), { target: { value: "armed" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores" }), { target: { value: "Pedido do responsável" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" }), { target: { value: "Pedido do responsável" } });
     fireEvent.click(screen.getByRole("button", { name: /Aplicar alterações/ }));
     expect(mocks.mutate).not.toHaveBeenCalled();
   });

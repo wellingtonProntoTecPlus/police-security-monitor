@@ -153,11 +153,12 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       </div>}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-xs font-medium text-foreground sm:col-span-2">Descrição / motivo
-          <Textarea aria-label="Descrição / motivo da configuração de setores" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2000} disabled={!canOperate || configure.isPending} className="mt-1 min-h-16" placeholder="Descreva brevemente o motivo da solicitação." />
+        <label className="text-xs font-medium text-foreground sm:col-span-2">Descrição / motivo (mínimo 5 caracteres)
+          <Textarea aria-label="Descrição / motivo da configuração de setores (mínimo 5 caracteres)" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2000} disabled={!canOperate || configure.isPending} className="mt-1 min-h-16" placeholder="Descreva brevemente o motivo da solicitação." />
         </label>
       </div>
 
+      {normalizedReason.length < 5 && <p className="text-xs text-amber-200">Digite um motivo com pelo menos 5 caracteres para liberar a confirmação.</p>}
       {!identityAndPortReady && <p role="alert" className="text-xs text-red-200">Comando indisponível: identificação da central incompleta. Solicite ajuda ao supervisor.</p>}
       {!standalone && !leaseToken && <p role="alert" className="text-xs text-amber-100">Abra ou assuma o atendimento para habilitar os comandos de setores.</p>}
       <Button type="button" className="w-full border border-amber-300/50 bg-amber-500/20 text-amber-50 hover:bg-amber-500/30" disabled={!canSubmit} onClick={submitConfiguration}>
