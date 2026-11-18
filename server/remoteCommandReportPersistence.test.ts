@@ -60,6 +60,10 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
     expect(sync).toContain('command.brand !== "COMPATEC"');
     expect(sync).toContain('command.transportMode !== "microbus_compatec"');
     expect(sync).toContain("[COMANDO REMOTO #${command.id}]");
+    expect(sync).toContain("buildCompactRemoteCommandSummary");
+    expect(sync).not.toContain("buildRemoteCommandOccurrenceText");
+    expect(sync).not.toContain("Quadros enviados:");
+    expect(sync).toContain('eventCode: "REMOTE"');
     expect(sync).toContain("tx.insert(occurrences)");
     expect(sync).toContain("tx.update(occurrences)");
     expect(sync).toContain('"isolate_zone", "restore_zone"');
@@ -124,11 +128,31 @@ describe("relatório de Arme/Desarme remoto Compatec", () => {
   });
 
   it("inclui comandos antigos na migração VPS de forma idempotente e vinculados ao cliente correto", () => {
+    const backfill = sourceBetween(
+      upgradeSql,
+      "-- Relatórios informativos compactos:",
+      "-- Escala e presença operacional;",
+    );
     expect(upgradeSql).toContain("INSERT INTO `occurrences`");
+    expect(backfill).toContain("CREATE TEMPORARY TABLE `_pc_remote_command_summary`");
+    expect(backfill).toContain("safeReason");
+    expect(backfill).toContain("(F7|[A-F0-9]{8,}");
+    expect(backfill).toContain("`compactObservations`");
+    expect(backfill).not.toContain("UPDATE `occurrences`");
+    expect(backfill).not.toContain("UPDATE `incidents`");
+    expect(backfill).toContain("WHEN 'responded' THEN 'Resposta recebida; confira o estado final.'");
+    expect(backfill).toContain("WHEN 'cancelled' THEN 'Cancelado; consulte o histórico.'");
+    expect(backfill).toContain("WHEN 'expired' THEN 'Expirado; consulte o histórico.'");
+    expect(backfill).not.toContain("Confirmado pela central.");
+    expect(backfill).not.toContain("não enviado à central");
+    expect(backfill).not.toContain("Resposta da central: ");
+    expect(backfill).not.toContain("Origem: PoliceCentral");
+    expect(backfill).toContain("WHERE NOT EXISTS (");
+    expect(backfill).toContain("o.`logs` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')");
     expect(upgradeSql).toContain("rc.`transportMode` = 'microbus_compatec'");
     expect(upgradeSql).toContain("rc.`commandType` IN ('arm', 'disarm')");
     expect(upgradeSql).toContain("LEFT JOIN `clients` c ON c.`id` = COALESCE(s.`clientId`, i.`clientId`)");
     expect(upgradeSql).toContain("WHERE o.`observations` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')");
-    expect(upgradeSql).toContain("Origem: PoliceCentral (Central de Monitoramento)");
+    expect(upgradeSql).toContain("OR o.`logs` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')");
   });
 });

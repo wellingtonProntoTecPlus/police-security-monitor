@@ -31,6 +31,7 @@ import WorkspaceScreenMenu from "./WorkspaceScreenMenu";
 import OperatorHandoffMessageDialog from "./OperatorHandoffMessageDialog";
 import { useSocket } from "@/hooks/useSocket";
 import OperatorScheduleDecisionDialog from "./OperatorScheduleDecisionDialog";
+import { getOperatorFacingIncidentNotes } from "@/lib/operatorFacingIncidentNotes";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -540,7 +541,7 @@ function DashboardLayoutContent({
                     <p className="text-sm text-muted-foreground">{incident.description || `Evento ${incident.eventCode}`} · status: {incident.status}</p>
                     {incident.pauseReason?.trim() ? <p className="whitespace-pre-wrap rounded bg-muted/40 p-2 text-sm">Motivo registrado: {incident.pauseReason}</p> : null}
                     {incident.blockerReasons?.map((reason, index) => <p key={index} className="text-sm text-amber-200">{reason}</p>)}
-                    {incident.notes ? <p className="whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">Registro atual: {incident.notes}</p> : null}
+                    {incident.notes && getOperatorFacingIncidentNotes(incident.notes) ? <p className="max-h-20 overflow-y-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">Registro atual: {getOperatorFacingIncidentNotes(incident.notes)}</p> : null}
                   </article>
                 ))}
                 {!logoutPreview.error && !logoutPreview.isFetching && logoutPreview.data?.pendingIncidents.length === 0 ? <p className="text-sm text-muted-foreground">A verificação já não encontrou ocorrências bloqueadoras. Cancele e solicite a saída novamente para atualizar a autorização.</p> : null}

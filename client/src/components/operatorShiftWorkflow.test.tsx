@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardLayout from "./DashboardLayout";
+import { buildRemoteCommandIncidentNotes, buildRemoteCommandRequestNote } from "../../../server/remoteCommandEventCorrelation";
 const mockState = vi.hoisted(() => ({
   user: { id: 1, name: "Carlos", email: "carlos@example.com", role: "operator" },
   logout: vi.fn(),
@@ -131,6 +132,25 @@ describe("DashboardLayout — logout seguro por preview", () => {
     expect(mockState.setLocation).toHaveBeenCalledWith("/dashboard");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(dialog).toBeTruthy();
+  });
+  it("resume auditoria remota incompleta no diálogo de logoff sem ocultar a orientação humana", async () => {
+    mockState.previewData = { ...previewWithPendingIncident(), pendingIncidents: [{ ...previewWithPendingIncident().pendingIncidents[0], notes: [
+      "[COMANDO REMOTO #33 RESPOSTA KA4 RECEBIDA]",
+      "Ação: Arme remoto via PoliceCentral",
+      "Motivo: Teste antigo",
+      "Resultado: resposta KA4 recebida; não confirma o estado final.",
+      "Resposta da central: MB=KA4[4]",
+      "MB=AK4[4]",
+      "Observação humana: conferir com o cliente.",
+    ].join("\n") + "\n" + buildRemoteCommandRequestNote({ commandId: 34, commandType: "disarm", operatorName: "Amanda", reason: "Cliente confirmou" }) + "\n" + buildRemoteCommandIncidentNotes({ commandId: 34, commandType: "disarm", commandLabel: "Desarme remoto", operatorName: "Amanda", reason: "Cliente confirmou", response: "MB=KA4" }) }] };
+    const user = userEvent.setup();
+    renderLayout();
+    await openLogoutDialog(user);
+    const summary = screen.getByText(/Registro atual:/).textContent || "";
+    expect(summary).toContain("Comandos (2)");
+    expect(summary).toContain("Desarme");
+    expect(summary).toContain("Observação humana: conferir com o cliente.");
+    expect(summary).not.toMatch(/COMANDO REMOTO|PoliceCentral|KA4|AK4|MB=|Auditoria do comando/);
   });
   it("aplica o mesmo preview-first para Trocar usuário e não sai com blocker", async () => {
     const user = userEvent.setup();

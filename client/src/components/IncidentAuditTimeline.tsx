@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Clock3, History, RotateCw } from "lucide-react";
 import { formatIncidentAuditDateTime, incidentAuditActionLabel } from "@shared/incidentAudit";
+import { getOperatorFacingIncidentNotes } from "@/lib/operatorFacingIncidentNotes";
 
 export default function IncidentAuditTimeline({ incidentId, title = true, active = true }: { incidentId?: number | null; title?: boolean; active?: boolean }) {
   const [beforeIds, setBeforeIds] = useState<number[]>([]);
@@ -19,7 +20,7 @@ export default function IncidentAuditTimeline({ incidentId, title = true, active
         {query.data.items.map((entry) => <li key={entry.id} className="rounded-md border border-border bg-muted/25 p-3">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-cyan-200"><Clock3 className="h-3 w-3 shrink-0" /><time>{formatIncidentAuditDateTime(entry.createdAt)}</time></p>
           <p className="mt-1 text-sm font-bold text-foreground">{entry.operatorName} · {incidentAuditActionLabel(entry)}</p>
-          {entry.note && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{entry.note}</p>}
+          {entry.note && <p className="mt-1 line-clamp-2 whitespace-pre-line break-words text-sm leading-relaxed text-foreground" title={getOperatorFacingIncidentNotes(entry.note)}>{getOperatorFacingIncidentNotes(entry.note)}</p>}
         </li>)}
       </ol> : <p className="rounded border border-dashed border-border p-3 text-sm">Ainda não há registros persistidos para esta ocorrência.</p>}
       <div className="flex flex-wrap gap-2">

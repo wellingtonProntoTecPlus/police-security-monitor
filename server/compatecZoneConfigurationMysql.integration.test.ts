@@ -182,9 +182,13 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(incident.notes).toContain("Setor 1: armado");
     expect(incident.notes).toContain("Setor 3: anulado");
     const [report] = await reportRows();
-    expect(report.observations).toContain("KA1 significa recebimento");
-    expect(report.observations).toContain(`Operador: ${actor.operatorName}`);
-    expect(report.observations).not.toContain("Solicitado por:");
+    expect(report.description).toContain("Alteração de setores 1, 2, 3, 4");
+    expect(report.observations).toContain("Motivo: Solicitação fictícia");
+    expect(report.observations).toContain("Aguardando retorno");
+    expect(report.observations).not.toMatch(/COMANDO REMOTO|PoliceCentral|Operador:|Solicitado por|KA1|AK2|Auditoria do comando|Quadros enviados/);
+    expect(report.observations).not.toContain("[COMANDO REMOTO");
+    expect(report.logs).toContain(`[COMANDO REMOTO #${commands[0].id}]`);
+    expect(commands[0].responsePayload).toContain("KA1");
     expect(await orm.select().from(occurrences)).toHaveLength(1);
   });
 
@@ -204,11 +208,13 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     if (!report) return;
     expect(report.observations).toContain(staleClientObservations);
     expect(report.observations).toContain("Nota inicial da ocorrência preservada");
-    expect(report.observations).toContain(`[COMANDO REMOTO #${reservation.id} SOLICITADO]`);
-    expect(report.observations).toContain(`Operador: ${actor.operatorName}`);
-    expect(report.observations).toContain("Auditoria do comando:");
-    expect(report.observations).toContain("Setor 1: armado");
+    expect(report.observations).toContain("Motivo: Solicitação fictícia");
     expect(report.observations).not.toContain("Solicitado por:");
+    expect(report.observations).not.toMatch(/COMANDO REMOTO|PoliceCentral|Operador:|KA1|AK2|Auditoria do comando|Quadros enviados/);
+    const [storedIncident] = await orm.select().from(incidents);
+    expect(storedIncident.notes).toContain(`[COMANDO REMOTO #${reservation.id} SOLICITADO]`);
+    expect(storedIncident.notes).toContain(`Operador: ${actor.operatorName}`);
+    expect(storedIncident.notes).toContain("resposta indica recebimento, não confirmação dos estados finais");
     const [closedIncident] = await orm.select().from(incidents);
     expect(closedIncident).toMatchObject({ status: "closed", resolution: report.observations });
     const finalizedHistory = (await orm.select().from(incidentHistory)).find((row) => row.action === "finalized");
@@ -285,8 +291,9 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(stored.panelConfirmedAt).toBeNull();
     expect(stored.responsePayload).toContain("MB=KA1");
     const [report] = await reportRows();
-    expect(report.observations).toMatch(/KA1 significa recebimento|KA1 indica recebimento/);
-    expect(report.observations).toMatch(/não foram confirmados|não foi confirmado/);
+    expect(report.description).toContain("Alteração de setores");
+    expect(report.observations).toContain("Resposta recebida; conferir estado final");
+    expect(`${report.description}\n${report.observations}`).not.toMatch(/KA1|AK2|Auditoria do comando/);
     expect(await orm.select().from(alarmEvents)).toHaveLength(1);
     expect(await orm.select().from(incidents)).toHaveLength(1);
     expect(await reportRows()).toHaveLength(1);

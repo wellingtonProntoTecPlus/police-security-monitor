@@ -930,7 +930,6 @@ export const appRouter = router({
           clientId: client?.id || null,
           status: "waiting",
           priority: input.priority,
-          notes: "Ocorrência manual criada pelo operador",
         },
       });
       return {

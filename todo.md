@@ -1051,3 +1051,19 @@
 
 - [x] Regressão MariaDB pause→resume→finalize confirma que o motivo pré-preenchido não duplica; relatório, `incidents.resolution` e `incidentHistory.note` ficam idênticos, com notas humanas/auditoria persistidas preservadas
 - [x] Validação integral final após deduplicação: TypeScript, 168 arquivos e 841 testes aprovados, build concluído e `git diff --check` limpo; nenhuma VPS/deploy ou transmissão física
+
+## Auditoria remota compacta nos logs e relatórios — 17/11/2026
+- [x] Logs da Ocorrência, auditoria, tela de relatórios e CSV mostram os comandos automáticos em no máximo duas linhas, com ação, trecho curto do motivo e resultado cauteloso; sem quadros, códigos, blocos repetidos ou a frase genérica de criação manual
+- [x] Ocorrências informativas de comando têm ação na descrição e motivo/resultado concisos nas observações; detalhes completos seguem em `alarm_remote_commands` e nas notas internas persistidas do incidente, consultáveis pelo histórico estruturado da central
+- [x] O resumo diferencia aguardando resposta, resposta recebida sem afirmar estado final, falha e resultado incerto; linhas e notas humanas continuam preservadas. CSV usa o mesmo resumo da interface
+- [x] Marcador de idempotência das ocorrências novas fica em `logs`; migração de instalações antigas reconhece marcador tanto em `observations` quanto em `logs` e não duplica registros ao reexecutar
+- [x] Validação integral da revisão compacta: `pnpm check`, 168 arquivos e 844 testes aprovados, build concluído, `git diff --check` limpo e banco MariaDB local descartável encerrado
+- [x] Sem acesso, alteração ou deploy da VPS; nenhum comando físico transmitido
+- [x] Parser resume blocos completos e incompletos sem apagar texto humano fora de quadros/códigos reconhecíveis; entradas completas suprimem continuações técnicas até o rodapé e mantêm notas depois dele. Cancelados/expirados não afirmam que a transmissão não ocorreu; estados mistos usam resultado neutro
+- [x] Backfill SQL insert-only cria relatórios novos em duas linhas cautelosas, sem resposta/frame bruto. Testado duas vezes em MariaDB descartável utf8mb4: 3 ocorrências sem duplicação; dados antigos e bloco incompleto não foram alterados, novos resumos não contêm códigos/payload/status não comprovados
+- [x] Validação integral final após a revisão: TypeScript, 168 arquivos / 846 testes aprovados, build concluído e `git diff --check` limpo; MariaDB local encerrado. Sem acesso ou deploy da VPS e sem transmissão física
+- [x] Backfill local insert-only executado duas vezes com casos utf8mb4: motivo contendo KA4/F7/bytes foi sanitizado nos novos resumos; registro completo antigo (inclusive relato antes/depois e logs) e bloco incompleto com rodapé textual falso permaneceram idênticos; nenhum duplicado
+- [x] Validação integral final após a correção lossless: `pnpm check`, 168 arquivos / 847 testes aprovados, build concluído e `git diff --check` limpo; sem VPS, deploy ou transmissão física
+- [x] Regressões adicionais: preserva texto humano livre como “o pacote chega amanhã” dentro de nota incompleta; remove linhas realmente rotuladas/formatadas como bytes ou quadros; negações de recebimento não viram sucesso e respostas contraditórias ficam como resultado incerto
+- [x] Validação integral definitiva após a segunda revisão independente: `pnpm check`, 168 arquivos / 848 testes aprovados, build concluído e `git diff --check` limpo; MariaDB descartável encerrado. Sem VPS, deploy ou transmissão física
+- [x] Validação integral final pós-revisão: TypeScript, 168 arquivos / 849 testes aprovados, build concluído e `git diff --check` limpo; MariaDB descartável encerrado. Sem VPS, deploy ou transmissão física

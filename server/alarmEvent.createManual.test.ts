@@ -46,6 +46,7 @@ describe("alarmEvent.createManual", () => {
       event: expect.objectContaining({ account: "PS0001", qualifier: "E", eventCode: "MANUAL", receiverPort: 9112, remoteIp: "MANUAL" }),
       incident: expect.objectContaining({ alarmSystemId: 12, clientId: 34, status: "waiting", priority: "high" }),
     }));
+    expect((db.createAlarmEventWithOpenIncident as any).mock.calls[0][0].incident).not.toHaveProperty("notes");
     expect(result).toMatchObject({ id: 901, incidentId: 456, account: "PS0001", clientName: "Cliente Teste", incidentStatus: "waiting" });
   });
 });

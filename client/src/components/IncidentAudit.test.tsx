@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IncidentAuditTimeline from "./IncidentAuditTimeline";
 import IncidentAuditReport, { parseAuditReportDateTime } from "./IncidentAuditReport";
 import { formatIncidentAuditDateTime, incidentAuditActionLabel } from "@shared/incidentAudit";
+import { buildRemoteCommandIncidentNotes, buildRemoteCommandRequestNote } from "../../../server/remoteCommandEventCorrelation";
 
 const state = vi.hoisted(() => ({
   trail: { data: { items: [] as any[], nextCursor: null as number | null }, isLoading: false, isFetching: false, error: null as any },
@@ -41,6 +42,19 @@ describe("Auditoria persistente de ocorrências", () => {
     expect(screen.getByText("Abriu Câmera 4").className).toContain("text-sm");
     expect(screen.getByText(/14\/11\/2026,? 18:00:01/)).toBeTruthy();
     expect(state.trailInputs).toHaveBeenLastCalledWith(expect.objectContaining({ incidentId: 91 }), expect.objectContaining({ refetchInterval: 5000 }));
+  });
+  it("mostra duas linhas operacionais para um comando e não despeja o bloco técnico", () => {
+    const rawCommandNotes = [
+      buildRemoteCommandRequestNote({ commandId: 109, commandType: "arm", operatorName: "Wellington", reason: "Teste autorizado" }),
+      buildRemoteCommandIncidentNotes({ commandId: 109, commandType: "arm", commandLabel: "Arme remoto", operatorName: "Wellington", reason: "Teste autorizado", response: "MB=KA4" }),
+    ].join("\n");
+    state.trail.data.items = [{ id: 10, incidentId: 91, operatorName: "Amanda", action: "finalized", note: rawCommandNotes, createdAt: new Date("2026-11-14T21:00:01Z") }];
+    render(<IncidentAuditTimeline incidentId={91} />);
+    const summary = screen.getByText(/Comando: Arme/).textContent || "";
+    expect(summary.split("\n")).toHaveLength(2);
+    expect(summary).toContain("Motivo: Teste autorizado");
+    expect(summary).toContain("Resposta recebida; conferir estado final");
+    expect(summary).not.toMatch(/COMANDO REMOTO|KA4|AK4|Auditoria do comando|Operador:/);
   });
   it("distingue erro de ausência e oferece retry", async () => {
     state.trail.error = new Error("Rede indisponível");

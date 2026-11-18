@@ -66,11 +66,12 @@ import { getPublicBrandingOrNull } from "./publicBrandingFallback";
 import { decryptRemoteCommandCredential, encryptRemoteCommandCredential } from "./remoteCommandCredentials";
 import { decryptDvrPassword, encryptDvrPassword } from "./dvrPasswordEncryption";
 import { deriveVettiCommandUser } from "@shared/remoteCommandCredentialProfiles";
-import { buildRemoteCommandIncidentNotes, buildRemoteCommandOccurrenceText, buildRemoteCommandRequestNote, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
+import { buildRemoteCommandIncidentNotes, buildRemoteCommandRequestNote, getRemoteCommandActionLabel, isConfirmedRemoteCommandEventMatch } from "./remoteCommandEventCorrelation";
 import { resolveExistingActiveChildAction, resolveIncidentOwnershipAction, type IncidentOwnershipStatus } from "./incidentOwnershipPolicy";
 import { canBulkFinalizeIncident } from "@shared/incidentBulkFinalization";
 import { isClientMonitoringBlocked } from "@shared/clientMonitoringStatus";
 import { isConfirmedBulkSetEligible, summarizeBulkIncidents } from "@shared/bulkIncidentSummary";
+import { buildCompactRemoteCommandSummary, compactRemoteCommandAuditNotes } from "@shared/remoteCommandAuditSummary";
 import { getUserShiftAttendanceWindow, getUserLoginScheduleStatus, OPERATIONAL_ROLES } from "./operatorShiftSchedule";
 import { saveOperatorShiftAssignmentWithTransaction, type ShiftAssignmentInput } from "./operatorShiftPersistence";
 
@@ -1315,35 +1316,27 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
   } catch {
     // Payloads legados podem ser quadros crus; mantêm o registro sem metadados adicionais.
   }
-  let zoneAudit = "";
-  try {
-    const payload = JSON.parse(command.commandPayload);
-    if (payload.mode === "physical_arm_with_zones") {
-      zoneAudit = `\nZonas selecionadas para inibir no Arme: ${payload.zoneNumbers.join(", ")}.\nKA1 indica somente recebimento; o estado final do bypass não foi confirmado individualmente.`;
-      if (Array.isArray(payload.selectedBy)) zoneAudit += payload.selectedBy.map((item: any) => `\nSeleção zona ${item.zoneNumber}: operador ${item.operatorName || item.operatorId}`).join("");
-    } else if (payload.mode === "physical_zone_configuration") {
-      zoneAudit = `\n${(Array.isArray(payload.zoneChanges) ? payload.zoneChanges : []).map((item: any) => `Setor ${item.zoneNumber}: ${item.armState === "armed" ? "armado" : item.armState === "disarmed" ? "desarmado" : "sem mudança de Arme"}${item.bypassState === "annulled" ? " · anulado" : item.bypassState === "restored" ? " · anulação retirada" : ""}`).join("\n")}\nQuadros enviados: ${(Array.isArray(payload.frames) ? payload.frames : []).map((frame: string) => frame.replace(/\r\n/g, "")).join(" → ")}\nKA1 significa recebimento; nenhum AK4 foi enviado e os estados finais dos setores não foram confirmados.`;
-    }
-  } catch { /* Quadros legados não têm metadados de seleção. */ }
+  const auditedZoneNumbers = zoneChanges.length ? zoneChanges.map((change) => change.zoneNumber) : zoneNumber ? [zoneNumber] : [];
   const marker = `[COMANDO REMOTO #${command.id}]`;
-  const text = buildRemoteCommandOccurrenceText({
-    commandId: command.id,
+  const compactObservations = buildCompactRemoteCommandSummary([{
     commandType: command.commandType,
-    operatorName,
+    action: getRemoteCommandActionLabel(command.commandType),
     reason: command.reason,
     status: command.status,
     response: command.responsePayload,
-    zoneNumber,
-    zoneChanges,
-  });
+    zoneNumbers: auditedZoneNumbers,
+  }]);
+  const summaryLines = compactObservations.split(/\r?\n/);
+  const compactAction = (summaryLines[0] || "Comando remoto").replace(/^Comando(?:s(?: \(\d+\))?)?:\s*/i, "").replace(/\.$/, "");
+  const shortDetails = summaryLines.slice(1).join(" ") || "Resultado atualizado";
   const occurredAt = command.panelConfirmedAt || command.executedAt || command.updatedAt || command.createdAt;
   const values = {
     account: system?.account || "0000",
-    eventCode: text.eventCode,
-    qualifier: text.qualifier,
+    eventCode: "REMOTE",
+    qualifier: null,
     partition: null,
     zoneUser: null,
-    description: text.description,
+    description: compactAction,
     priority: "low",
     brand: system?.brand || command.brand,
     clientId: system?.clientId || null,
@@ -1353,8 +1346,8 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     operatorId: command.operatorId,
     operatorName,
     status: "finalized" as const,
-    observations: `${text.observations}${zoneAudit}\n${marker}`,
-    logs: JSON.stringify([`[${occurredAt.toLocaleTimeString("pt-BR")}] ${text.description}`]),
+    observations: shortDetails,
+    logs: JSON.stringify([`[${occurredAt.toLocaleTimeString("pt-BR")}] ${compactAction} · ${shortDetails}`, marker]),
     attendingTimeMs: 0,
     sendEmail: false,
     sendPush: false,
@@ -1363,7 +1356,7 @@ async function syncCompatecRemoteCommandOccurrence(tx: any, command: typeof alar
     finalizedAt: occurredAt,
   };
   const [existing] = await tx.select({ id: occurrences.id }).from(occurrences)
-    .where(like(occurrences.observations, `%${marker}%`))
+    .where(or(like(occurrences.logs, `%${marker}%`), like(occurrences.observations, `%${marker}%`)))
     .limit(1);
   if (existing) {
     await tx.update(occurrences).set(values).where(eq(occurrences.id, existing.id));
@@ -4284,7 +4277,7 @@ export async function createOccurrenceAndCloseIncident(incidentId: number, occur
       persistedLines.add(normalizedLine);
       submittedOnlyLines.push(line);
     }
-    const finalObservations = [persistedNotes, submittedOnlyLines.join("\n")].filter(Boolean).join("\n\n") || "Finalizada pelo operador";
+    const finalObservations = compactRemoteCommandAuditNotes([persistedNotes, submittedOnlyLines.join("\n")].filter(Boolean).join("\n\n")) || "Finalizada pelo operador";
     const reportResult = await tx.insert(occurrences).values({
       ...occurrence,
       observations: finalObservations,

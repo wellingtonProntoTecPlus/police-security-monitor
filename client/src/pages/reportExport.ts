@@ -1,3 +1,5 @@
+import { getOperatorFacingIncidentNotes } from "@/lib/operatorFacingIncidentNotes";
+
 export type ReportExportRow = {
   finalizedAt?: Date | string | null;
   account?: string | null;
@@ -9,6 +11,10 @@ export type ReportExportRow = {
   attendingTimeMs?: number | null;
   operatorName?: string | null;
 };
+
+export function summarizeReportObservations(notes?: string | null) {
+  return getOperatorFacingIncidentNotes(notes);
+}
 
 function csvField(value: unknown) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;

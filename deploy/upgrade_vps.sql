@@ -1057,8 +1057,68 @@ SET @statement = (
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
 
--- Comandos físicos Compatec de Arme/Desarme também são ocorrências informativas do relatório.
--- A chave no texto de auditoria torna esta carga retroativa segura para reexecução.
+-- Relatórios informativos compactos: a auditoria bruta continua em alarm_remote_commands.
+-- Registros de relatório preexistentes não são alterados; as telas/exports os resumem na leitura.
+DROP TEMPORARY TABLE IF EXISTS `_pc_remote_command_summary`;
+CREATE TEMPORARY TABLE `_pc_remote_command_summary` AS
+SELECT
+  rc.`id` AS `commandId`,
+  rc.`commandType`,
+  rc.`status`,
+  CASE rc.`commandType`
+    WHEN 'arm' THEN 'Arme remoto via PoliceCentral'
+    ELSE 'Desarme remoto via PoliceCentral'
+  END AS `actionLabel`,
+  CASE rc.`status`
+    WHEN 'queued' THEN 'Aguardando envio.'
+    WHEN 'waiting_connection' THEN 'Aguardando conexão da central.'
+    WHEN 'dispatching' THEN 'Envio em andamento.'
+    WHEN 'sent' THEN 'Enviado; aguardando resposta.'
+    WHEN 'responded' THEN 'Resposta recebida; confira o estado final.'
+    WHEN 'failed' THEN 'Falha registrada; consulte o histórico.'
+    WHEN 'expired' THEN 'Expirado; consulte o histórico.'
+    WHEN 'cancelled' THEN 'Cancelado; consulte o histórico.'
+    WHEN 'dispatch_unknown' THEN 'Resultado incerto; confira a central.'
+    WHEN 'reconciled' THEN 'Resultado conferido manualmente.'
+    WHEN 'simulated' THEN 'Simulação; nenhum envio físico.'
+    ELSE 'Status indisponível; consulte o histórico.'
+  END AS `outcomeLabel`,
+  TRIM(REGEXP_REPLACE(
+    CASE
+      WHEN REGEXP_INSTR(
+        TRIM(REPLACE(REPLACE(COALESCE(rc.`reason`, ''), CHAR(13), ' '), CHAR(10), ' ')),
+        '(^|[[:space:]])(MB[[:space:]]*=[[:space:]]*)?(AK|KA)[0-9]+|(^|[[:space:]])(F7|[A-F0-9]{8,}|([A-F0-9]{2,}[ ,;]+){2,}[A-F0-9]{2,})'
+      ) > 0 THEN SUBSTRING(
+        TRIM(REPLACE(REPLACE(COALESCE(rc.`reason`, ''), CHAR(13), ' '), CHAR(10), ' ')),
+        1,
+        REGEXP_INSTR(
+          TRIM(REPLACE(REPLACE(COALESCE(rc.`reason`, ''), CHAR(13), ' '), CHAR(10), ' ')),
+          '(^|[[:space:]])(MB[[:space:]]*=[[:space:]]*)?(AK|KA)[0-9]+|(^|[[:space:]])(F7|[A-F0-9]{8,}|([A-F0-9]{2,}[ ,;]+){2,}[A-F0-9]{2,})'
+        ) - 1
+      )
+      ELSE TRIM(REPLACE(REPLACE(COALESCE(rc.`reason`, ''), CHAR(13), ' '), CHAR(10), ' '))
+    END,
+    '[[:space:]]+', ' '
+  )) AS `safeReason`
+FROM `alarm_remote_commands` rc
+WHERE rc.`brand` = 'COMPATEC'
+  AND rc.`transportMode` = 'microbus_compatec'
+  AND rc.`commandType` IN ('arm', 'disarm');
+
+ALTER TABLE `_pc_remote_command_summary`
+  ADD COLUMN `compactObservations` TEXT NULL;
+UPDATE `_pc_remote_command_summary`
+SET `compactObservations` = CASE
+  WHEN NULLIF(`safeReason`, '') IS NULL THEN `outcomeLabel`
+  ELSE CONCAT(
+    'Motivo: ', LEFT(`safeReason`, 28),
+    IF(CHAR_LENGTH(`safeReason`) > 28, '…', ''),
+    ' · ', `outcomeLabel`
+  )
+END;
+
+-- Backfill somente para comandos que ainda não têm uma ocorrência informativa.
+-- Novas linhas nascem compactas; os marcadores de ambos os formatos tornam reexecuções idempotentes.
 INSERT INTO `occurrences` (
   `account`, `eventCode`, `qualifier`, `description`, `priority`, `brand`,
   `clientId`, `clientName`, `systemId`, `partnerCompanyId`, `operatorId`, `operatorName`,
@@ -1069,20 +1129,7 @@ SELECT
   COALESCE(s.`account`, '0000'),
   'REMOTE',
   NULL,
-  CONCAT(
-    CASE rc.`commandType` WHEN 'arm' THEN 'Arme remoto via PoliceCentral' ELSE 'Desarme remoto via PoliceCentral' END,
-    ' — ',
-    CASE rc.`status`
-      WHEN 'queued' THEN 'Solicitado; aguardando envio à central.'
-      WHEN 'waiting_connection' THEN 'Ainda não enviado; aguardando conexão autenticada da central.'
-      WHEN 'sent' THEN 'Enviado à central; aguardando confirmação.'
-      WHEN 'responded' THEN 'Confirmado pela central.'
-      WHEN 'failed' THEN 'Falha; a central não confirmou o comando.'
-      WHEN 'expired' THEN 'Expirado sem envio à central.'
-      WHEN 'cancelled' THEN 'Cancelado; não enviado à central.'
-      ELSE CONCAT('Status do comando: ', rc.`status`, '.')
-    END
-  ),
+  CONCAT(summary.`actionLabel`, ' — ', summary.`outcomeLabel`),
   'low',
   COALESCE(s.`brand`, rc.`brand`),
   COALESCE(s.`clientId`, i.`clientId`),
@@ -1092,27 +1139,11 @@ SELECT
   rc.`operatorId`,
   COALESCE(u.`name`, 'Operador autenticado'),
   'finalized',
-  CONCAT(
-    '[COMANDO REMOTO #', rc.`id`, ']', CHAR(10),
-    'Operação: ', CASE rc.`commandType` WHEN 'arm' THEN 'Arme remoto via PoliceCentral' ELSE 'Desarme remoto via PoliceCentral' END, CHAR(10),
-    'Origem: PoliceCentral (Central de Monitoramento)', CHAR(10),
-    'Operador: ', COALESCE(u.`name`, 'Operador autenticado'), CHAR(10),
-    'Motivo: ', rc.`reason`, CHAR(10),
-    'Resultado: ', CASE rc.`status`
-      WHEN 'queued' THEN 'Solicitado; aguardando envio à central.'
-      WHEN 'waiting_connection' THEN 'Ainda não enviado; aguardando conexão autenticada da central.'
-      WHEN 'sent' THEN 'Enviado à central; aguardando confirmação.'
-      WHEN 'responded' THEN 'Confirmado pela central.'
-      WHEN 'failed' THEN 'Falha; a central não confirmou o comando.'
-      WHEN 'expired' THEN 'Expirado sem envio à central.'
-      WHEN 'cancelled' THEN 'Cancelado; não enviado à central.'
-      ELSE CONCAT('Status do comando: ', rc.`status`, '.')
-    END,
-    IF(rc.`responsePayload` IS NULL OR rc.`responsePayload` = '', '', CONCAT(CHAR(10), 'Resposta da central: ', rc.`responsePayload`)),
-    CHAR(10), 'Auditoria do comando: #', rc.`id`
+  summary.`compactObservations`,
+  JSON_ARRAY(
+    CONCAT('[', DATE_FORMAT(COALESCE(rc.`panelConfirmedAt`, rc.`executedAt`, rc.`updatedAt`, rc.`createdAt`), '%H:%i:%s'), '] ', summary.`actionLabel`, ' · ', summary.`outcomeLabel`),
+    CONCAT('[COMANDO REMOTO #', rc.`id`, ']')
   ),
-  JSON_ARRAY(CONCAT('[', DATE_FORMAT(COALESCE(rc.`panelConfirmedAt`, rc.`executedAt`, rc.`updatedAt`, rc.`createdAt`), '%H:%i:%s'), '] ',
-    CASE rc.`commandType` WHEN 'arm' THEN 'Arme' ELSE 'Desarme' END, ' remoto via PoliceCentral — ', rc.`status`)),
   0,
   0,
   0,
@@ -1121,17 +1152,17 @@ SELECT
   COALESCE(rc.`panelConfirmedAt`, rc.`executedAt`, rc.`updatedAt`, rc.`createdAt`),
   rc.`createdAt`
 FROM `alarm_remote_commands` rc
+INNER JOIN `_pc_remote_command_summary` summary ON summary.`commandId` = rc.`id`
 LEFT JOIN `alarm_systems` s ON s.`id` = rc.`alarmSystemId`
 LEFT JOIN `incidents` i ON i.`id` = rc.`incidentId`
 LEFT JOIN `clients` c ON c.`id` = COALESCE(s.`clientId`, i.`clientId`)
 LEFT JOIN `users` u ON u.`id` = rc.`operatorId`
-WHERE rc.`brand` = 'COMPATEC'
-  AND rc.`transportMode` = 'microbus_compatec'
-  AND rc.`commandType` IN ('arm', 'disarm')
-  AND NOT EXISTS (
-    SELECT 1 FROM `occurrences` o
-    WHERE o.`observations` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')
-  );
+WHERE NOT EXISTS (
+  SELECT 1 FROM `occurrences` o
+  WHERE o.`observations` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')
+     OR o.`logs` LIKE CONCAT('%[COMANDO REMOTO #', rc.`id`, ']%')
+);
+DROP TEMPORARY TABLE `_pc_remote_command_summary`;
 
 -- Escala e presença operacional; todas as tabelas são aditivas e preservam histórico.
 CREATE TABLE IF NOT EXISTS `operator_attendance_records` (
