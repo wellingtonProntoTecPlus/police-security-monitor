@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
+import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import {
   finalizeKeepAliveDisconnectsOnPanelEvent,
   finalizeRadioengeKeepAliveFailureWithRestoration,
   findRadioengeKeepAliveObservationForRestoration,
+  findIncidentForRestoration,
   listRecentClientEventsForOpenIncident,
+  promoteExpiredRestorationWaitsWithDb,
   recordSystemKeepAlive,
   setDbForTesting,
 } from "./db";
@@ -14,6 +17,7 @@ import {
   alarmEvents,
   alarmSystems,
   clients,
+  contactIdCodes,
   incidentHistory,
   incidentPanelLeases,
   incidents,
@@ -25,12 +29,12 @@ import {
 const socket = process.env.POLICE_SHIFT_TEST_SOCKET;
 const localEnabled = Boolean(socket?.startsWith("/tmp/police-shift-db/") && fs.existsSync(socket));
 const database = `police_keepalive_restore_test_${process.pid}`;
-const TABLES = ["incident_panel_leases", "system_disconnect_alerts", "system_keep_alive_samples", "incident_history", "occurrences", "incidents", "alarm_events", "alarm_systems", "clients"];
+const TABLES = ["incident_panel_leases", "system_disconnect_alerts", "system_keep_alive_samples", "incident_history", "occurrences", "incidents", "alarm_events", "contact_id_codes", "alarm_systems", "clients"];
 let pool!: mysql.Pool;
 let orm!: ReturnType<typeof drizzle>;
 
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0056_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0059_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     if (!table) throw new Error(`Tabela ${name} ausente no snapshot 0054`);
@@ -99,7 +103,14 @@ async function seedEvent(input: {
   });
 }
 
-async function seedIncident(input: { id: number; systemId: number; eventId: number; status: "waiting" | "attending" | "observing" | "dispatched" | "maintenance" }) {
+async function seedIncident(input: {
+  id: number;
+  systemId: number;
+  eventId: number;
+  status: "waiting" | "attending" | "observing" | "dispatched" | "maintenance";
+  observationUntil?: Date | null;
+  restorationWaitPending?: boolean;
+}) {
   await orm.insert(incidents).values({
     id: input.id,
     eventId: input.eventId,
@@ -108,6 +119,8 @@ async function seedIncident(input: { id: number; systemId: number; eventId: numb
     status: input.status,
     priority: "high",
     notes: "Falha de comunicação em teste privado",
+    observationUntil: input.observationUntil || null,
+    restorationWaitPending: input.restorationWaitPending || false,
   });
 }
 
@@ -134,6 +147,21 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       try { await pool.query(`DROP DATABASE \`${database}\``); }
       finally { await pool.end(); }
     }
+  });
+
+  it("aplica a migration de espera duas vezes sem alterar a ocorrência preexistente", async () => {
+    await seedEvent({ id: 51, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "365", description: "Cliente Desconectado" });
+    await seedIncident({ id: 61, systemId: 1, eventId: 51, status: "waiting" });
+    await pool.query("ALTER TABLE incidents DROP INDEX incidents_restoration_wait_idx, DROP COLUMN restorationWaitPending");
+    const source = fs.readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
+    const start = source.indexOf("-- Falhas com restauração configurada podem aguardar a janela antes de entrar na fila.");
+    expect(start).toBeGreaterThan(0);
+    const migration = source.slice(start);
+    await pool.query(migration);
+    await pool.query(migration);
+    expect(await orm.select().from(incidents)).toMatchObject([{ id: 61, eventId: 51, status: "waiting", notes: "Falha de comunicação em teste privado", restorationWaitPending: false }]);
+    expect(await orm.select().from(alarmEvents)).toHaveLength(1);
+    expect(await orm.select().from(occurrences)).toHaveLength(0);
   });
 
   it("fecha KOFF imediatamente quando o Keep Alive retorna e grava falha restaurada", async () => {
@@ -183,6 +211,164 @@ describe.skipIf(!localEnabled)("Restauração Keep Alive · integração MariaDB
       statusAfter: "closed",
     });
     expect(await orm.select().from(alarmEvents)).toHaveLength(1);
+  });
+
+  it("fecha E365 Cliente Desconectado no primeiro Keep Alive, sem exigir nem criar R365", async () => {
+    const failureAt = new Date("2026-11-18T10:00:00.000Z");
+    const restoredAt = new Date("2026-11-18T10:03:00.000Z");
+    await seedEvent({ id: 81, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "365", description: "Cliente Desconectado", receivedAt: failureAt });
+    await seedIncident({ id: 91, systemId: 1, eventId: 81, status: "waiting" });
+    await seedEvent({ id: 82, systemId: 2, account: "0042", brand: "RADIOENGE", qualifier: "E", eventCode: "365", description: "Problema de módulo de Ethernet", receivedAt: failureAt });
+    await seedIncident({ id: 92, systemId: 2, eventId: 82, status: "waiting" });
+    await orm.insert(incidentPanelLeases).values([
+      { incidentId: 91, operatorId: 9, authSessionId: 91, leaseToken: "00000000-0000-4000-8000-000000000091", expiresAt: new Date("2027-01-01Z") },
+      { incidentId: 92, operatorId: 9, authSessionId: 92, leaseToken: "00000000-0000-4000-8000-000000000092", expiresAt: new Date("2027-01-01Z") },
+    ]);
+
+    const previousSignal = await recordSystemKeepAlive(1, new Date(failureAt.getTime() - 1_000));
+    expect(previousSignal?.finalizedClientDisconnectEvents).toEqual([]);
+    expect(await orm.select().from(occurrences)).toHaveLength(0);
+    expect(await orm.select().from(incidents).where(eq(incidents.id, 91))).toMatchObject([{ status: "waiting" }]);
+    const result = await recordSystemKeepAlive(1, restoredAt);
+
+    expect(result?.finalizedClientDisconnectEvents).toEqual([expect.objectContaining({
+      eventId: 81,
+      incidentId: 91,
+      qualifier: "E",
+      eventCode: "365",
+      description: "Finalizado com a restauração da conexão",
+    })]);
+    expect(await orm.select().from(incidents).where(eq(incidents.id, 91))).toMatchObject([{
+      id: 91,
+      status: "closed",
+      resolution: "Finalizado com a restauração da conexão",
+      restorationWaitPending: false,
+      notes: "Falha de comunicação em teste privado",
+      closedAt: restoredAt,
+    }]);
+    expect(await orm.select().from(incidents).where(eq(incidents.id, 92))).toMatchObject([{ id: 92, status: "waiting" }]);
+    expect(await orm.select().from(incidentPanelLeases)).toMatchObject([{ incidentId: 92 }]);
+    expect(await orm.select().from(alarmEvents)).toHaveLength(2);
+    expect(await orm.select().from(alarmEvents).where(eq(alarmEvents.id, 81))).toMatchObject([{
+      id: 81,
+      qualifier: "E",
+      eventCode: "365",
+      autoFinalized: true,
+      autoFinalizationReason: "Finalizado com a restauração da conexão",
+    }]);
+    expect(await orm.select().from(occurrences)).toMatchObject([{
+      incidentId: 91,
+      eventCode: "365",
+      qualifier: "E",
+      status: "finalized",
+      operatorName: "Sistema",
+      observations: "Finalizado com a restauração da conexão",
+      finalizedAt: restoredAt,
+    }]);
+    expect(await orm.select().from(incidentHistory)).toMatchObject([{
+      incidentId: 91,
+      action: "auto_restored",
+      statusBefore: "waiting",
+      statusAfter: "closed",
+      note: "Finalizado com a restauração da conexão",
+    }]);
+    const repeated = await recordSystemKeepAlive(1, new Date(restoredAt.getTime() + 1_000));
+    expect(repeated?.finalizedClientDisconnectEvents).toEqual([]);
+    expect(await orm.select().from(occurrences)).toHaveLength(1);
+    expect(await orm.select().from(incidentHistory)).toHaveLength(1);
+  });
+
+  it("libera a central antes de aguardar o incidente E365, evitando ordem inversa com manutenção", async () => {
+    const failureAt = new Date("2026-11-18T10:00:00Z");
+    const restoredAt = new Date("2026-11-18T10:03:00Z");
+    await seedEvent({ id: 81, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "365", description: "Cliente Desconectado", receivedAt: failureAt });
+    await seedIncident({ id: 91, systemId: 1, eventId: 81, status: "maintenance" });
+    let signalSelect!: () => void;
+    const selectingIncident = new Promise<void>((resolve) => { signalSelect = resolve; });
+    const wrapSelect = (query: any): any => new Proxy(query, {
+      get(target, key) {
+        if (key === "then") return (resolve: any, reject: any) => {
+          const statement = target.toSQL().sql;
+          if (statement.includes('from `incidents`') && statement.includes("for update")) signalSelect();
+          return target.then(resolve, reject);
+        };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? (...args: any[]) => wrapSelect(value.apply(target, args)) : value;
+      },
+    });
+    const gatedDb = {
+      transaction: (callback: any, config: any) => orm.transaction((tx) => callback(new Proxy(tx, {
+        get(target, key) {
+          if (key === "select") return (...args: any[]) => wrapSelect((target.select as any)(...args));
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      })), config),
+    };
+    const maintenance = await pool.getConnection();
+    let outcome: Promise<any> | undefined;
+    try {
+      await maintenance.query("SET SESSION innodb_lock_wait_timeout = 2");
+      await maintenance.beginTransaction();
+      await maintenance.query("SELECT id FROM incidents WHERE id = 91 FOR UPDATE");
+      setDbForTesting(gatedDb as any);
+      outcome = recordSystemKeepAlive(1, restoredAt).then((value) => ({ value }), (error) => ({ error }));
+      await selectingIncident;
+      // Ordem real da manutenção: já possui o incidente e precisa da central.
+      // Keep Alive não pode reter essa central enquanto espera o mesmo incidente.
+      await maintenance.query("SELECT id FROM alarm_systems WHERE id = 1 FOR UPDATE");
+      await maintenance.commit();
+      const result = await outcome;
+      if (result.error) throw result.error;
+      expect(result.value?.finalizedClientDisconnectEvents).toMatchObject([{ incidentId: 91 }]);
+      expect(await orm.select().from(incidents).where(eq(incidents.id, 91))).toMatchObject([{ status: "closed" }]);
+      expect(await orm.select().from(occurrences)).toHaveLength(1);
+    } finally {
+      await maintenance.rollback();
+      maintenance.release();
+      if (outcome) await outcome;
+      setDbForTesting(orm);
+    }
+  });
+
+  it("aguarda os prazos configurados e fecha E301/R301 e E369/R369 com a restauração identificada", async () => {
+    const start = new Date("2026-11-18T10:00:00.000Z");
+    const e301Until = new Date(start.getTime() + 30 * 60_000);
+    const e369Until = new Date(start.getTime() + 180_000);
+    await seedEvent({ id: 101, systemId: 1, account: "0041", brand: "RADIOENGE", qualifier: "E", eventCode: "301", description: "Problema de energia", receivedAt: start });
+    await seedIncident({ id: 201, systemId: 1, eventId: 101, status: "observing", observationUntil: e301Until, restorationWaitPending: true });
+    await seedEvent({ id: 102, systemId: 2, account: "0042", brand: "RADIOENGE", qualifier: "E", eventCode: "369", description: "Cliente com problema de Internet", receivedAt: start });
+    await seedIncident({ id: 202, systemId: 2, eventId: 102, status: "observing", observationUntil: e369Until, restorationWaitPending: true });
+    await orm.insert(contactIdCodes).values([
+      { code: "301", qualifier: "E", fabricante: "RADIOENGE", description: "Problema de energia", fechaComRestauracao: 1, codigoRestauracao: "301", tempoEsperaSegundos: 1800 },
+      { code: "301", qualifier: "R", fabricante: "RADIOENGE", description: "Energia restaurada" },
+      { code: "369", qualifier: "E", fabricante: "RADIOENGE", description: "Cliente com problema de Internet", fechaComRestauracao: 1, codigoRestauracao: "369", tempoEsperaSegundos: 180 },
+      { code: "369", qualifier: "R", fabricante: "RADIOENGE", description: "Internet restaurada" },
+    ]);
+
+    expect(await promoteExpiredRestorationWaitsWithDb(orm, new Date(e369Until.getTime() - 1))).toEqual([]);
+    const e369Pending = await findIncidentForRestoration({ alarmSystemId: 2, account: "0042", restorationCode: "369" });
+    expect(e369Pending?.incident.id).toBe(202);
+    const { finalizeIncidentWithRestoration } = await import("./db");
+    const e369RestoredAt = new Date(e369Until.getTime() - 1_000);
+    await finalizeIncidentWithRestoration({ ...e369Pending!, restorationEvent: { eventCode: "369", description: "Internet restaurada", restoredAt: e369RestoredAt } });
+    expect(await promoteExpiredRestorationWaitsWithDb(orm, e369Until)).toEqual([]);
+    expect(await orm.select().from(incidents).where(eq(incidents.id, 201))).toMatchObject([{ status: "observing", restorationWaitPending: true, observationUntil: e301Until }]);
+    expect(await orm.select().from(incidents).where(eq(incidents.id, 202))).toMatchObject([{ status: "closed", restorationWaitPending: false, observationUntil: null }]);
+    expect(await promoteExpiredRestorationWaitsWithDb(orm, e301Until)).toMatchObject([{ incidentId: 201, eventId: 101, eventCode: "301" }]);
+
+    const e301Pending = await findIncidentForRestoration({ alarmSystemId: 1, account: "0041", restorationCode: "301" });
+    expect(e301Pending?.incident.id).toBe(201);
+    const e301RestoredAt = new Date(e301Until.getTime() + 5_000);
+    await finalizeIncidentWithRestoration({ ...e301Pending!, restorationEvent: { eventCode: "301", description: "Energia restaurada", restoredAt: e301RestoredAt } });
+    expect(await orm.select().from(occurrences).orderBy(occurrences.eventCode)).toMatchObject([
+      { incidentId: 201, eventCode: "301", observations: "Finalizado com a restauração R301 — Energia restaurada", finalizedAt: e301RestoredAt },
+      { incidentId: 202, eventCode: "369", observations: "Finalizado com a restauração R369 — Internet restaurada", finalizedAt: e369RestoredAt },
+    ]);
+    expect(await orm.select().from(incidents).orderBy(incidents.id)).toMatchObject([
+      { id: 201, status: "closed" },
+      { id: 202, status: "closed" },
+    ]);
   });
 
   it("preserva a hora de restauração já marcada por uma versão anterior", async () => {

@@ -20,7 +20,7 @@ const other = { operatorId: 2, operatorName: "Yasmin", authSessionId: 102, lease
 const reason = "Cliente informou falta de energia; aguardar equipe técnica.";
 const reference = new Date("2030-01-01T12:00:00Z");
 function ddl() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0057_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0059_snapshot.json", import.meta.url), "utf8"));
   return tables.map((name) => {
     const table = snapshot.tables[name];
     const cols = Object.values(table.columns).map((c: any) => `\`${c.name}\` ${c.type}${c.notNull ? " NOT NULL" : " NULL"}${c.autoincrement ? " AUTO_INCREMENT" : ""}${Object.hasOwn(c, "default") ? ` DEFAULT ${typeof c.default === "boolean" ? Number(c.default) : c.default}` : ""}`);
@@ -151,6 +151,18 @@ describe.skipIf(!enabled)("Encaminhamento, manutenção e token · MariaDB priva
     expect((await orm.select().from(incidents))[0].status).toBe("closed");
     expect(await listOpenQueueEvents()).toHaveLength(0);
     expect(await orm.select().from(incidents)).toHaveLength(1);
+  });
+
+  it("mantém falha em espera de restauração fora da fila e bloqueia abertura direta até o timeout ou R", async () => {
+    const restorationUntil = new Date(Date.now() + 180_000);
+    await orm.update(incidents).set({ status: "observing", restorationWaitPending: true, observationUntil: restorationUntil }).where(eq(incidents.id, 20));
+    expect(await listOpenQueueEvents()).toHaveLength(0);
+    await reconcileOperationalIncidentWindowsWithDb(orm, reference);
+    await expect(openIncidentPanelWithDb(orm, { incidentId: 20 }, actor, reference)).rejects.toThrow("aguardando a restauração configurada");
+    expect(await orm.select().from(incidentPanelLeases)).toHaveLength(0);
+    const [pending] = await orm.select().from(incidents);
+    expect(pending).toMatchObject({ status: "observing", restorationWaitPending: true });
+    expect(Math.abs(pending.observationUntil!.getTime() - restorationUntil.getTime())).toBeLessThan(1000);
   });
 
   it("token antigo não finaliza após assunção por outro operador; novo token grava relatório", async () => {

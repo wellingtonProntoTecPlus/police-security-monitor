@@ -414,6 +414,13 @@
       "when": 1795038392809,
       "tag": "0058_crazy_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "5",
+      "when": 1795042776959,
+      "tag": "0059_burly_bloodstorm",
+      "breakpoints": true
     }
   ]
 }

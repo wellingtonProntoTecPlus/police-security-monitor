@@ -1541,3 +1541,15 @@ SET @statement = (
   FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='incidents' AND COLUMN_NAME='pauseReason'
 );
 PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+
+-- Falhas com restauração configurada podem aguardar a janela antes de entrar na fila.
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE `incidents` ADD COLUMN `restorationWaitPending` BOOLEAN NOT NULL DEFAULT FALSE', 'SELECT 1')
+  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='incidents' AND COLUMN_NAME='restorationWaitPending'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;
+SET @statement = (
+  SELECT IF(COUNT(*) = 0, 'CREATE INDEX `incidents_restoration_wait_idx` ON `incidents` (`restorationWaitPending`,`observationUntil`)', 'SELECT 1')
+  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='incidents' AND INDEX_NAME='incidents_restoration_wait_idx'
+);
+PREPARE migration_statement FROM @statement; EXECUTE migration_statement; DEALLOCATE PREPARE migration_statement;

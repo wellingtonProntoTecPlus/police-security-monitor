@@ -1,0 +1,2 @@
+ALTER TABLE `incidents` ADD `restorationWaitPending` boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE INDEX `incidents_restoration_wait_idx` ON `incidents` (`restorationWaitPending`,`observationUntil`);

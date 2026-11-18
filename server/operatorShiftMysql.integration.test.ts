@@ -20,7 +20,7 @@ let orm: ReturnType<typeof drizzle>;
 const database = `police_shift_test_${process.pid}`;
 const TABLES = ["users", "auth_sessions", "alarm_events", "incidents", "incident_panel_leases", "incident_history", "occurrences", "operator_attendance_records", "operator_shift_assignments", "operator_shift_exceptions", "operator_shift_messages", "operator_shift_reminders", "operator_message_groups", "operator_message_group_members", "operator_message_group_messages", "operator_message_group_deliveries", "operator_message_group_audit", "clients", "partner_companies", "registration_documents", "alarm_systems", "alarm_remote_commands", "alarm_remote_credentials", "system_keep_alive_samples", "system_disconnect_alerts", "client_procedures"];
 function snapshotDDL() {
-  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0058_snapshot.json", import.meta.url), "utf8"));
+  const snapshot = JSON.parse(fs.readFileSync(new URL("../drizzle/meta/0059_snapshot.json", import.meta.url), "utf8"));
   return TABLES.map((name) => {
     const table = snapshot.tables[name];
     const columns = Object.values(table.columns).map((column: any) => {

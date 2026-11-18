@@ -43,6 +43,7 @@ export function incidentAuditActionLabel(entry: Pick<IncidentAuditRow, "action" 
     case "maintenance_released": return "Retirou a central da manutenção";
     case "maintenance_expired": return "Período de manutenção encerrado";
     case "observation_expired": return "Prazo de observação encerrado";
+    case "restoration_wait_expired": return "Prazo de restauração encerrado; encaminhado para atendimento";
     case "status_changed":
       if (entry.statusAfter === "dispatched") return "Encaminhou o atendimento ao tático";
       if (entry.statusAfter === "attending") return "Retomou o atendimento";

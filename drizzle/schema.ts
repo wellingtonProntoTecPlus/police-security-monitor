@@ -603,6 +603,8 @@ export const incidents = mysqlTable("incidents", {
   resolution: text("resolution"),
   dispatchedAt: timestamp("dispatchedAt"),
   observationUntil: timestamp("observationUntil"),
+  /** Ocorrência criada automaticamente, ainda aguardando restauração antes de ir à fila. */
+  restorationWaitPending: boolean("restorationWaitPending").default(false).notNull(),
   closedAt: timestamp("closedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -610,6 +612,7 @@ export const incidents = mysqlTable("incidents", {
   index("incidents_event_id_idx").on(table.eventId),
   index("incidents_system_status_idx").on(table.alarmSystemId, table.status),
   index("incidents_parent_status_idx").on(table.parentIncidentId, table.status),
+  index("incidents_restoration_wait_idx").on(table.restorationWaitPending, table.observationUntil),
 ]);
 
 export type Incident = typeof incidents.$inferSelect;

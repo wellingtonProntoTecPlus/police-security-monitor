@@ -43,6 +43,7 @@ export async function openIncidentPanelWithDb(db: any, input: { incidentId: numb
     await lockPanelActorSession(tx, actor, now);
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incidentId)).for("update").limit(1);
     if (!current || !OPEN_STATUSES.includes(current.status)) throw new TRPCError({ code: "NOT_FOUND", message: "Ocorrência aberta não encontrada." });
+    if (current.restorationWaitPending) throw new TRPCError({ code: "CONFLICT", message: "Esta falha ainda está aguardando a restauração configurada; não está disponível para atendimento." });
     const lease = await readPanelLease(tx, current.id);
     if (!canAcquirePanelLease(lease, actor, now)) throw new TRPCError({ code: "CONFLICT", message: `Ocorrência em atendimento por ${lease?.operatorName || "outro operador"}.` });
     if (ownsActivePanelLease(lease, actor, now)) {

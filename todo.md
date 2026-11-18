@@ -1092,3 +1092,15 @@
 - [x] Validação final: pnpm check, 170 arquivos / 870 testes aprovados sem ignorados, build concluído e git diff --check limpo; MariaDB local por socket Unix sem rede encerrado. Testes renderizados de sino, envio e gestão de participantes aprovados; revisão independente sem bloqueadores críticos/altos/médios.
 - [ ] Melhoria de baixa prioridade: unicidade transacional de nomes ativos em criações simultâneas; não afeta autorização, entrega ou leitura.
 - [x] Nenhuma VPS acessada/implantada e nenhum comando físico transmitido. Grupos reais e participantes ficam para escolha do usuário, sem exemplos inseridos no banco WebDev.
+
+
+## E365 Cliente Desconectado — restauração da conexão — 18/11/2026
+- [x] E365 com descrição Cliente Desconectado é rastreado e finalizado quando chega sinal online/Keep Alive válido da mesma central identificada, sem exigir nem gerar R365. Outros significados do código 365 (ex.: problema do módulo Ethernet) não são fechados por essa regra.
+- [x] Relatório, resolução e auditoria registram “Finalizado com a restauração da conexão”. Mantém evento original, notas do incidente e histórico; libera lease e marca a falha finalizada sem fabricar Contact ID.
+- [x] Sinal anterior à data da falha não encerra E365. Repetição de sinais não duplica relatório/histórico; central e cliente inativos e vínculos de outra central não são elegíveis.
+- [x] Telemetria libera o lock da central antes da transação E365 (ordem incidente→central, READ COMMITTED). Integração MariaDB reproduz concorrência com manutenção e confirma ausência da inversão de locks adicionada pelo novo finalizador.
+- [x] restoration_closed emitido para sockets operacionais e para o status online oficial ViaWeb; fila/painel identificam o evento e incidente corretos, sem aguardar o próximo polling para fechar o cartão.
+- [x] Suporte à janela de restauração usa somente o prazo já configurado no catálogo para falhas pareadas; mantém a espera persistente fora da fila até o vencimento e registra escalada. E301/R301 e E369/R369 cobertos por integração, sem criar/alterar cadastros ou impor valores aos códigos em uso. Política Radioenge E361 de quatro segundos preservada.
+- [x] Migration Drizzle 0059 aditiva (restorationWaitPending e índice de prazo) aplicada apenas ao WebDev de desenvolvimento. Upgrade VPS idempotente reproduzido duas vezes em MariaDB privado partindo de tabela sem coluna; conserva registros, notas e status preexistentes.
+- [x] Validação final: pnpm check, 170 arquivos / 880 testes aprovados, build concluído e git diff --check limpo. MariaDB descartável por socket Unix, sem rede, encerrado. Revisão independente identificou três riscos corrigidos e cobertos (temporalidade, concorrência, atualização ViaWeb).
+- [x] Nenhuma VPS acessada ou implantada; nenhum comando físico enviado, nenhum código Contact ID cadastrado/excluído automaticamente e nenhum evento de produção finalizado nesta implementação.

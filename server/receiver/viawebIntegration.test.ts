@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { __testables, buildIsepAuthorizationOperation, isAcknowledgableUnassociatedInternalViawebEvent, parseViawebClientStatuses, parseViawebEvent, readPreauthorizedIseps, summarizeViawebReceiverMessage } from "./viawebIntegration";
 
 describe("integração oficial ViaWeb", () => {
@@ -107,5 +108,13 @@ describe("integração oficial ViaWeb", () => {
     });
     expect(summary).toContain("evento(ISEP:F301, código:1603, interno:0)");
     expect(summary).not.toMatch(/senha|token|não-expor/i);
+  });
+
+  it("emite o fechamento E365 no status online autenticado, sem aguardar o polling da fila", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const callback = source.slice(source.indexOf("onClientStatus: async (status)"), source.indexOf("onEvent: async (viawebEvent)"));
+    expect(callback).toContain('if (!status.online) return;');
+    expect(callback).toContain('getAlarmSystemByPanelIdentifier(status.isep, "isep", "VIAWEB", 9111)');
+    expect(callback).toContain("emitRestoredClientDisconnectEvents({ restored: measurement.finalizedClientDisconnectEvents, system, receiverPort: 9111, timestamp });");
   });
 });

@@ -74,6 +74,7 @@ import { isConfirmedBulkSetEligible, summarizeBulkIncidents } from "@shared/bulk
 import { buildCompactRemoteCommandSummary, compactRemoteCommandAuditNotes } from "@shared/remoteCommandAuditSummary";
 import { getUserShiftAttendanceWindow, getUserLoginScheduleStatus, OPERATIONAL_ROLES } from "./operatorShiftSchedule";
 import { saveOperatorShiftAssignmentWithTransaction, type ShiftAssignmentInput } from "./operatorShiftPersistence";
+import { isClientDisconnectedE365 } from "../shared/clientDisconnectRestoration";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DB_CONNECT_TIMEOUT_MS = 3_500;
@@ -788,7 +789,7 @@ export async function listSystemsConnectionStatus(
 export async function recordSystemKeepAlive(systemId: number, receivedAt = new Date()) {
   const db = await getDb();
   if (!db) return undefined;
-  return db.transaction(async (tx: any) => {
+  const measurement = await db.transaction(async (tx: any) => {
     const linked = await tx.select({ system: alarmSystems }).from(alarmSystems)
       .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
       .where(and(
@@ -821,6 +822,119 @@ export async function recordSystemKeepAlive(systemId: number, receivedAt = new D
     const finalizedDisconnectAlerts = await markDisconnectAlertsRestored(systemId, receivedAt, tx);
     return { ...measurement, finalizedDisconnectAlerts };
   });
+  if (!measurement) return undefined;
+  // Libera o lock de telemetria da central antes de adquirir incidentes.
+  // Fechamento, relatório e auditoria E365 continuam juntos e idempotentes.
+  const finalizedClientDisconnectEvents = await db.transaction(
+    (tx: any) => finalizeClientDisconnectEventsOnKeepAliveWithDb(tx, systemId, receivedAt),
+    { isolationLevel: "read committed" },
+  );
+  return { ...measurement, finalizedClientDisconnectEvents };
+}
+
+export async function finalizeClientDisconnectEventsOnKeepAliveWithDb(tx: any, alarmSystemId: number, restoredAt: Date) {
+  const openStatuses = ["waiting", "attending", "observing", "dispatched", "maintenance"] as const;
+  const candidates: Array<{ incident: typeof incidents.$inferSelect; event: typeof alarmEvents.$inferSelect }> = await tx
+    .select({ incident: incidents, event: alarmEvents })
+    .from(incidents)
+    .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+    .where(and(
+      eq(incidents.alarmSystemId, alarmSystemId),
+      eq(alarmEvents.alarmSystemId, alarmSystemId),
+      eq(alarmEvents.qualifier, "E"),
+      eq(alarmEvents.eventCode, "365"),
+      lte(alarmEvents.receivedAt, restoredAt),
+      inArray(incidents.status, [...openStatuses]),
+    ))
+    .orderBy(incidents.id)
+    .for("update");
+  if (candidates.length === 0) return [];
+  // Mesma ordem da manutenção: incidentes primeiro, central depois.
+  const [linked] = await tx.select({ id: alarmSystems.id }).from(alarmSystems)
+    .innerJoin(clients, eq(alarmSystems.clientId, clients.id))
+    .where(and(eq(alarmSystems.id, alarmSystemId), eq(alarmSystems.isActive, true), eq(clients.isActive, true)))
+    .for("update").limit(1);
+  if (!linked) return [];
+
+  const finalized: Array<{
+    eventId: number;
+    incidentId: number;
+    account: string;
+    brand: string;
+    qualifier: string;
+    eventCode: string;
+    originalDescription: string | null;
+    description: string;
+  }> = [];
+  const message = "Finalizado com a restauração da conexão";
+
+  for (const { incident, event } of candidates) {
+    if (!isClientDisconnectedE365(event)) continue;
+    const [current] = await tx.select().from(incidents)
+      .where(and(eq(incidents.id, incident.id), eq(incidents.alarmSystemId, alarmSystemId), inArray(incidents.status, [...openStatuses])))
+      .for("update")
+      .limit(1);
+    if (!current) continue;
+
+    await tx.update(incidents).set({
+      status: "closed",
+      resolution: message,
+      observationUntil: null,
+      restorationWaitPending: false,
+      closedAt: restoredAt,
+      version: (current.version || 0) + 1,
+    }).where(eq(incidents.id, current.id));
+    await tx.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, current.id));
+    await tx.update(alarmEvents).set({ autoFinalized: true, autoFinalizationReason: message }).where(eq(alarmEvents.id, event.id));
+
+    const [client] = current.clientId
+      ? await tx.select().from(clients).where(eq(clients.id, current.clientId)).limit(1)
+      : [];
+    const result = await tx.insert(occurrences).values({
+      incidentId: current.id,
+      account: event.account,
+      eventCode: event.eventCode,
+      qualifier: event.qualifier,
+      partition: event.partition,
+      zoneUser: event.zoneUser,
+      description: event.description,
+      priority: event.priority,
+      brand: event.brand,
+      clientId: current.clientId || null,
+      clientName: client?.fantasyName || client?.name || null,
+      systemId: current.alarmSystemId || null,
+      partnerCompanyId: client?.partnerCompanyId || null,
+      operatorName: "Sistema",
+      status: "finalized",
+      observations: message,
+      logs: JSON.stringify([`[${restoredAt.toLocaleTimeString("pt-BR")}] ${message}`]),
+      attendingTimeMs: current.createdAt ? Math.max(0, restoredAt.getTime() - current.createdAt.getTime()) : 0,
+      eventReceivedAt: event.receivedAt,
+      finalizedAt: restoredAt,
+    });
+    await tx.insert(incidentHistory).values({
+      incidentId: current.id,
+      parentIncidentId: current.parentIncidentId,
+      operatorName: "Sistema",
+      action: "auto_restored",
+      statusBefore: current.status,
+      statusAfter: "closed",
+      note: message,
+      createdAt: restoredAt,
+    });
+    finalized.push({
+      eventId: event.id,
+      incidentId: current.id,
+      account: event.account,
+      brand: event.brand,
+      qualifier: event.qualifier,
+      eventCode: event.eventCode,
+      originalDescription: event.description,
+      description: message,
+    });
+    void result;
+  }
+  return finalized;
 }
 
 export type KeepAliveDisconnectOpening = {
@@ -3007,6 +3121,78 @@ export async function promoteExpiredRadioengeKeepAliveObservationsWithDb(db: any
 
 /** Localiza o E361 ainda dentro da janela automática para parear com o R361. */
 /** Localiza E361 ainda aberto para pareá-lo com R361, mesmo após o prazo de fila. */
+/** Escala para a fila eventos cuja janela configurada de restauração terminou. */
+export async function promoteExpiredRestorationWaits(now = new Date()) {
+  const db = await getDb();
+  if (!db) return [];
+  return promoteExpiredRestorationWaitsWithDb(db, now);
+}
+
+export async function promoteExpiredRestorationWaitsWithDb(db: any, now = new Date()) {
+  return db.transaction(async (tx: any) => {
+    const rows: Array<{ incident: typeof incidents.$inferSelect; event: typeof alarmEvents.$inferSelect }> = await tx
+      .select({ incident: incidents, event: alarmEvents })
+      .from(incidents)
+      .innerJoin(alarmEvents, eq(incidents.eventId, alarmEvents.id))
+      .where(and(
+        eq(incidents.status, "observing"),
+        eq(incidents.restorationWaitPending, true),
+        isNotNull(incidents.observationUntil),
+        lte(incidents.observationUntil, now),
+      ))
+      .for("update");
+    if (rows.length === 0) return [];
+
+    const escalated = [];
+    for (const { incident, event } of rows) {
+      const [current] = await tx.select().from(incidents)
+        .where(and(
+          eq(incidents.id, incident.id),
+          eq(incidents.status, "observing"),
+          eq(incidents.restorationWaitPending, true),
+          lte(incidents.observationUntil, now),
+        ))
+        .for("update")
+        .limit(1);
+      if (!current) continue;
+
+      const note = `Prazo de restauração do evento E${event.eventCode} encerrado sem retorno; ocorrência encaminhada para atendimento.`;
+      await tx.update(incidents).set({
+        status: "waiting",
+        observationUntil: null,
+        restorationWaitPending: false,
+        notes: [current.notes, note].filter(Boolean).join("\n"),
+        version: sql`${incidents.version} + 1`,
+      }).where(and(
+        eq(incidents.id, current.id),
+        eq(incidents.status, "observing"),
+        eq(incidents.restorationWaitPending, true),
+      ));
+      await tx.insert(incidentHistory).values({
+        incidentId: current.id,
+        parentIncidentId: current.parentIncidentId,
+        operatorName: "Sistema",
+        action: "restoration_wait_expired",
+        statusBefore: "observing",
+        statusAfter: "waiting",
+        note,
+        createdAt: now,
+      });
+      escalated.push({
+        incidentId: current.id,
+        eventId: event.id,
+        alarmSystemId: current.alarmSystemId,
+        account: event.account,
+        brand: event.brand,
+        qualifier: event.qualifier,
+        eventCode: event.eventCode,
+        description: event.description,
+      });
+    }
+    return escalated;
+  });
+}
+
 export async function findRadioengeKeepAliveObservationForRestoration(input: {
   alarmSystemId: number;
   account: string;
@@ -3309,6 +3495,7 @@ export async function listOpenQueueEvents() {
   const now = getMaintenanceOperationalNow();
 
   await promoteExpiredRadioengeKeepAliveObservations(now);
+  await promoteExpiredRestorationWaits(new Date());
 
   await reconcileOperationalIncidentWindowsWithDb(db, now);
 
@@ -3324,7 +3511,10 @@ export async function listOpenQueueEvents() {
     .leftJoin(incidentPanelLeases, eq(incidentPanelLeases.incidentId, incidents.id))
     .leftJoin(panelSession, and(eq(panelSession.id, incidentPanelLeases.authSessionId), eq(panelSession.userId, incidentPanelLeases.operatorId)))
     .leftJoin(panelOperator, eq(panelOperator.id, incidentPanelLeases.operatorId))
-    .where(inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]))
+    .where(and(
+      inArray(incidents.status, ["waiting", "attending", "observing", "dispatched", "maintenance"]),
+      eq(incidents.restorationWaitPending, false),
+    ))
     .orderBy(desc(alarmEvents.receivedAt));
   return rows.map(({ incident, event, incidentOperatorName, panelLease, panelSessionRevokedAt, panelSessionExpiresAt, panelOperatorName }) => {
     const panelActive = isPanelLeaseActive(panelLease ? { ...panelLease, sessionRevokedAt: panelSessionRevokedAt, sessionExpiresAt: panelSessionExpiresAt } : null);
@@ -3775,7 +3965,7 @@ export async function findIncidentForRestoration(input: { alarmSystemId?: number
     .orderBy(desc(incidents.createdAt));
 
   for (const candidate of candidates) {
-    const config = await getContactIdDescription(candidate.event.eventCode, candidate.event.qualifier);
+    const config = await getContactIdDescription(candidate.event.eventCode, candidate.event.qualifier, candidate.event.brand);
     if (config?.fechaComRestauracao && (config.codigoRestauracao === input.restorationCode || candidate.event.eventCode === input.restorationCode)) {
       return candidate;
     }
@@ -3783,18 +3973,26 @@ export async function findIncidentForRestoration(input: { alarmSystemId?: number
   return undefined;
 }
 
-export async function finalizeIncidentWithRestoration(input: { incident: typeof incidents.$inferSelect; event: typeof alarmEvents.$inferSelect }) {
+export async function finalizeIncidentWithRestoration(input: {
+  incident: typeof incidents.$inferSelect;
+  event: typeof alarmEvents.$inferSelect;
+  restorationEvent?: { eventCode: string; description?: string | null; restoredAt?: Date };
+}) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
-  const message = "Finalizado com a restauração do evento";
-  const finalizedAt = new Date();
+  const restorationDescription = input.restorationEvent?.description?.trim();
+  const message = input.restorationEvent
+    ? `Finalizado com a restauração R${input.restorationEvent.eventCode}${restorationDescription ? ` — ${restorationDescription}` : ""}`
+    : "Finalizado com a restauração do evento";
+  const finalizedAt = input.restorationEvent?.restoredAt || new Date();
   return db.transaction(async (tx: any) => {
     const [current] = await tx.select().from(incidents).where(eq(incidents.id, input.incident.id)).for("update").limit(1);
     if (!current || current.status === "closed" || current.eventId !== input.event.id) return undefined;
     const [event] = await tx.select().from(alarmEvents).where(eq(alarmEvents.id, current.eventId)).limit(1);
     if (!event || event.alarmSystemId !== current.alarmSystemId) return undefined;
     const [client] = current.clientId ? await tx.select().from(clients).where(eq(clients.id, current.clientId)).limit(1) : [];
-    await tx.update(incidents).set({ status: "closed", resolution: message, observationUntil: null, closedAt: finalizedAt, version: current.version + 1 }).where(eq(incidents.id, current.id));
+    await tx.update(incidents).set({ status: "closed", resolution: message, observationUntil: null, restorationWaitPending: false, closedAt: finalizedAt, version: current.version + 1 }).where(eq(incidents.id, current.id));
+    await tx.update(alarmEvents).set({ autoFinalized: true, autoFinalizationReason: message }).where(eq(alarmEvents.id, event.id));
     await tx.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, current.id));
     const result = await tx.insert(occurrences).values({
       incidentId: current.id, account: event.account, eventCode: event.eventCode, qualifier: event.qualifier,
@@ -3806,7 +4004,7 @@ export async function finalizeIncidentWithRestoration(input: { incident: typeof 
       attendingTimeMs: current.createdAt ? Math.max(0, finalizedAt.getTime() - current.createdAt.getTime()) : 0,
       eventReceivedAt: event.receivedAt, finalizedAt,
     });
-    await tx.insert(incidentHistory).values({ incidentId: current.id, parentIncidentId: current.parentIncidentId, operatorName: "Sistema", action: "auto_restored", statusBefore: current.status, statusAfter: "closed", note: message });
+    await tx.insert(incidentHistory).values({ incidentId: current.id, parentIncidentId: current.parentIncidentId, operatorName: "Sistema", action: "auto_restored", statusBefore: current.status, statusAfter: "closed", note: message, createdAt: finalizedAt });
     return { id: Number(result[0].insertId) };
   });
 }

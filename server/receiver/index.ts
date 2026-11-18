@@ -30,6 +30,8 @@ import { getEffectiveClientMonitoringStatus } from '@shared/clientMonitoringStat
 import { dispatchAlarmRemoteCommand } from '../db';
 import { resetCompatecZoneSelectionsOnDisarm } from '../db';
 import { onAlarmSystemsRetired } from '../_core/alarmSystemRuntime';
+import { getConfiguredRestorationWaitSeconds, getRestorationWaitUntil } from '../../shared/restorationWaitPolicy';
+import { isClientDisconnectedE365 } from '../../shared/clientDisconnectRestoration';
 
 // Configuração dos receptores por marca/porta
 const RECEIVERS_CONFIG = [
@@ -158,6 +160,30 @@ function emitRestoredKeepAliveAlerts(input: { restored?: any[]; system: { id: nu
   }
 }
 
+function emitRestoredClientDisconnectEvents(input: { restored?: any[]; system: { id: number; account: string; brand: string }; receiverPort: number; timestamp: string }) {
+  for (const restored of input.restored || []) {
+    eventCallback?.({
+      id: restored.eventId,
+      kind: "restoration_closed",
+      originalEventId: restored.eventId,
+      incidentId: restored.incidentId,
+      alarmSystemId: input.system.id,
+      account: restored.account || input.system.account,
+      brand: restored.brand || input.system.brand,
+      qualifier: restored.qualifier || "E",
+      eventCode: restored.eventCode || "365",
+      partition: "00",
+      zoneUser: "000",
+      description: restored.originalDescription || "Cliente Desconectado",
+      restorationDescription: restored.description || "Finalizado com a restauração da conexão",
+      priority: "medium",
+      remoteIp: "SYSTEM",
+      receiverPort: input.receiverPort,
+      timestamp: input.timestamp,
+    });
+  }
+}
+
 async function recordKeepAlive(socket: net.Socket, brand: string, port: number, signal: string) {
   let known = identifiedSystemBySocket.get(socket);
   if (!known && brand === "JFL") {
@@ -205,6 +231,7 @@ async function recordKeepAlive(socket: net.Socket, brand: string, port: number, 
       timestamp,
     });
     emitRestoredKeepAliveAlerts({ restored: measurement.finalizedDisconnectAlerts, system: known, receiverPort: port, timestamp });
+    emitRestoredClientDisconnectEvents({ restored: measurement.finalizedClientDisconnectEvents, system: known, receiverPort: port, timestamp });
   }
 }
 
@@ -1044,7 +1071,14 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
       decision: scheduleDecision,
     });
     const scheduleViolation = scheduleEventAction === "queue";
-    const eventOperationalAction = scheduleEventAction === "use_catalog" ? automaticAction : scheduleEventAction;
+    const isClientDisconnectedEvent = isClientDisconnectedE365({
+      qualifier: evento.qualifier,
+      eventCode: evento.eventCode,
+      description,
+    });
+    const eventOperationalAction = isClientDisconnectedEvent
+      ? "track_for_restoration" as const
+      : scheduleEventAction === "use_catalog" ? automaticAction : scheduleEventAction;
     const isRadioengeE361 = isRadioengeKeepAliveFailure({ brand: evento.brand, qualifier: evento.qualifier, eventCode: evento.eventCode })
       && Boolean(system?.id)
       && !accountResolution.isSystemAccount;
@@ -1052,6 +1086,11 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
       && Boolean(system?.id)
       && !accountResolution.isSystemAccount;
     const eventAutomaticAction = isRadioengeR361 ? "try_restoration" as const : eventOperationalAction;
+    const configuredRestorationWaitSeconds = getConfiguredRestorationWaitSeconds({
+      qualifier: evento.qualifier,
+      fechaComRestauracao: codeInfo?.fechaComRestauracao,
+      tempoEsperaSegundos: codeInfo?.tempoEsperaSegundos,
+    });
     const repeatedTrackedIncident = (eventAutomaticAction === "track_for_restoration" || isRadioengeE361) && system?.id
       ? await findOpenTrackedIncident({
         alarmSystemId: system.id,
@@ -1077,6 +1116,14 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
     const clientMonitoringStatus = getEffectiveClientMonitoringStatus(client, eventReceivedAt);
     const clientMonitoringBlocked = clientMonitoringStatus !== "active";
     const radioengeObservation = isRadioengeE361 && !systemInMaintenance && !clientMonitoringBlocked && !repeatedTrackedIncident;
+    const restorationWaitPending = eventAutomaticAction === "track_for_restoration"
+      && configuredRestorationWaitSeconds > 0
+      && !isRadioengeE361
+      && Boolean(system?.id)
+      && !accountResolution.isSystemAccount
+      && !systemInMaintenance
+      && !clientMonitoringBlocked
+      && !repeatedTrackedIncident;
     const radioengeRestorationCandidate = isRadioengeR361 && !systemInMaintenance && system?.id
       ? await findRadioengeKeepAliveObservationForRestoration({
         alarmSystemId: system.id,
@@ -1093,7 +1140,7 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
       systemInMaintenance,
       clientMonitoringBlocked,
     });
-    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident && !radioengeObservation;
+    const shouldOpenAttendance = deliveryPlan.shouldOpenAttendance && !repeatedTrackedIncident && !radioengeObservation && !restorationWaitPending;
     const automaticFinalizationMessage = clientMonitoringBlocked
       ? `Cliente ${clientMonitoringStatus === "blocked" ? "bloqueado" : "suspenso"}${client?.monitoringStatusReason ? ` — ${client.monitoringStatusReason}` : ""}; evento registrado somente no relatório, sem abrir atendimento`
       : scheduleRelevantState && !scheduleViolation
@@ -1112,6 +1159,8 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
       ? "Isolamento/restauração de zona registrado somente no relatório"
       : radioengeObservation
       ? "Falha de Keep Alive Radioenge E361 em observação por até 4 segundos, aguardando R361"
+      : restorationWaitPending
+      ? `Evento E${evento.eventCode} em observação por até ${configuredRestorationWaitSeconds} segundos, aguardando restauração configurada`
       : repeatedTrackedIncident
       ? "Falha repetida registrada no relatório; ocorrência operacional já aberta aguardando restauração"
       : accountResolution.isSystemAccount
@@ -1138,8 +1187,8 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
         receiverPort: evento.receiverPort,
         remoteIp: remoteIp.replace('::ffff:', ''),
         rawData: `${evento.rawData || ""}${receivedAccount ? `\nConta recebida: ${receivedAccount}` : "\nConta recebida: ausente"}\n${argumentContext.label}: ${argumentContext.value}${evento.confirmedIntelbrasIdentifier ? `\nIdentificado por ${evento.confirmedIntelbrasIdentifier}` : system?.capturedIdentifier ? `\nIdentificado por ${system.capturedIdentifier.identifierType}: ${system.capturedIdentifier.identifier}` : ""}${captureSummary ? `\n${captureSummary}` : ""}`,
-        autoFinalized: radioengeObservation ? false : !shouldOpenAttendance,
-        autoFinalizationReason: radioengeObservation || shouldOpenAttendance ? null : automaticFinalizationMessage,
+        autoFinalized: radioengeObservation || restorationWaitPending ? false : !shouldOpenAttendance,
+        autoFinalizationReason: radioengeObservation || restorationWaitPending || shouldOpenAttendance ? null : automaticFinalizationMessage,
       };
       const remoteMatch = system && !accountResolution.isSystemAccount && !systemInMaintenance && !clientMonitoringBlocked
         ? await createConfirmedVettiDisarmEventWithOpenIncident({
@@ -1173,6 +1222,22 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
           incidentId: persisted.incidentId,
           observationUntil: getRadioengeKeepAliveObservationUntil(eventReceivedAt),
         });
+      } else if (restorationWaitPending) {
+        const observationUntil = getRestorationWaitUntil(eventReceivedAt, configuredRestorationWaitSeconds)!;
+        const persisted = await createAlarmEventWithOpenIncident({
+          event: eventData,
+          incident: {
+            alarmSystemId: system?.id || null,
+            clientId: system?.clientId || null,
+            status: "observing",
+            priority: priority as "critical" | "high" | "medium" | "low",
+            observationUntil,
+            restorationWaitPending: true,
+            notes: `Aguardando restauração ${codeInfo?.codigoRestauracao ? `R${codeInfo.codigoRestauracao}` : "configurada"} por até ${configuredRestorationWaitSeconds} segundos.`,
+          },
+        });
+        savedEvent = { id: persisted.eventId };
+        incident = { id: persisted.incidentId };
       } else if (shouldOpenAttendance) {
         const persisted = await createAlarmEventWithOpenIncident({
           event: eventData,
@@ -1306,7 +1371,10 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
     if (eventAutomaticAction === "try_restoration") {
       const pending = await findIncidentForRestoration({ alarmSystemId: system?.id, account: effectiveAccount, restorationCode: evento.eventCode });
       if (pending) {
-        await finalizeIncidentWithRestoration(pending);
+        await finalizeIncidentWithRestoration({
+          ...pending,
+          restorationEvent: { eventCode: evento.eventCode, description },
+        });
         if (eventCallback) {
           eventCallback({
             id: savedEvent.id,
@@ -1372,7 +1440,7 @@ export async function processEvent(evento: any, remoteIp: string, captureSummary
     }
 
     // Emitir para o dashboard via callback
-    if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && !radioengeObservation && eventCallback) {
+    if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && !radioengeObservation && !restorationWaitPending && eventCallback) {
       eventCallback({
         id: savedEvent.id,
         ...evento,
@@ -1473,6 +1541,7 @@ export function startReceivers() {
         const timestamp = measurement.receivedAt.toISOString();
         eventCallback?.({ kind: "keepalive", alarmSystemId: system.id, account: system.account, brand: "VIAWEB", timestamp });
         emitRestoredKeepAliveAlerts({ restored: measurement.finalizedDisconnectAlerts, system, receiverPort: 9111, timestamp });
+        emitRestoredClientDisconnectEvents({ restored: measurement.finalizedClientDisconnectEvents, system, receiverPort: 9111, timestamp });
       }
     },
     onEvent: async (viawebEvent) => {

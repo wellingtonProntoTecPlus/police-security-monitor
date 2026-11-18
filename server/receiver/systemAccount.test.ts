@@ -120,7 +120,7 @@ describe("Conta do Sistema", () => {
     expect(receiver).toContain("Registrada na Conta do Sistema (0000) para conferência no relatório");
     expect(receiver).toContain("if ((deliveryPlan.shouldPersistReport || Boolean(repeatedTrackedIncident)) && !remoteCommandMatched && !radioengeObservation) {");
     expect(receiver).toContain("await persistAutomaticOccurrence({");
-    expect(receiver).toContain("if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && !radioengeObservation && eventCallback)");
+    expect(receiver).toContain("if ((deliveryPlan.shouldEmitDashboard || remoteCommandMatched) && !radioengeObservation && !restorationWaitPending && eventCallback)");
     expect(receiver).toContain("createConfirmedVettiDisarmEventWithOpenIncident");
   });
 });
