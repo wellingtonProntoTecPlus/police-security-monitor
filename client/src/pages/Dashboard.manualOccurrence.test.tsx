@@ -27,6 +27,9 @@ const auditMutation = { mutateAsync: vi.fn(), isPending: false };
 const openPanelMutation = { mutateAsync: vi.fn(), isPending: false };
 const renewPanelMutation = { mutateAsync: vi.fn(), isPending: false };
 const pausePanelMutation = { mutateAsync: vi.fn(), isPending: false };
+const armCompatecMutation = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const reconcileCompatecMutation = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+let mockedIndeterminateCompatec: any[] = [];
 const invalidateAuditTrail = vi.fn().mockResolvedValue(undefined);
 let mockedAuditItems: any[] = [];
 let mockedCameras: any[] = [];
@@ -104,7 +107,10 @@ vi.mock("@/lib/trpc", () => ({
       queryVettiBenchStatus: { useMutation: () => standardMutation },
       disarmVettiBench: { useMutation: () => standardMutation },
       queryBenchSectors: { useMutation: () => standardMutation },
+      armCompatecAll: { useMutation: () => armCompatecMutation },
       disarmBenchAll: { useMutation: () => standardMutation },
+      indeterminateCompatec: { useQuery: () => ({ data: mockedIndeterminateCompatec, isLoading: false, error: null }) },
+      reconcileCompatecCommand: { useMutation: () => reconcileCompatecMutation },
     },
     clientContact: { list: { useQuery: () => ({ data: mockedContacts }) } },
     clientProcedure: { list: { useQuery: () => ({ data: [] }) }, treatment: { useQuery: () => ({ data: undefined, isLoading: false, error: null, refetch: vi.fn() }) } },
@@ -125,7 +131,10 @@ vi.mock("@/lib/trpc", () => ({
       incident: { openQueue: { invalidate: invalidateOpenQueue }, history: { invalidate: vi.fn().mockResolvedValue(undefined) }, auditTrail: { invalidate: invalidateAuditTrail } },
       occurrence: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
       alarmSystem: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
-      remoteCommand: { list: { invalidate: vi.fn().mockResolvedValue(undefined) } },
+      remoteCommand: {
+        list: { invalidate: vi.fn().mockResolvedValue(undefined) },
+        indeterminateCompatec: { invalidate: vi.fn().mockResolvedValue(undefined) },
+      },
       dashboard: {
         connectionStatus: { invalidate: invalidateConnectionStatus },
         armDisarmStatus: { invalidate: invalidateArmDisarmStatus },
@@ -184,6 +193,11 @@ describe("Dashboard — Ocorrência Manual", () => {
     manualMutation.mutateAsync.mockReset();
     standardMutation.mutate.mockReset();
     standardMutation.mutateAsync.mockReset();
+    armCompatecMutation.mutate.mockReset();
+    armCompatecMutation.mutateAsync.mockReset();
+    reconcileCompatecMutation.mutate.mockReset();
+    reconcileCompatecMutation.mutateAsync.mockReset();
+    mockedIndeterminateCompatec = [];
     invalidateOpenQueue.mockClear();
     invalidateConnectionStatus.mockClear();
     invalidateArmDisarmStatus.mockClear();
@@ -653,7 +667,7 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByText(/ARMADO · Conta 0336 · VETTI · Arme/)).toBeTruthy();
   });
 
-  it("abre total e Setores no mesmo modal de ARMAR de Desarmados e preserva descrição ao alternar", async () => {
+  it("abre total e Setores no modal de ARMAR sem exigir descrição e registra a base autorizadora", async () => {
     mockedArmDisarmStatus = {
       armed: [],
       disarmed: [{ alarmSystemId: 6, clientId: 4, account: "0001", brand: "COMPATEC", model: "X", clientName: "Cliente de Teste" }],
@@ -666,18 +680,25 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(screen.getByRole("heading", { name: "Comando sem ocorrência" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("DESARMADO");
     expect(screen.getByRole("status").textContent).toContain("somente ARMAR total");
-    const totalReason = screen.getByRole("textbox", { name: "Descrição / motivo (mínimo 5 caracteres)" });
-    await user.type(totalReason, "Cliente solicitou pelo telefone");
+    const authorizationBasis = screen.getByRole("combobox", { name: "Base autorizadora do Arme" });
+    expect((authorizationBasis as HTMLSelectElement).options).toHaveLength(4);
+    expect(screen.queryByRole("textbox", { name: /Descrição \/ motivo/ })).toBeNull();
+    const confirmArm = screen.getByRole("button", { name: "Confirmar ARMAR total" }) as HTMLButtonElement;
+    expect(confirmArm.disabled).toBe(true);
+    await user.selectOptions(authorizationBasis, "customer_request");
+    expect(confirmArm.disabled).toBe(false);
     await user.click(screen.getByRole("tab", { name: "Setores" }));
     expect(screen.getAllByRole("heading", { name: "Comando sem ocorrência" })).toHaveLength(1);
     expect(screen.getByRole("combobox", { name: "Estado de arme do setor 1" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Inibição do setor 1" })).toBeTruthy();
-    expect((screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
+    const sectorReason = screen.getByRole("textbox", { name: "Descrição / motivo da configuração de setores (mínimo 5 caracteres)" });
+    await user.type(sectorReason, "Solicitação setorial independente");
     await user.click(screen.getByRole("tab", { name: "Arme/Desarme total" }));
-    expect((screen.getByRole("textbox", { name: "Descrição / motivo (mínimo 5 caracteres)" }) as HTMLTextAreaElement).value).toBe("Cliente solicitou pelo telefone");
+    expect((screen.getByRole("combobox", { name: "Base autorizadora do Arme" }) as HTMLSelectElement).value).toBe("customer_request");
     expect(screen.getByRole("button", { name: "Confirmar ARMAR total" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^DESARMAR$/ })).toBeNull();
     expect(standardMutation.mutate).not.toHaveBeenCalled();
+    expect(armCompatecMutation.mutate).not.toHaveBeenCalled();
   });
 
   it("oferece só DESARMAR para clientes Armados e explica que o motivo libera a confirmação", async () => {
@@ -703,6 +724,54 @@ describe("Dashboard — Ocorrência Manual", () => {
     expect(confirmDisarm.disabled).toBe(false);
     expect(screen.queryByText("Digite um motivo com pelo menos 5 caracteres para liberar a confirmação.")).toBeNull();
     expect(standardMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it("reconcilia comando indeterminado standalone somente após conferência real e não transmite quadros", async () => {
+    mockedArmDisarmStatus = {
+      armed: [],
+      disarmed: [{ alarmSystemId: 6, clientId: 4, account: "0001", brand: "COMPATEC", model: "X", clientName: "Cliente de Teste" }],
+    };
+    mockedIndeterminateCompatec = [{
+      id: 127,
+      incidentId: null,
+      operatorName: "Amanda",
+      commandType: "arm",
+      status: "dispatch_unknown",
+      reason: "Base autorizadora do Arme: Pedido do cliente",
+      commandPayload: "MB=AK4[4]",
+      responsePayload: "Resultado indeterminado; conferência necessária.",
+      createdAt: new Date("2026-11-20T12:00:00.000Z"),
+    }];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<Dashboard />);
+    await user.click(screen.getByRole("button", { name: /^Desarmados \(1\)$/i }));
+    await user.click(screen.getByRole("button", { name: /^ARMAR$/ }));
+
+    expect(screen.getByText(/#127 · Arme Compatec/)).toBeTruthy();
+    expect(screen.getByText(/simples tempo decorrido não comprova não aplicação/)).toBeTruthy();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Resultado da conferência do comando 127" }), "not_applied");
+    expect(screen.getByRole("alert").textContent).toContain("o comando será cancelado e outro poderá ser solicitado");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Fonte da conferência do comando 127" }), "official_app_command_history");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Estado observado no comando 127" }), "disarmed");
+    await user.type(screen.getByRole("textbox", { name: "Referência da evidência do comando 127" }), "Registro #APP-12345");
+    await user.type(screen.getByRole("textbox", { name: "Método de conferência do comando 127" }), "Aplicativo Compatec conferido");
+    await user.type(screen.getByRole("textbox", { name: "Detalhes da conferência do comando 127" }), "Estado desarmado confirmado; Arme não ocorreu");
+    await user.click(screen.getByRole("button", { name: "Cancelar não aplicado e liberar novo comando" }));
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm.mock.calls[0][0]).toContain("Só cancele e libere novo comando se a fonte direta comprovar que a ação não ocorreu");
+    expect(confirm.mock.calls[0][0]).toContain("Nenhum quadro será transmitido.");
+    expect(reconcileCompatecMutation.mutate).toHaveBeenCalledWith({
+      commandId: 127,
+      outcome: "not_applied",
+      verificationMethod: "Aplicativo Compatec conferido",
+      details: "Estado desarmado confirmado; Arme não ocorreu",
+      verificationSource: "official_app_command_history",
+      observedState: "disarmed",
+      evidenceReference: "Registro #APP-12345",
+    });
+    expect(armCompatecMutation.mutate).not.toHaveBeenCalled();
   });
 
   it("filtra Armados e Desarmados pelo partnerName mesmo com as listas de clientes e parceiras vazias", async () => {

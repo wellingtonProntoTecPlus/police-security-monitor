@@ -25,7 +25,7 @@ describe("indicadores operacionais do Dashboard", () => {
     expect(source).toContain("monitoringStatusUntil");
   });
 
-  it("permite solicitar Arme e Desarme sem ocorrência com operador automático e descrição/motivo", () => {
+  it("permite solicitar Arme e Desarme sem ocorrência com operador automático e captura condicional do motivo", () => {
     expect(source).toContain("Armar");
     expect(source).toContain("Desarmar");
     expect(source).toContain("openStandaloneCommandRequest");
@@ -35,7 +35,9 @@ describe("indicadores operacionais do Dashboard", () => {
     expect(routerSource).toContain("operatorId: ctx.user.id");
     expect(routerSource).toContain('ctx.user.name || "Operador autenticado"');
     expect(source).toContain("const auditReason = reason;");
-    expect(source).toContain("o operador autenticado e a descrição/motivo ficarão no histórico do comando");
+    expect(source).toContain("Não é necessário digitar solicitante ou descrição para Arme.");
+    expect(source).toContain("Base autorizadora do Arme");
+    expect(source).toContain("o operador e a base autorizadora do Arme (ou descrição do Desarme) ficarão no histórico");
     expect(source).toContain("Descrição / motivo");
     expect(source).toContain("isStandalonePhysicalCommandSupported");
     expect(source).toContain("ARMAR");

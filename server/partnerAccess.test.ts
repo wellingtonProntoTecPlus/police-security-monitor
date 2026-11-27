@@ -55,7 +55,8 @@ describe("partner tenant access", () => {
   it("allows only operators to reconcile an indeterminate Compatec command and derives the audit actor", async () => {
     const reconcile = vi.spyOn(db, "reconcileCompatecCommand").mockResolvedValue({ reconciled: true, commandId: 41, incidentId: 91, status: "reconciled" } as any);
     const indeterminate = vi.spyOn(db, "listIndeterminateCompatecCommands").mockResolvedValue([]);
-    const input = { commandId: 41, outcome: "applied" as const, verificationMethod: "Aplicativo Compatec", details: "Setores conferidos no painel local" };
+    const input = { commandId: 41, outcome: "applied" as const, verificationMethod: "Aplicativo Compatec", details: "Setores conferidos no painel local",
+      verificationSource: "panel_event_history" as const, observedState: "all_targets_applied" as const, evidenceReference: "Evento #12345" };
     await expect(appRouter.createCaller(context("partner", 99)).remoteCommand.indeterminateCompatec({ alarmSystemId: 78 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(appRouter.createCaller(context("partner", 99)).remoteCommand.reconcileCompatecCommand(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(reconcile).not.toHaveBeenCalled();

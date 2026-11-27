@@ -1,3 +1,5 @@
+import { isManualCompatecNonApplication } from "./compatecCommandReconciliation";
+
 export type CompactRemoteCommand = {
   commandId?: number;
   commandType?: string;
@@ -18,6 +20,8 @@ const COMMAND_AUDIT_FOOTER = /^Auditoria do comando:\s*#(\d+)[ \t]*\r?$/gm;
 function sanitizeReason(value?: string | null) {
   if (!value) return "";
   let reason = value.trim();
+  const armBasis = reason.match(/^Base autorizadora do Arme:\s*([^;]+)/i);
+  if (armBasis) return `Base: ${armBasis[1].trim()}`;
   const nestedReason = reason.match(/(?:^|;\s*)Motivo:\s*(.+)$/i);
   if (nestedReason) reason = nestedReason[1].trim();
   reason = reason.replace(/^Solicitado por\s*:\s*/i, "");
@@ -56,7 +60,10 @@ function actionForType(commandType?: string, action?: string, zoneNumbers: numbe
   return normalized || "Comando remoto";
 }
 
-function outcomeFor(statusValue?: string | null): string {
+function outcomeFor(statusValue?: string | null, response?: string | null): string {
+  if ((statusValue || "").toLowerCase() === "cancelled" && isManualCompatecNonApplication(response)) {
+    return "Não aplicado; conferência manual registrada";
+  }
   switch ((statusValue || "unknown").toLowerCase()) {
     case "failed": return "Falha registrada; conferir histórico";
     case "expired": return "Expirado; conferir histórico";
@@ -146,7 +153,7 @@ export function buildCompactRemoteCommandSummary(commands: CompactRemoteCommand[
     const zoneNumbers = Array.from(new Set((command.zoneNumbers || []).filter(Number.isInteger))).sort((a, b) => a - b);
     const label = actionForType(command.commandType, command.action, zoneNumbers);
     const reason = sanitizeReason(command.reason);
-    const outcome = outcomeFor(command.status);
+    const outcome = outcomeFor(command.status, command.response);
     const group = groups.get(label) || { label, count: 0 };
     group.count += 1;
     groups.set(label, group);

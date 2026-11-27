@@ -113,6 +113,13 @@ describe("auditoria de comandos remotos", () => {
     expect(getRemoteCommandOutcomeLabel("sent")).toBe("Enviado à central; aguardando confirmação.");
   });
 
+  it("identifica a não aplicação após conferência manual sem afirmar confirmação eletrônica", () => {
+    const response = "[CANCELAMENTO APÓS VERIFICAÇÃO: NÃO APLICADO]\nOperador: Amanda";
+    const outcome = getRemoteCommandOutcomeLabel("cancelled", "arm", response);
+    expect(outcome).toContain("não aplicado segundo a verificação registrada");
+    expect(outcome).toContain("não é confirmação eletrônica");
+  });
+
   it("mantém a compatibilidade de notas não Compatec sem resposta KA4", () => {
     const note = buildRemoteCommandIncidentNotes({
       commandId: 43,

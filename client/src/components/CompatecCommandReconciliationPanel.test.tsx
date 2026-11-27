@@ -43,7 +43,10 @@ vi.mock("@/lib/trpc", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: mocks.toastSuccess, warning: mocks.toastWarning, error: mocks.toastError } }));
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  commands[0].responsePayload = "KA1 não recebido no prazo";
+});
 afterEach(() => cleanup());
 
 describe("CompatecCommandReconciliationPanel", () => {
@@ -54,7 +57,7 @@ describe("CompatecCommandReconciliationPanel", () => {
     expect(screen.getByText(/Executado por Operador anterior/)).toBeTruthy();
     expect(screen.queryByText(/Solicitado por Operador anterior/)).toBeNull();
     expect(screen.getByText(/Setor 1: Armar · Setor 2: Anular/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Registrar conferência e liberar bloqueio" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Registrar conferência" }) as HTMLButtonElement).disabled).toBe(true);
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
@@ -62,18 +65,24 @@ describe("CompatecCommandReconciliationPanel", () => {
     const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Resultado da conferência do comando 77" }), { target: { value: "applied" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Fonte da conferência do comando 77" }), { target: { value: "panel_event_history" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Estado observado no comando 77" }), { target: { value: "all_targets_applied" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Referência da evidência do comando 77" }), { target: { value: "Eventos #12345 e #12346" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Método de conferência do comando 77" }), { target: { value: "Aplicativo Compatec" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Detalhes da conferência do comando 77" }), { target: { value: "Setores 1 e 2 conferidos no aplicativo" } });
-    fireEvent.click(screen.getByRole("button", { name: "Registrar conferência e liberar bloqueio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar aplicação e manter bloqueio" }));
 
     expect(confirmation).toHaveBeenCalledOnce();
-    expect(confirmation.mock.calls[0][0]).toContain("não envia nem repete quadros físicos");
+    expect(confirmation.mock.calls[0][0]).toContain("bloqueio permanece");
     expect(mocks.mutate).toHaveBeenCalledOnce();
     expect(mocks.mutate).toHaveBeenCalledWith({
       commandId: 77,
       outcome: "applied",
       verificationMethod: "Aplicativo Compatec",
       details: "Setores 1 e 2 conferidos no aplicativo",
+      verificationSource: "panel_event_history",
+      observedState: "all_targets_applied",
+      evidenceReference: "Eventos #12345 e #12346",
     });
   });
 
@@ -81,9 +90,31 @@ describe("CompatecCommandReconciliationPanel", () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Resultado da conferência do comando 77" }), { target: { value: "not_applied" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Fonte da conferência do comando 77" }), { target: { value: "official_app_command_history" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Estado observado no comando 77" }), { target: { value: "all_targets_unchanged" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Referência da evidência do comando 77" }), { target: { value: "Registro #APP-12345" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Método de conferência do comando 77" }), { target: { value: "Ligação ao responsável" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Detalhes da conferência do comando 77" }), { target: { value: "Responsável conferiu os setores" } });
-    fireEvent.click(screen.getByRole("button", { name: "Registrar conferência e liberar bloqueio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar não aplicado e liberar novo comando" }));
     expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("não habilita a liberação com relato externo e mostra por que ele não é evidência direta", () => {
+    render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Resultado da conferência do comando 77" }), { target: { value: "not_applied" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Fonte da conferência do comando 77" }), { target: { value: "external_report" } });
+    expect(screen.getByText(/Relato externo é identificado separadamente/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Cancelar não aplicado e liberar novo comando" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("mantém o bloqueio após aplicação e permite somente a conferência direta do estado final", () => {
+    commands[0].responsePayload = "[CONFERÊNCIA MANUAL: APLICAÇÃO PARCIAL]";
+    render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
+    expect(screen.getByText(/bloqueio físico continua ativo/)).toBeTruthy();
+    const outcome = screen.getByRole("combobox", { name: "Resultado da conferência do comando 77" }) as HTMLSelectElement;
+    expect(Array.from(outcome.options).map((option) => option.value)).toEqual(["", "partial", "verified"]);
+    fireEvent.change(outcome, { target: { value: "verified" } });
+    expect(screen.getByRole("button", { name: "Registrar conferência final e liberar bloqueio" })).toBeTruthy();
   });
 });

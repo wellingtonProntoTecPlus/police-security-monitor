@@ -1,3 +1,5 @@
+import { isManualCompatecNonApplication } from "@shared/compatecCommandReconciliation";
+
 export type RemoteCommandEventCandidate = {
   brand: string;
   commandType: string;
@@ -45,6 +47,9 @@ export function getRemoteCommandActionLabel(commandType: string) {
 }
 
 export function getRemoteCommandOutcomeLabel(status: string, commandType?: string, response?: string | null) {
+  if (status === "cancelled" && isManualCompatecNonApplication(response)) {
+    return "Cancelado após conferência manual: não aplicado segundo a verificação registrada; não é confirmação eletrônica.";
+  }
   const isZoneBypassCommand = commandType === "isolate_zone" || commandType === "restore_zone" || commandType === "configure_zones";
   const isCompatecArmDisarmAck = (commandType === "arm" || commandType === "disarm")
     && /(?:^|\n)MB=KA4(?:\[[^\]\r\n]*\])?\r?$/m.test(response || "");

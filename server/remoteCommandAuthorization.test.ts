@@ -7,6 +7,8 @@ const receiverSource = readFileSync(new URL("./receiver/index.ts", import.meta.u
 const databaseSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 const dashboardSource = readFileSync(new URL("../client/src/pages/Dashboard.tsx", import.meta.url), "utf8");
 const zonePanelSource = readFileSync(new URL("../client/src/components/CompatecZoneConfigurationPanel.tsx", import.meta.url), "utf8");
+const reconciliationPanelSource = readFileSync(new URL("../client/src/components/CompatecCommandReconciliationPanel.tsx", import.meta.url), "utf8");
+const reconciliationContractSource = readFileSync(new URL("../shared/compatecCommandReconciliation.ts", import.meta.url), "utf8");
 const maintenanceSource = readFileSync(new URL("./incidentMaintenancePersistence.ts", import.meta.url), "utf8");
 const schemaSource = readFileSync(new URL("../drizzle/schema.ts", import.meta.url), "utf8");
 const upgradeSource = readFileSync(new URL("../deploy/upgrade_vps.sql", import.meta.url), "utf8");
@@ -58,6 +60,8 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(disarmRoute).not.toContain("MB=AK4[0,03FF]");
     expect(disarmRoute).toContain("getLatestArmDisarmStatusForSystem");
     expect(disarmRoute).toContain('currentState.qualifier !== "R"');
+    expect(disarmRoute).toContain("isCurrentCompatecStateEventSource(currentState, system)");
+    expect(disarmRoute).toContain("requiredPhysicalIdentity: system");
     expect(disarmRoute).toContain("createExclusiveCompatecPhysicalCommand");
   });
 
@@ -72,6 +76,40 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(armRoute).toContain('transportMode: "microbus_compatec"');
     expect(armRoute).toContain("getLatestArmDisarmStatusForSystem");
     expect(armRoute).toContain('currentState.qualifier !== "E"');
+    expect(armRoute).toContain("isCurrentCompatecStateEventSource(currentState, system)");
+    expect(armRoute).toContain("requiredPhysicalIdentity: system");
+    expect(armRoute).toContain("authorizationBasis: z.enum(COMPATEC_ARM_AUTHORIZATION_BASES)");
+    expect(armRoute).not.toContain("reason: z.string().trim().min(5");
+    expect(armRoute).toContain("getAlarmScheduleContext(system.id)");
+    expect(armRoute).toContain("evaluateAlarmSchedule({");
+    expect(armRoute).toContain("context?.schedules");
+    expect(armRoute).toContain("areCompatecArmScheduleBasesAllowed(input.authorizationBasis, decisions)");
+    expect(armRoute).toContain("getCompatecArmAuditReason(input.authorizationBasis, currentState.id)");
+    const dispatcher = databaseSource.slice(databaseSource.indexOf("export async function dispatchAlarmRemoteCommand"), databaseSource.indexOf("export async function expireStaleRemoteCommandDispatches"));
+    expect(dispatcher).toContain("getCompatecArmStateEventIdFromAuditReason(command.reason)");
+    expect(dispatcher).toContain("latestState?.id !== sourceStateEventId");
+    expect(dispatcher).toContain("areCompatecArmScheduleBasesAllowed(basis, decisions)");
+    expect(dashboardSource).toContain("Base autorizadora do Arme");
+    expect(dashboardSource).toContain("standaloneArmAuthorizationBasis");
+    expect(dashboardSource).not.toContain("empresa encerrada; responsável solicitou o Arme");
+    expect(dashboardSource).toContain('standaloneRemoteRequest.commandType === "disarm" && standaloneRemoteReason.trim().length < 5');
+  });
+
+  it("mostra o painel de conferência também standalone e orienta evidência para liberar o bloqueio sem transmitir", () => {
+    expect(dashboardSource).toContain("<CompatecCommandReconciliationPanel alarmSystemId={standaloneRemoteSystemId} />");
+    expect(reconciliationPanelSource).toContain("simples tempo decorrido não comprova não aplicação");
+    expect(reconciliationPanelSource).toContain("registro técnico direto");
+    expect(reconciliationPanelSource).toContain("bloqueio físico permanece até a confirmação direta do estado final");
+    expect(reconciliationPanelSource).toContain("Relato externo");
+    expect(reconciliationPanelSource).toContain("verificationSource: draft.verificationSource");
+    expect(reconciliationPanelSource).toContain("evidenceReference: draft.evidenceReference.trim()");
+    expect(reconciliationContractSource).toContain('if (outcome === "not_applied") return "cancelled"');
+    expect(reconciliationContractSource).toContain('if (outcome === "applied" || outcome === "partial") return "dispatch_unknown"');
+    expect(databaseSource).toContain("COMPATEC_MANUAL_NON_APPLICATION_MARKER");
+    expect(databaseSource).toContain("isCompatecManualReconciliationEvidenceValid({");
+    expect(databaseSource).toContain("COMPATEC_MANUAL_VERIFIED_MARKER");
+    expect(databaseSource).toContain("não é possível reclassificar depois como não aplicado");
+    expect(databaseSource).toContain('action: status === "cancelled" ? "remote_command_cancelled_after_non_application"');
   });
 
   it("bloqueia comando físico avulso e exige configuração multi-setorial auditada com lease", () => {

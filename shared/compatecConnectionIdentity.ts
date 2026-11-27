@@ -7,6 +7,7 @@ export type CompatecConnectionIdentity = {
 };
 
 export type CompatecIdentitySource = {
+  account?: string | null;
   macAddress?: string | null;
   imeiGprs?: string | null;
   receiverPort?: number | null;

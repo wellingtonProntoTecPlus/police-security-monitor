@@ -47,6 +47,7 @@ import { getLatestArmDisarmStatusBySystem, isArmDisarmStatusEvent, STANDARD_ARM_
 import { verifyPersistedAlarmUser } from "./alarmUserPersistence";
 import { classifyContactIdOperationalEvent, evaluateAlarmSchedule } from "./alarmSchedulePolicy";
 import { getScheduleOverrideWindow, type ScheduleOverrideDuration } from "./alarmScheduleOverrideWindow";
+import { areCompatecArmScheduleBasesAllowed, getCompatecArmAuthorizationBasisFromAuditReason, getCompatecArmStateEventIdFromAuditReason, getCompatecDisarmStateEventIdFromAuditReason, getCompatecManualObservedStateLabel, getCompatecManualVerificationSourceLabel, isCompatecManualReconciliationEvidenceValid, isCompatecArmScheduleBasisAllowed, isCurrentCompatecStateEventSource, type CompatecArmAuthorizationBasis } from "@shared/compatecArmAuthorization";
 import { formatRegistrationFields, formatRegistrationText, normalizeRegistrationPayload } from "./registrationText";
 import { applicableProcedures, classifyProcedureEvent } from "../shared/operationalProcedures";
 import { validateOptionalBrazilianDocument } from "@shared/documentValidation";
@@ -54,7 +55,7 @@ import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflV
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { notifyAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
 import { getCompatecConnectionIdentity, type CompatecIdentitySource } from "@shared/compatecConnectionIdentity";
-import { getCompatecReconciliationOutcomeLabel, isCompatecReconciliationOutcomeAllowed, type CompatecReconciliationOutcome } from "@shared/compatecCommandReconciliation";
+import { COMPATEC_MANUAL_APPLICATION_EVENT_BASELINE_MARKER, COMPATEC_MANUAL_APPLICATION_MARKER, COMPATEC_MANUAL_NON_APPLICATION_MARKER, COMPATEC_MANUAL_PARTIAL_MARKER, COMPATEC_MANUAL_VERIFIED_MARKER, getCompatecReconciledStatus, getCompatecReconciliationOutcomeLabel, getManualCompatecApplicationEventBaseline, isCompatecReconciliationOutcomeAllowed, isManualCompatecApplication, isManualCompatecNonApplication, isManualCompatecVerified, type CompatecReconciliationOutcome } from "@shared/compatecCommandReconciliation";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
@@ -1550,6 +1551,74 @@ export async function setCompatecZoneArmSelection(input: { alarmSystemId: number
   });
 }
 
+async function findActiveCompatecPhysicalCommand(tx: any, alarmSystemId: number) {
+  const commandTypes = ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"];
+  const candidates: Array<typeof alarmRemoteCommands.$inferSelect> = await tx.select().from(alarmRemoteCommands)
+    .where(and(
+      eq(alarmRemoteCommands.alarmSystemId, alarmSystemId),
+      eq(alarmRemoteCommands.brand, "COMPATEC"),
+      inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
+      inArray(alarmRemoteCommands.commandType, commandTypes),
+      inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "dispatch_unknown", "sent", "reconciled"]),
+    ))
+    .orderBy(alarmRemoteCommands.id)
+    .limit(20)
+    .for("update");
+  for (const command of candidates) {
+    const hasApplicationMarker = isManualCompatecApplication(command.responsePayload);
+    if (command.status === "reconciled" && !hasApplicationMarker) continue;
+    if (hasApplicationMarker && await isManualCompatecApplicationConfirmedByLaterEvents(tx, command)) continue;
+    return { id: command.id, status: command.status };
+  }
+  return undefined;
+}
+
+async function isManualCompatecApplicationConfirmedByLaterEvents(tx: any, command: typeof alarmRemoteCommands.$inferSelect) {
+  if (isManualCompatecVerified(command.responsePayload)) return true;
+  const eventBaseline = getManualCompatecApplicationEventBaseline(command.responsePayload);
+  const newerThanBaseline = eventBaseline !== null ? gt(alarmEvents.id, eventBaseline) : gt(alarmEvents.receivedAt, command.updatedAt);
+  const [system] = await tx.select({ account: alarmSystems.account, brand: alarmSystems.brand, macAddress: alarmSystems.macAddress,
+    imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort })
+    .from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1).for("update");
+  if (!system || system.brand !== "COMPATEC") return false;
+  const events: Array<typeof alarmEvents.$inferSelect> = await tx.select().from(alarmEvents).where(and(
+    eq(alarmEvents.alarmSystemId, command.alarmSystemId), newerThanBaseline,
+  )).orderBy(alarmEvents.id).limit(500).for("update");
+  const validEvents = events.filter((event) => isCurrentCompatecStateEventSource(event, system));
+
+  if (command.commandType === "arm" || command.commandType === "disarm") {
+    const latestState = validEvents.filter(isArmDisarmStatusEvent).at(-1);
+    const expected = command.commandType === "arm" ? "armed" : "disarmed";
+    return Boolean(latestState && classifyContactIdOperationalEvent(latestState).state === expected);
+  }
+
+  let requestedChanges: CompatecZoneConfigurationChange[] = [];
+  try {
+    const payload = JSON.parse(command.commandPayload);
+    if (Array.isArray(payload.zoneChanges)) requestedChanges = payload.zoneChanges;
+    else if (Number.isInteger(payload.zoneNumber)) requestedChanges = [{
+      zoneNumber: payload.zoneNumber,
+      bypassState: command.commandType === "isolate_zone" ? "annulled" : "restored",
+    }];
+  } catch { /* Comando legado sem metadados setoriais. */ }
+  if (!requestedChanges.length && command.zoneNumber) requestedChanges = [{ zoneNumber: command.zoneNumber,
+    bypassState: command.commandType === "isolate_zone" ? "annulled" : "restored" }];
+
+  const bypassChanges = requestedChanges.filter((change) => change.bypassState !== undefined);
+  const onlyBypassChanges = bypassChanges.length > 0 && requestedChanges.every((change) => change.armState === undefined);
+  if (onlyBypassChanges) {
+    return bypassChanges.every((change) => {
+      const latest = validEvents.filter((event) => {
+        const zone = Number(String(event.zoneUser || "").replace(/^0+/, "") || 0);
+        return zone === change.zoneNumber && classifyContactIdOperationalEvent(event).kind === "isolation";
+      }).at(-1);
+      const expected = change.bypassState === "annulled" ? "isolated" : "restored";
+      return Boolean(latest && classifyContactIdOperationalEvent(latest).state === expected);
+    });
+  }
+  return false;
+}
+
 /** Reserva uma única ação física MicroBus; seleções são consumidas sob o mesmo lock do Arme. */
 export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRemoteCommand) {
   if (!["arm", "disarm", "query_status", "query_sectors"].includes(data.commandType)) {
@@ -1562,17 +1631,7 @@ export async function createExclusiveCompatecPhysicalCommand(data: InsertAlarmRe
       .from(alarmSystems)
       .where(eq(alarmSystems.id, data.alarmSystemId))
       .for("update");
-    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
-      .from(alarmRemoteCommands)
-      .where(and(
-        eq(alarmRemoteCommands.alarmSystemId, data.alarmSystemId),
-        eq(alarmRemoteCommands.brand, "COMPATEC"),
-        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
-        inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"]),
-        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "dispatch_unknown", "sent"]),
-      ))
-      .orderBy(alarmRemoteCommands.id)
-      .limit(1);
+    const active = await findActiveCompatecPhysicalCommand(tx, data.alarmSystemId);
     if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
     const result = await tx.insert(alarmRemoteCommands).values(data);
     const id = Number(result[0].insertId);
@@ -1609,6 +1668,7 @@ export async function createStandaloneCompatecZoneConfiguration(input: {
     if (!client) throw new Error("O cliente da central não está ativo.");
     const [systemRef] = await tx.select({
       id: alarmSystems.id, clientId: alarmSystems.clientId, isActive: alarmSystems.isActive, brand: alarmSystems.brand,
+      account: alarmSystems.account,
       macAddress: alarmSystems.macAddress, imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort,
     }).from(alarmSystems).where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id)))
       .for("update").limit(1);
@@ -1621,15 +1681,7 @@ export async function createStandaloneCompatecZoneConfiguration(input: {
     if (await hasOpenIncidentForAlarmSystem(tx, input.alarmSystemId)) {
       throw new Error("Esta central possui uma ocorrência aberta. Faça a configuração dentro do atendimento assumido para manter a exclusividade do painel.");
     }
-    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
-      .from(alarmRemoteCommands)
-      .where(and(
-        eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId),
-        eq(alarmRemoteCommands.brand, "COMPATEC"),
-        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
-        inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"]),
-        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "dispatch_unknown", "sent"]),
-      )).orderBy(alarmRemoteCommands.id).limit(1);
+    const active = await findActiveCompatecPhysicalCommand(tx, input.alarmSystemId);
     if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
 
     for (const change of input.zoneChanges) {
@@ -1663,7 +1715,7 @@ export async function createStandaloneCompatecZoneConfiguration(input: {
       id,
       commandPayload,
       zoneChanges: input.zoneChanges,
-      physicalIdentity: { brand: systemRef.brand, macAddress: systemRef.macAddress, imeiGprs: systemRef.imeiGprs, receiverPort: systemRef.receiverPort },
+      physicalIdentity: { brand: systemRef.brand, account: systemRef.account, macAddress: systemRef.macAddress, imeiGprs: systemRef.imeiGprs, receiverPort: systemRef.receiverPort },
     };
   }, { isolationLevel: "read committed" });
 }
@@ -1701,15 +1753,7 @@ export async function createExclusiveCompatecZoneConfiguration(input: {
     if (!getCompatecConnectionIdentity(systemRef)) {
       throw new Error("O protocolo Compatec exige MAC ou IMEI de 6 caracteres hexadecimais reconhecido no frame de identidade e porta do receptor válida; serial/ISEP, conta ou IP isolados não autorizam o envio.");
     }
-    const [active] = await tx.select({ id: alarmRemoteCommands.id, status: alarmRemoteCommands.status })
-      .from(alarmRemoteCommands)
-      .where(and(
-        eq(alarmRemoteCommands.alarmSystemId, input.alarmSystemId),
-        eq(alarmRemoteCommands.brand, "COMPATEC"),
-        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
-        inArray(alarmRemoteCommands.commandType, ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"]),
-        inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "dispatch_unknown", "sent"]),
-      )).orderBy(alarmRemoteCommands.id).limit(1);
+    const active = await findActiveCompatecPhysicalCommand(tx, input.alarmSystemId);
     if (active) return { created: false as const, activeCommandId: active.id, activeStatus: active.status };
 
     for (const change of input.zoneChanges) {
@@ -1851,6 +1895,8 @@ export async function updateAlarmRemoteCommandDelivery(id: number, data: {
       .for("update");
     if (!command) return;
     if (command.status === "reconciled") return;
+    if (command.status === "cancelled" && command.brand === "COMPATEC" && command.transportMode === "microbus_compatec"
+      && isManualCompatecNonApplication(command.responsePayload)) return;
     if (data.status === "reconciled") return;
     const { appendResponsePayload = false, ...updates } = data;
     if (command.status === "dispatch_unknown" && command.brand === "COMPATEC" && command.transportMode === "microbus_compatec") {
@@ -1940,7 +1986,7 @@ export async function dispatchAlarmRemoteCommand(input: {
     if (!systemRef?.clientId) return { claimed: false as const, status: "cancelled", message: "A central não está vinculada a um cliente ativo." };
     const [client] = await tx.select({ id: clients.id }).from(clients)
       .where(and(eq(clients.id, systemRef.clientId), eq(clients.isActive, true))).for("update").limit(1);
-    const [system] = client ? await tx.select({ id: alarmSystems.id, brand: alarmSystems.brand, macAddress: alarmSystems.macAddress, imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort }).from(alarmSystems)
+    const [system] = client ? await tx.select({ id: alarmSystems.id, brand: alarmSystems.brand, account: alarmSystems.account, macAddress: alarmSystems.macAddress, imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort }).from(alarmSystems)
       .where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id), eq(alarmSystems.isActive, true)))
       .for("update").limit(1) : [];
     const [command] = await tx.select().from(alarmRemoteCommands)
@@ -1959,6 +2005,7 @@ export async function dispatchAlarmRemoteCommand(input: {
     if (input.requiredPhysicalIdentity && (!system || system.brand !== "COMPATEC"
       || system.macAddress !== input.requiredPhysicalIdentity.macAddress
       || system.imeiGprs !== input.requiredPhysicalIdentity.imeiGprs
+      || (input.requiredPhysicalIdentity.account !== undefined && system.account !== input.requiredPhysicalIdentity.account)
       || system.receiverPort !== input.requiredPhysicalIdentity.receiverPort)) {
       const responsePayload = "Configuração física cancelada antes da transmissão: MAC, IMEI, marca ou porta do cadastro mudou desde a validação. Nenhum quadro foi transmitido.";
       await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
@@ -2044,9 +2091,9 @@ export async function dispatchAlarmRemoteCommand(input: {
     }
     const [systemRef] = await tx.select({ id: alarmSystems.id, clientId: alarmSystems.clientId })
       .from(alarmSystems).where(eq(alarmSystems.id, input.alarmSystemId)).limit(1);
-    const [client] = systemRef?.clientId ? await tx.select({ id: clients.id }).from(clients)
+    const [client] = systemRef?.clientId ? await tx.select({ id: clients.id, partnerCompanyId: clients.partnerCompanyId }).from(clients)
       .where(and(eq(clients.id, systemRef.clientId), eq(clients.isActive, true))).for("update").limit(1) : [];
-    const [system] = client ? await tx.select({ id: alarmSystems.id, brand: alarmSystems.brand, macAddress: alarmSystems.macAddress, imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort }).from(alarmSystems)
+    const [system] = client ? await tx.select({ id: alarmSystems.id, brand: alarmSystems.brand, account: alarmSystems.account, macAddress: alarmSystems.macAddress, imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort }).from(alarmSystems)
       .where(and(eq(alarmSystems.id, input.alarmSystemId), eq(alarmSystems.clientId, client.id), eq(alarmSystems.isActive, true)))
       .for("update").limit(1) : [];
     const [command] = await tx.select().from(alarmRemoteCommands)
@@ -2064,6 +2111,7 @@ export async function dispatchAlarmRemoteCommand(input: {
     if (input.requiredPhysicalIdentity && (!system || system.brand !== "COMPATEC"
       || system.macAddress !== input.requiredPhysicalIdentity.macAddress
       || system.imeiGprs !== input.requiredPhysicalIdentity.imeiGprs
+      || (input.requiredPhysicalIdentity.account !== undefined && system.account !== input.requiredPhysicalIdentity.account)
       || system.receiverPort !== input.requiredPhysicalIdentity.receiverPort)) {
       const responsePayload = "Configuração física cancelada antes da transmissão: MAC, IMEI, marca ou porta do cadastro mudou durante a reserva. Nenhum quadro foi transmitido.";
       await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
@@ -2098,6 +2146,66 @@ export async function dispatchAlarmRemoteCommand(input: {
       await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
       await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
       return { sent: false as const, status: "cancelled", message: responsePayload };
+    }
+
+    if (command.brand === "COMPATEC" && command.transportMode === "microbus_compatec"
+      && (command.commandType === "arm" || command.commandType === "disarm")) {
+      const isArm = command.commandType === "arm";
+      const basis = isArm ? getCompatecArmAuthorizationBasisFromAuditReason(command.reason) : null;
+      const sourceStateEventId = isArm
+        ? getCompatecArmStateEventIdFromAuditReason(command.reason)
+        : getCompatecDisarmStateEventIdFromAuditReason(command.reason);
+      const expectedState = isArm ? "disarmed" : "armed";
+      const stateEvents: Array<typeof alarmEvents.$inferSelect> = await tx.select().from(alarmEvents).where(and(
+        eq(alarmEvents.alarmSystemId, command.alarmSystemId),
+        inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"]),
+      )).orderBy(desc(alarmEvents.receivedAt), desc(alarmEvents.id)).limit(20).for("update");
+      const latestState = stateEvents.find((event) => isArmDisarmStatusEvent(event));
+      if ((isArm && !basis) || !sourceStateEventId || latestState?.id !== sourceStateEventId
+        || !system || !isCurrentCompatecStateEventSource(latestState, system)
+        || classifyContactIdOperationalEvent(latestState).state !== expectedState) {
+        const requiredState = isArm ? "DESARMADO" : "ARMADO";
+        const responsePayload = `${isArm ? "Arme" : "Desarme"} cancelado sem transmissão: o estado ${requiredState} mudou desde a autorização ou não foi possível validar sua origem. Confira o estado atual e solicite novamente; nenhum quadro foi enviado.`;
+        await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+        await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+        return { sent: false as const, status: "cancelled", message: responsePayload };
+      }
+      if (isArm && basis && basis !== "customer_request") {
+        if (client.partnerCompanyId) {
+          await tx.select({ id: partnerCompanies.id }).from(partnerCompanies)
+            .where(eq(partnerCompanies.id, client.partnerCompanyId)).for("update").limit(1);
+        }
+        const activeSchedules = await tx.select().from(alarmSchedules).where(and(
+          eq(alarmSchedules.alarmSystemId, command.alarmSystemId), eq(alarmSchedules.isActive, true),
+        )).orderBy(alarmSchedules.partition, alarmSchedules.id).for("update");
+        const holidayRows = client.partnerCompanyId ? await tx.select().from(partnerHolidays)
+          .where(eq(partnerHolidays.partnerCompanyId, client.partnerCompanyId)).for("update") : [];
+        const activeOverrides = await tx.select().from(alarmScheduleOverrides).where(and(
+          eq(alarmScheduleOverrides.alarmSystemId, command.alarmSystemId), eq(alarmScheduleOverrides.isActive, true),
+        )).for("update");
+        const decisions = activeSchedules.map((schedule) => evaluateAlarmSchedule({
+          schedule,
+          holidays: holidayRows.map((holiday) => ({ date: holiday.date, holidayArm: schedule.holidayArm, holidayDisarm: schedule.holidayDisarm })),
+          exceptions: activeOverrides.map((item) => ({
+            date: item.overrideDate,
+            validFromAt: item.validFromAt,
+            validUntilAt: item.validUntilAt,
+            suspended: item.mode === "suspended",
+            override: item.mode === "override" ? {
+              ...(item.armAt ? { armAt: item.armAt } : {}),
+              ...(item.disarmAt ? { disarmAt: item.disarmAt } : {}),
+            } : null,
+          })),
+          at: new Date(),
+          actualState: "disarmed",
+        }));
+        if (!areCompatecArmScheduleBasesAllowed(basis, decisions)) {
+          const responsePayload = "Arme programado cancelado sem transmissão: as agendas ativas de todas as partições, feriados ou exceções já não autorizam esta ação. Confira e solicite novamente se ainda for devido; nenhum quadro foi enviado.";
+          await tx.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+          await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "cancelled", responsePayload });
+          return { sent: false as const, status: "cancelled", message: responsePayload };
+        }
+      }
     }
 
     if (command.commandPayload.includes('"physical_arm_with_zones"')) {
@@ -2176,14 +2284,19 @@ export async function reconcileCompatecCommand(input: {
   outcome: CompatecReconciliationOutcome;
   verificationMethod: string;
   details: string;
+  verificationSource: string;
+  observedState: string;
+  evidenceReference: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
   const verificationMethod = input.verificationMethod.trim();
   const details = input.details.trim();
+  const evidenceReference = input.evidenceReference.trim();
   if (!input.authSessionId) throw new Error("Sessão operacional não identificada.");
   if (verificationMethod.length < 5 || verificationMethod.length > 255) throw new Error("Informe como a central foi conferida (5 a 255 caracteres).");
   if (details.length < 5 || details.length > 2000) throw new Error("Informe o resultado observado (5 a 2000 caracteres).");
+  if (!evidenceReference || evidenceReference.length > 160) throw new Error("Informe uma referência rastreável do registro direto usado na conferência.");
 
   return db.transaction(async (tx) => {
     const [snapshot] = await tx.select({ incidentId: alarmRemoteCommands.incidentId, alarmSystemId: alarmRemoteCommands.alarmSystemId })
@@ -2206,6 +2319,20 @@ export async function reconcileCompatecCommand(input: {
     if (!isCompatecReconciliationOutcomeAllowed(command.commandType, input.outcome)) {
       return { reconciled: false as const, message: "Resultado de conferência inválido para esta ação." };
     }
+    if (isManualCompatecApplication(command.responsePayload)
+      && input.outcome !== "verified"
+      && !(command.commandType === "configure_zones" && input.outcome === "partial")) {
+      return { reconciled: false as const, message: "A aplicação já foi registrada; não é possível reclassificar depois como não aplicado. Confirme o estado final em nova evidência direta." };
+    }
+    if (!isCompatecManualReconciliationEvidenceValid({
+      commandType: command.commandType,
+      outcome: input.outcome,
+      verificationSource: input.verificationSource,
+      observedState: input.observedState,
+      evidenceReference,
+    })) {
+      return { reconciled: false as const, message: "A fonte precisa ser um registro técnico direto, com estado coerente com a ação e referência rastreável. Relato externo não comprova aplicação nem não aplicação." };
+    }
     if (command.status !== "dispatch_unknown") {
       return { reconciled: false as const, message: "Este comando não está mais aguardando conferência manual." };
     }
@@ -2213,29 +2340,51 @@ export async function reconcileCompatecCommand(input: {
     const now = new Date();
     const operatorName = input.operatorName.trim().slice(0, 255) || `Operador ${input.operatorId}`;
     const outcomeLabel = getCompatecReconciliationOutcomeLabel(command.commandType, input.outcome);
+    const status = getCompatecReconciledStatus(command.commandType, input.outcome);
+    const requiresPostManualStateEvent = status === "dispatch_unknown"
+      && ["arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"].includes(command.commandType);
+    const baselineEvents = requiresPostManualStateEvent ? await tx.select({ id: alarmEvents.id }).from(alarmEvents)
+      .where(eq(alarmEvents.alarmSystemId, command.alarmSystemId)).orderBy(desc(alarmEvents.id)).limit(1) : [];
+    const eventBaseline = baselineEvents[0]?.id ?? 0;
+    const nonApplicationAudit = status === "cancelled"
+      ? `${COMPATEC_MANUAL_NON_APPLICATION_MARKER}\nComando cancelado após conferência manual: a ação solicitada não foi aplicada à central.`
+      : null;
+    const applicationMarker = input.outcome === "applied" ? COMPATEC_MANUAL_APPLICATION_MARKER
+      : input.outcome === "partial" ? COMPATEC_MANUAL_PARTIAL_MARKER : null;
+    const appliedAudit = applicationMarker
+      ? `${applicationMarker}\n${requiresPostManualStateEvent ? `${COMPATEC_MANUAL_APPLICATION_EVENT_BASELINE_MARKER}${eventBaseline}]\n` : ""}Novos comandos físicos permanecem bloqueados até conferência direta e compatível do estado final.`
+      : null;
+    const verifiedAudit = input.outcome === "verified" && ["arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"].includes(command.commandType)
+      ? `${COMPATEC_MANUAL_VERIFIED_MARKER}\nEstado final conferido diretamente; o bloqueio físico pode ser liberado.`
+      : null;
     const auditNote = [
       `Conferência manual do comando #${command.id}: ${outcomeLabel}.`,
+      nonApplicationAudit,
+      appliedAudit,
+      verifiedAudit,
       `Como foi conferido: ${verificationMethod}`,
-      `Estado/resultado observado: ${details}`,
+      `Fonte: ${getCompatecManualVerificationSourceLabel(input.verificationSource)}.`,
+      `Estado observado: ${getCompatecManualObservedStateLabel(input.observedState)}. ${details}`,
+      `Referência da evidência: ${evidenceReference}`,
       "Registro informado pelo operador; não é confirmação eletrônica do painel. Nenhum quadro foi transmitido nesta conferência.",
-    ].join("\n");
+    ].filter(Boolean).join("\n");
     const responsePayload = `${command.responsePayload || "Resultado indeterminado; conferência necessária."}\n\n[CONFERÊNCIA MANUAL · ${now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}]\nOperador: ${operatorName}\n${auditNote}`;
-    await tx.update(alarmRemoteCommands).set({ status: "reconciled", responsePayload, updatedAt: now }).where(eq(alarmRemoteCommands.id, command.id));
+    await tx.update(alarmRemoteCommands).set({ status, responsePayload, updatedAt: now }).where(eq(alarmRemoteCommands.id, command.id));
     if (incident) {
       await tx.insert(incidentHistory).values({
         incidentId: incident.id,
         parentIncidentId: incident.parentIncidentId,
         operatorId: input.operatorId,
         operatorName,
-        action: "remote_command_reconciled",
+        action: status === "cancelled" ? "remote_command_cancelled_after_non_application" : "remote_command_reconciled",
         note: auditNote,
         createdAt: now,
       });
     }
     if (["arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"].includes(command.commandType)) {
-      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "reconciled", responsePayload, updatedAt: now });
+      await syncCompatecRemoteCommandOccurrence(tx, { ...command, status, responsePayload, updatedAt: now });
     }
-    return { reconciled: true as const, commandId: command.id, incidentId: incident?.id ?? null, status: "reconciled" as const };
+    return { reconciled: true as const, commandId: command.id, incidentId: incident?.id ?? null, status };
   });
 }
 
@@ -3016,8 +3165,11 @@ export async function normalizeExistingRegistrationText() {
 export async function createAlarmEvent(data: InsertAlarmEvent) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmEvents).values(data);
-  return { id: result[0].insertId };
+  return db.transaction(async (tx) => {
+    await lockAlarmSystemForIncidentInsert(tx, data.alarmSystemId);
+    const result = await tx.insert(alarmEvents).values(data);
+    return { id: result[0].insertId };
+  });
 }
 
 /**
@@ -4116,31 +4268,47 @@ export async function listAlarmSchedules(alarmSystemId: number) {
 export async function createAlarmSchedule(data: InsertAlarmSchedule) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(alarmSchedules).values(formatRegistrationFields(data, ["name"]));
-  return { id: result[0].insertId };
+  return db.transaction(async (tx) => {
+    await lockAlarmSystemForIncidentInsert(tx, data.alarmSystemId);
+    const result = await tx.insert(alarmSchedules).values(formatRegistrationFields(data, ["name"]));
+    return { id: result[0].insertId };
+  });
 }
 
 export async function updateAlarmSchedule(id: number, data: Partial<InsertAlarmSchedule>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(alarmSchedules).set(formatRegistrationFields(data, ["name"])).where(eq(alarmSchedules.id, id));
+  await db.transaction(async (tx) => {
+    const [snapshot] = await tx.select({ alarmSystemId: alarmSchedules.alarmSystemId }).from(alarmSchedules).where(eq(alarmSchedules.id, id)).limit(1);
+    if (!snapshot) return;
+    if (data.alarmSystemId !== undefined && data.alarmSystemId !== snapshot.alarmSystemId) throw new Error("A agenda não pode ser transferida para outra central nesta atualização.");
+    await lockAlarmSystemForIncidentInsert(tx, snapshot.alarmSystemId);
+    const [current] = await tx.select({ id: alarmSchedules.id }).from(alarmSchedules).where(and(
+      eq(alarmSchedules.id, id), eq(alarmSchedules.alarmSystemId, snapshot.alarmSystemId),
+    )).for("update").limit(1);
+    if (!current) return;
+    await tx.update(alarmSchedules).set(formatRegistrationFields(data, ["name"])).where(eq(alarmSchedules.id, id));
+  });
 }
 
 export async function upsertAlarmSchedule(data: InsertAlarmSchedule) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const partition = data.partition || 1;
-  const existing = await db.select({ id: alarmSchedules.id }).from(alarmSchedules).where(and(
-    eq(alarmSchedules.alarmSystemId, data.alarmSystemId),
-    eq(alarmSchedules.partition, partition),
-  )).limit(1);
-  if (existing[0]) {
-    await db.update(alarmSchedules).set(formatRegistrationFields({ ...data, isActive: data.isActive ?? true }, ["name"]))
-      .where(eq(alarmSchedules.id, existing[0].id));
-    return { id: existing[0].id, updated: true as const };
-  }
-  const result = await db.insert(alarmSchedules).values(formatRegistrationFields({ ...data, partition, isActive: data.isActive ?? true }, ["name"]));
-  return { id: Number(result[0].insertId), updated: false as const };
+  return db.transaction(async (tx) => {
+    await lockAlarmSystemForIncidentInsert(tx, data.alarmSystemId);
+    const [existing] = await tx.select({ id: alarmSchedules.id }).from(alarmSchedules).where(and(
+      eq(alarmSchedules.alarmSystemId, data.alarmSystemId),
+      eq(alarmSchedules.partition, partition),
+    )).for("update").limit(1);
+    if (existing) {
+      await tx.update(alarmSchedules).set(formatRegistrationFields({ ...data, isActive: data.isActive ?? true }, ["name"]))
+        .where(eq(alarmSchedules.id, existing.id));
+      return { id: existing.id, updated: true as const };
+    }
+    const result = await tx.insert(alarmSchedules).values(formatRegistrationFields({ ...data, partition, isActive: data.isActive ?? true }, ["name"]));
+    return { id: Number(result[0].insertId), updated: false as const };
+  });
 }
 
 // ============================================================
@@ -4215,20 +4383,41 @@ export async function getPartnerHoliday(id: number) {
 export async function createPartnerHoliday(data: InsertPartnerHoliday) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(partnerHolidays).values(formatRegistrationFields(data, ["name"]));
-  return { id: result[0].insertId };
+  return db.transaction(async (tx) => {
+    await tx.select({ id: partnerCompanies.id }).from(partnerCompanies)
+      .where(eq(partnerCompanies.id, data.partnerCompanyId)).for("update").limit(1);
+    const result = await tx.insert(partnerHolidays).values(formatRegistrationFields(data, ["name"]));
+    return { id: result[0].insertId };
+  });
 }
 
 export async function deletePartnerHoliday(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(partnerHolidays).where(eq(partnerHolidays.id, id));
+  await db.transaction(async (tx) => {
+    const [snapshot] = await tx.select({ partnerCompanyId: partnerHolidays.partnerCompanyId }).from(partnerHolidays)
+      .where(eq(partnerHolidays.id, id)).limit(1);
+    if (!snapshot) return;
+    await tx.select({ id: partnerCompanies.id }).from(partnerCompanies)
+      .where(eq(partnerCompanies.id, snapshot.partnerCompanyId)).for("update").limit(1);
+    await tx.delete(partnerHolidays).where(and(eq(partnerHolidays.id, id), eq(partnerHolidays.partnerCompanyId, snapshot.partnerCompanyId)));
+  });
 }
 
 export async function updatePartnerHoliday(id: number, data: Partial<InsertPartnerHoliday>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(partnerHolidays).set(formatRegistrationFields(data, ["name"])).where(eq(partnerHolidays.id, id));
+  await db.transaction(async (tx) => {
+    const [snapshot] = await tx.select({ partnerCompanyId: partnerHolidays.partnerCompanyId }).from(partnerHolidays)
+      .where(eq(partnerHolidays.id, id)).limit(1);
+    if (!snapshot) return;
+    if (data.partnerCompanyId !== undefined && data.partnerCompanyId !== snapshot.partnerCompanyId) throw new Error("O feriado não pode ser transferido para outra parceira nesta atualização.");
+    await tx.select({ id: partnerCompanies.id }).from(partnerCompanies)
+      .where(eq(partnerCompanies.id, snapshot.partnerCompanyId)).for("update").limit(1);
+    await tx.update(partnerHolidays).set(formatRegistrationFields(data, ["name"])).where(and(
+      eq(partnerHolidays.id, id), eq(partnerHolidays.partnerCompanyId, snapshot.partnerCompanyId),
+    ));
+  });
 }
 
 export async function getAlarmScheduleOverride(id: number) {
@@ -4271,10 +4460,11 @@ export async function saveAlarmScheduleOverride(input: {
   if (!db) throw new Error("Database not available");
   const window = getScheduleOverrideWindow({ overrideDate: input.overrideDate, duration: input.duration });
   return db.transaction(async (tx) => {
+    await lockAlarmSystemForIncidentInsert(tx, input.alarmSystemId);
     const existingRows = await tx.select().from(alarmScheduleOverrides).where(and(
       eq(alarmScheduleOverrides.alarmSystemId, input.alarmSystemId),
       eq(alarmScheduleOverrides.overrideDate, input.overrideDate),
-    )).limit(1);
+    )).for("update").limit(1);
     const previous = existingRows[0] || null;
     const values: Omit<InsertAlarmScheduleOverride, "id"> = {
       alarmSystemId: input.alarmSystemId,
@@ -4318,8 +4508,13 @@ export async function cancelAlarmScheduleOverride(input: { id: number; operatorI
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.transaction(async (tx) => {
-    const existingRows = await tx.select().from(alarmScheduleOverrides).where(eq(alarmScheduleOverrides.id, input.id)).limit(1);
-    const existing = existingRows[0];
+    const [snapshot] = await tx.select({ alarmSystemId: alarmScheduleOverrides.alarmSystemId })
+      .from(alarmScheduleOverrides).where(eq(alarmScheduleOverrides.id, input.id)).limit(1);
+    if (!snapshot) throw new Error("Exceção de agenda não encontrada");
+    await lockAlarmSystemForIncidentInsert(tx, snapshot.alarmSystemId);
+    const [existing] = await tx.select().from(alarmScheduleOverrides).where(and(
+      eq(alarmScheduleOverrides.id, input.id), eq(alarmScheduleOverrides.alarmSystemId, snapshot.alarmSystemId),
+    )).for("update").limit(1);
     if (!existing) throw new Error("Exceção de agenda não encontrada");
     if (!existing.isActive) return { success: true as const };
     await tx.update(alarmScheduleOverrides).set({ isActive: false, updatedBy: input.operatorId }).where(eq(alarmScheduleOverrides.id, input.id));
@@ -4351,9 +4546,8 @@ export async function getAlarmScheduleContext(alarmSystemId: number) {
   if (!systemRow?.system) return null;
   const scheduleRows = await db.select().from(alarmSchedules)
     .where(and(eq(alarmSchedules.alarmSystemId, alarmSystemId), eq(alarmSchedules.isActive, true)))
-    .orderBy(alarmSchedules.partition, alarmSchedules.id)
-    .limit(1);
-  if (!scheduleRows[0]) return { system: systemRow.system, schedule: null, holidays: [], exceptions: [] };
+    .orderBy(alarmSchedules.partition, alarmSchedules.id);
+  if (!scheduleRows[0]) return { system: systemRow.system, schedule: null, schedules: [], holidayDates: [], holidays: [], exceptions: [] };
   const [holidayRows, exceptionRows] = await Promise.all([
     systemRow.partnerCompanyId ? db.select().from(partnerHolidays).where(eq(partnerHolidays.partnerCompanyId, systemRow.partnerCompanyId)) : Promise.resolve([]),
     db.select().from(alarmScheduleOverrides).where(and(eq(alarmScheduleOverrides.alarmSystemId, alarmSystemId), eq(alarmScheduleOverrides.isActive, true))),
@@ -4373,7 +4567,7 @@ export async function getAlarmScheduleContext(alarmSystemId: number) {
       ...(item.disarmAt ? { disarmAt: item.disarmAt } : {}),
     } : null,
   }));
-  return { system: systemRow.system, schedule: scheduleRows[0], holidays, exceptions };
+  return { system: systemRow.system, schedule: scheduleRows[0], schedules: scheduleRows, holidayDates: holidayRows.map((holiday) => holiday.date), holidays, exceptions };
 }
 
 export async function listAlarmScheduleAlerts(filters: {
@@ -4992,9 +5186,12 @@ export async function getLatestArmDisarmStatusForSystem(alarmSystemId: number) {
     qualifier: alarmEvents.qualifier,
     eventCode: alarmEvents.eventCode,
     brand: alarmEvents.brand,
+    account: alarmEvents.account,
     receivedAt: alarmEvents.receivedAt,
     alarmSystemId: alarmEvents.alarmSystemId,
     description: alarmEvents.description,
+    receiverPort: alarmEvents.receiverPort,
+    rawData: alarmEvents.rawData,
   }).from(alarmEvents).where(and(
     eq(alarmEvents.alarmSystemId, alarmSystemId),
     inArray(alarmEvents.eventCode, [...STANDARD_ARM_DISARM_EVENT_CODES, "701", "3401", "3403", "3407", "3441", "456"]),

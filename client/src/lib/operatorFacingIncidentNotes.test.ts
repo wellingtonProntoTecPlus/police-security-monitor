@@ -127,6 +127,19 @@ describe("resumo operacional de comandos remotos", () => {
     expect(summary).not.toContain("sem envio");
   });
 
+  it("reports verified non-application separately from a generic cancellation", () => {
+    const summary = buildCompactRemoteCommandSummary([{
+      commandType: "arm",
+      status: "cancelled",
+      reason: "Base autorizadora do Arme: Pedido do cliente",
+      response: "[CANCELAMENTO APÓS VERIFICAÇÃO: NÃO APLICADO]\nOperador: Amanda\nConferência manual registrada.",
+    }]);
+    expect(summary).toContain("Não aplicado; conferência manual registrada");
+    expect(summary).toContain("Motivo: Base: Pedido do cliente");
+    expect(summary).not.toContain("Cancelado; conferir histórico");
+    expect(summary).not.toContain("sem envio");
+  });
+
   it("remove códigos e bytes de protocolo de motivos legados", () => {
     const summary = buildCompactRemoteCommandSummary([{ commandType: "arm", status: "responded", reason: "Conferir painel F7 07944500497B255F KA4" }]);
     expect(summary).toContain("Motivo: Conferir painel");

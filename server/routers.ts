@@ -21,6 +21,9 @@ import { emitOperatorShiftNotice } from "./_core/operatorShiftRuntime";
 import * as operatorShiftDb from "./operatorShiftDb";
 import { PROCEDURE_TYPES } from "../shared/operationalProcedures";
 import { COMPATEC_RECONCILIATION_OUTCOMES } from "../shared/compatecCommandReconciliation";
+import { COMPATEC_ARM_AUTHORIZATION_BASES, areCompatecArmScheduleBasesAllowed, getCompatecArmAuditReason, getCompatecDisarmAuditReason, isCurrentCompatecStateEventSource } from "@shared/compatecArmAuthorization";
+import { COMPATEC_MANUAL_OBSERVED_STATES, COMPATEC_MANUAL_VERIFICATION_SOURCES } from "@shared/compatecArmAuthorization";
+import { evaluateAlarmSchedule } from "./alarmSchedulePolicy";
 
 // ============================================================
 // ADMIN PROCEDURE
@@ -1150,6 +1153,9 @@ export const appRouter = router({
       outcome: z.enum(COMPATEC_RECONCILIATION_OUTCOMES),
       verificationMethod: z.string().trim().min(5).max(255),
       details: z.string().trim().min(5).max(2000),
+      verificationSource: z.enum(COMPATEC_MANUAL_VERIFICATION_SOURCES),
+      observedState: z.enum(COMPATEC_MANUAL_OBSERVED_STATES),
+      evidenceReference: z.string().trim().min(1).max(160),
     }).strict()).mutation(async ({ input, ctx }) => {
       const result = await db.reconcileCompatecCommand({
         ...input,
@@ -1295,6 +1301,7 @@ export const appRouter = router({
         alarmSystemId: system.id, commandId: created.id,
         expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
         sentResponsePayload: "Consulta MB=AK0 enviada; aguardando a resposta da central.",
+        requiredPhysicalIdentity: system,
         send: () => sendCompatecMw1StatusQuery({ alarmSystemId: system.id, commandId: created.id, expectedIdentity: system }),
       });
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
@@ -1326,6 +1333,7 @@ export const appRouter = router({
         alarmSystemId: system.id, commandId: created.id,
         expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
         sentResponsePayload: "Consulta MB=AK1 enviada; aguardando a resposta dos setores.",
+        requiredPhysicalIdentity: system,
         send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload, expectedIdentity: system }),
       });
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
@@ -1334,7 +1342,7 @@ export const appRouter = router({
     armCompatecAll: operatorProcedure.input(z.object({
       alarmSystemId: z.number(),
       incidentId: z.number().optional(),
-      reason: z.string().trim().min(5, "Informe o motivo operacional do Arme").max(2000),
+      authorizationBasis: z.enum(COMPATEC_ARM_AUTHORIZATION_BASES),
     })).mutation(async ({ input, ctx }) => {
       await assertPartnerSystemScope(ctx, input.alarmSystemId);
       const system = await db.getOperationalAlarmSystem(input.alarmSystemId);
@@ -1343,18 +1351,44 @@ export const appRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "O Arme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
       const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
-      if (!currentState || currentState.qualifier !== "E") {
-        throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o último estado confirmado da central não é DESARMADO" });
+      if (!currentState || currentState.qualifier !== "E" || !isCurrentCompatecStateEventSource(currentState, system)) {
+        throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o estado DESARMADO mais recente precisa vir de evento Compatec da conta, porta e identidade física cadastradas." });
       }
+      if (input.authorizationBasis !== "customer_request") {
+        const context = await db.getAlarmScheduleContext(system.id);
+        const schedules = context?.schedules ?? (context?.schedule ? [context.schedule] : []);
+        if (schedules.length === 0) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Arme programado bloqueado: não há agenda ativa para esta central. Use somente quando o cliente pediu ou quando uma agenda autorizada se aplicar." });
+        }
+        const decisions = schedules.map((schedule) => evaluateAlarmSchedule({
+          schedule,
+          holidays: (context?.holidayDates || []).map((date) => ({ date, holidayArm: schedule.holidayArm, holidayDisarm: schedule.holidayDisarm })),
+          exceptions: context?.exceptions || [],
+          at: new Date(),
+          actualState: "disarmed",
+        }));
+        if (!areCompatecArmScheduleBasesAllowed(input.authorizationBasis, decisions)) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: input.authorizationBasis === "scheduled_time_due"
+              ? "Arme bloqueado: todas as agendas ativas das partições precisam indicar que a hora de Arme foi atingida e a central deve estar armada agora."
+              : "Arme bloqueado: todas as agendas ativas das partições precisam indicar Arme vencido além da tolerância.",
+          });
+        }
+      }
+      const auditReason = getCompatecArmAuditReason(input.authorizationBasis, currentState.id);
       const payload = "MB=AK4[4]\r\n";
       const reservation = await db.createExclusiveCompatecPhysicalCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "COMPATEC", commandType: "arm", transportMode: "microbus_compatec", status: "queued",
-        partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
+        partition: null, zoneNumber: null, pgmNumber: null, reason: auditReason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
       if (!reservation.created) {
-        throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
+        const message = reservation.activeStatus === "reconciled"
+          ? `O comando Compatec #${reservation.activeCommandId} foi conferido manualmente como aplicado. Aguarde o evento real de estado da central antes de solicitar outra ação física.`
+          : `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.`;
+        throw new TRPCError({ code: "CONFLICT", message });
       }
       const created = { id: reservation.id };
       if (input.incidentId) {
@@ -1362,13 +1396,14 @@ export const appRouter = router({
           commandId: reservation.id,
           commandType: "arm",
           operatorName: ctx.user.name || "Operador autenticado",
-          reason: input.reason,
+          reason: auditReason,
         }));
       }
       const dispatched = await db.dispatchAlarmRemoteCommand({
         alarmSystemId: system.id, commandId: created.id,
         expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
         sentResponsePayload: "Arme total MB=AK4[4] enviado; aguardando a resposta do painel.",
+        requiredPhysicalIdentity: system,
         send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload: reservation.commandPayload, expectedIdentity: system }),
       });
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };
@@ -1386,18 +1421,22 @@ export const appRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "O Desarme MicroBus real está disponível somente para centrais Compatec ativas e cadastradas" });
       }
       const currentState = await db.getLatestArmDisarmStatusForSystem(system.id);
-      if (!currentState || currentState.qualifier !== "R") {
-        throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o último estado confirmado da central não é ARMADO" });
+      if (!currentState || currentState.qualifier !== "R" || !isCurrentCompatecStateEventSource(currentState, system)) {
+        throw new TRPCError({ code: "CONFLICT", message: "Comando bloqueado: o estado ARMADO mais recente precisa vir de evento Compatec da conta, porta e identidade física cadastradas." });
       }
+      const auditReason = getCompatecDisarmAuditReason(input.reason, currentState.id);
       const payload = "MB=AK4[12]\r\n";
       const reservation = await db.createExclusiveCompatecPhysicalCommand({
         alarmSystemId: system.id, incidentId: input.incidentId ?? null, operatorId: ctx.user.id,
         brand: "COMPATEC", commandType: "disarm", transportMode: "microbus_compatec", status: "queued",
-        partition: null, zoneNumber: null, pgmNumber: null, reason: input.reason,
+        partition: null, zoneNumber: null, pgmNumber: null, reason: auditReason,
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
       if (!reservation.created) {
-        throw new TRPCError({ code: "CONFLICT", message: `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.` });
+        const message = reservation.activeStatus === "reconciled"
+          ? `O comando Compatec #${reservation.activeCommandId} foi conferido manualmente como aplicado. Aguarde o evento real de estado da central antes de solicitar outra ação física.`
+          : `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.`;
+        throw new TRPCError({ code: "CONFLICT", message });
       }
       const created = { id: reservation.id };
       if (input.incidentId) {
@@ -1405,13 +1444,14 @@ export const appRouter = router({
           commandId: reservation.id,
           commandType: "disarm",
           operatorName: ctx.user.name || "Operador autenticado",
-          reason: input.reason,
+          reason: auditReason,
         }));
       }
       const dispatched = await db.dispatchAlarmRemoteCommand({
         alarmSystemId: system.id, commandId: created.id,
         expectedStatuses: ["queued"], unavailableStatus: "waiting_connection",
         sentResponsePayload: "Desarme MB=AK4[12] enviado; aguardando a confirmação da central.",
+        requiredPhysicalIdentity: system,
         send: () => sendCompatecMw1PhysicalCommand({ alarmSystemId: system.id, commandId: created.id, payload, expectedIdentity: system }),
       });
       if (!dispatched.sent) return { ...created, status: dispatched.status, message: dispatched.message };

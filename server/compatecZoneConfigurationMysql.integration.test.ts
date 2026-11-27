@@ -3,9 +3,11 @@ import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { and, eq } from "drizzle-orm";
 import fs from "node:fs";
-import { authSessions, alarmEvents, alarmRemoteCommands, alarmSystems, alarmZones, clients, incidentHistory, incidentPanelLeases, incidents, occurrences, users } from "../drizzle/schema";
-import { appendIncidentNote, createAlarmEventWithOpenIncident, createExclusiveCompatecPhysicalCommand, createExclusiveCompatecZoneConfiguration, createOccurrenceAndCloseIncident, createStandaloneCompatecZoneConfiguration, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches, getPendingCompatecCommand, listIndeterminateCompatecCommands, openIncidentPanel, pauseIncidentPanel, reconcileCompatecCommand, recordRemoteCommandConfirmation, setDbForTesting, updateAlarmRemoteCommandDelivery } from "./db";
+import { authSessions, alarmEvents, alarmRemoteCommands, alarmScheduleOverrides, alarmSchedules, alarmSystems, alarmZones, clients, incidentHistory, incidentPanelLeases, incidents, occurrences, partnerCompanies, partnerHolidays, users } from "../drizzle/schema";
+import { appendIncidentNote, createAlarmEventWithOpenIncident, createExclusiveCompatecPhysicalCommand, createExclusiveCompatecZoneConfiguration, createOccurrenceAndCloseIncident, createStandaloneCompatecZoneConfiguration, dispatchAlarmRemoteCommand, expireStaleRemoteCommandDispatches, getAlarmScheduleContext, getPendingCompatecCommand, listIndeterminateCompatecCommands, openIncidentPanel, pauseIncidentPanel, reconcileCompatecCommand, recordRemoteCommandConfirmation, setDbForTesting, updateAlarmRemoteCommandDelivery, updateAlarmSchedule, upsertAlarmSchedule } from "./db";
+import { evaluateAlarmSchedule } from "./alarmSchedulePolicy";
 import { buildCompatecZoneConfigurationFrames } from "../shared/compatecZoneConfiguration";
+import { areCompatecArmScheduleBasesAllowed, getCompatecArmAuditReason } from "../shared/compatecArmAuthorization";
 import type { PanelActor } from "./incidentPanelLease";
 
 // Opt-in somente para o MariaDB local descartável via socket Unix; nunca usa DATABASE_URL ou rede.
@@ -18,7 +20,7 @@ const INCIDENT_ID = 901;
 const OPERATOR_ID = 701;
 const SESSION_ID = 9701;
 const LEASE_TOKEN = "11111111-1111-4111-8111-111111111111";
-const TABLES = ["users", "auth_sessions", "clients", "alarm_systems", "alarm_zones", "alarm_remote_commands", "occurrences", "incidents", "incident_history", "incident_panel_leases", "alarm_events"];
+const TABLES = ["users", "auth_sessions", "partner_companies", "clients", "alarm_systems", "alarm_zones", "alarm_remote_commands", "occurrences", "incidents", "incident_history", "incident_panel_leases", "alarm_events", "alarm_schedules", "alarm_schedule_overrides", "partner_holidays"];
 let pool!: mysql.Pool;
 let orm!: ReturnType<typeof drizzle>;
 
@@ -71,6 +73,7 @@ async function fixture() {
     expiresAt: new Date(now.getTime() + 3600_000),
     lastSeenAt: now,
   });
+  await orm.insert(partnerCompanies).values({ id: 1, managingCompanyId: 1, name: "Parceira fictícia Compatec" });
   await orm.insert(clients).values({
     id: CLIENT_ID,
     partnerCompanyId: 1,
@@ -120,12 +123,39 @@ async function fixture() {
     qualifier: "E",
     eventCode: "701",
     description: "Evento Contact ID fictício preexistente",
+    receiverPort: 9271,
+    rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
     receivedAt: now,
   });
 }
 
 async function commandRows() { return orm.select().from(alarmRemoteCommands); }
 async function reportRows() { return orm.select().from(occurrences); }
+async function disarmedStateEventId() {
+  const [event] = await orm.select({ id: alarmEvents.id }).from(alarmEvents).where(and(
+    eq(alarmEvents.alarmSystemId, SYSTEM_ID), eq(alarmEvents.qualifier, "E"), eq(alarmEvents.eventCode, "701"),
+  )).limit(1);
+  if (!event) throw new Error("Fixture Compatec não tem evento E701 para validar o estado desarmado");
+  return event.id;
+}
+
+function directEvidence(commandType: string, outcome: string, referenceId = 12345) {
+  const states: Record<string, Record<string, string>> = {
+    arm: { not_applied: "disarmed", applied: "armed", verified: "armed" },
+    disarm: { not_applied: "armed", applied: "disarmed", verified: "disarmed" },
+    isolate_zone: { not_applied: "zone_normal", applied: "zone_isolated", verified: "zone_isolated" },
+    restore_zone: { not_applied: "zone_isolated", applied: "zone_normal", verified: "zone_normal" },
+    configure_zones: { not_applied: "all_targets_unchanged", applied: "all_targets_applied", partial: "some_targets_changed", verified: "all_targets_applied" },
+    query_status: { verified: "query_verified", unavailable: "unavailable" },
+    query_sectors: { verified: "query_verified", unavailable: "unavailable" },
+  };
+  return {
+    verificationSource: "official_app_command_history" as const,
+    observedState: states[commandType]?.[outcome] || "unavailable",
+    evidenceReference: `Registro #APP-${referenceId}`,
+  };
+}
+
 async function removeOpenFixtureIncident() {
   await orm.delete(incidentPanelLeases).where(eq(incidentPanelLeases.incidentId, INCIDENT_ID));
   await orm.delete(incidents).where(eq(incidents.id, INCIDENT_ID));
@@ -660,11 +690,12 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
       outcome: "applied",
       verificationMethod: "Aplicativo Compatec conferido",
       details: "Setores 1 a 4 conferidos pelo responsável",
+      ...directEvidence("configure_zones", "applied"),
     });
-    expect(reconciled).toMatchObject({ reconciled: true, commandId: reservation.id, incidentId: INCIDENT_ID, status: "reconciled" });
+    expect(reconciled).toMatchObject({ reconciled: true, commandId: reservation.id, incidentId: INCIDENT_ID, status: "dispatch_unknown" });
     expect(await commandRows()).toHaveLength(1);
     const [stored] = await commandRows();
-    expect(stored.status).toBe("reconciled");
+    expect(stored.status).toBe("dispatch_unknown");
     expect(stored.panelConfirmedAt).toBeNull();
     expect(stored.responsePayload).toContain("Conferência manual");
     expect(stored.responsePayload).toContain("Aplicativo Compatec conferido");
@@ -679,28 +710,291 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
       sentResponsePayload: "Não deveria enviar",
       send: () => { sendCalls += 1; return { sent: true, payload: "Não deveria enviar" }; },
     });
-    expect(staleDispatch).toMatchObject({ sent: false, status: "reconciled" });
+    expect(staleDispatch).toMatchObject({ sent: false, status: "dispatch_unknown" });
     expect(sendCalls).toBe(1);
     const [afterStaleDispatch] = await commandRows();
-    expect(afterStaleDispatch.status).toBe("reconciled");
+    expect(afterStaleDispatch.status).toBe("dispatch_unknown");
     expect(afterStaleDispatch.responsePayload).toContain("Aplicativo Compatec conferido");
     const [history] = await orm.select().from(incidentHistory);
     expect(history).toMatchObject({ incidentId: INCIDENT_ID, operatorId: OPERATOR_ID, action: "remote_command_reconciled" });
     expect(history.note).toContain("não é confirmação eletrônica");
     expect(await orm.select().from(alarmEvents)).toHaveLength(1);
 
-    expect(await recordRemoteCommandConfirmation({ commandId: reservation.id, responsePayload: "MB=KA1" })).toMatchObject({ recorded: false });
+    expect(await recordRemoteCommandConfirmation({ commandId: reservation.id, responsePayload: "MB=KA1" })).toMatchObject({ recorded: true });
     await updateAlarmRemoteCommandDelivery(reservation.id, { status: "dispatch_unknown", appendResponsePayload: true, responsePayload: "KA4 atrasado" });
     await updateAlarmRemoteCommandDelivery(reservation.id, { status: "reconciled", responsePayload: "Reconciliado sem auditoria" });
+    expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toHaveLength(1);
+    const [stillBlocked] = await commandRows();
+    expect(stillBlocked.status).toBe("dispatch_unknown");
+    expect(stillBlocked.responsePayload).toContain("[CONFERÊNCIA MANUAL: APLICADO]");
+
+    const downgradeAttempt = await reconcileCompatecCommand({
+      commandId: reservation.id, operatorId: OPERATOR_ID, operatorName: actor.operatorName, authSessionId: SESSION_ID,
+      outcome: "not_applied", verificationMethod: "Aplicativo Compatec conferido novamente",
+      details: "O estado não corresponde ao resultado inicialmente registrado",
+      ...directEvidence("configure_zones", "not_applied", 12347),
+    });
+    expect(downgradeAttempt).toMatchObject({ reconciled: false });
+    expect(downgradeAttempt.message).toContain("não é possível reclassificar");
+    expect(await commandRows()).toMatchObject([{ id: reservation.id, status: "dispatch_unknown" }]);
+
+    const finalCheck = await reconcileCompatecCommand({
+      commandId: reservation.id, operatorId: OPERATOR_ID, operatorName: actor.operatorName, authSessionId: SESSION_ID,
+      outcome: "verified", verificationMethod: "Aplicativo Compatec consultado novamente",
+      details: "Todos os setores conferidos no estado solicitado após o ajuste", ...directEvidence("configure_zones", "verified", 12346),
+    });
+    expect(finalCheck.status).toBe("reconciled");
     expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toHaveLength(0);
-    const [stillReconciled] = await commandRows();
-    expect(stillReconciled.status).toBe("reconciled");
-    expect(stillReconciled.responsePayload).not.toContain("KA4 atrasado");
-    expect(stillReconciled.responsePayload).not.toContain("Reconciliado sem auditoria");
+    const [verified] = await commandRows();
+    expect(verified.status).toBe("reconciled");
+    expect(verified.responsePayload).toContain("[CONFERÊNCIA MANUAL: ESTADO FINAL VERIFICADO]");
 
     const nextRequest = await createExclusiveCompatecZoneConfiguration(input());
     expect(nextRequest).toMatchObject({ created: true });
     expect(sendCalls).toBe(1);
+  });
+
+  it("cancela após conferência real de não aplicação, libera novo comando standalone e preserva o cancelamento frente a ACK tardio", async () => {
+    const stateEventId = await disarmedStateEventId();
+    const reserved = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID,
+      incidentId: null,
+      operatorId: OPERATOR_ID,
+      brand: "COMPATEC",
+      commandType: "arm",
+      transportMode: "microbus_compatec",
+      status: "dispatch_unknown",
+      partition: null,
+      zoneNumber: null,
+      pgmNumber: null,
+      reason: getCompatecArmAuditReason("customer_request", stateEventId),
+      commandPayload: "MB=AK4[4]",
+      responsePayload: "Comando sem confirmação eletrônica; conferir a central.",
+      executedAt: new Date(Date.now() - 24 * 60 * 60_000),
+    });
+    if (!reserved.created) throw new Error("Comando indeterminado de teste não reservado");
+
+    expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toMatchObject([{ id: reserved.id, incidentId: null, status: "dispatch_unknown" }]);
+    expect(await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null, reason: "Desarme de teste", commandPayload: "MB=AK4[12]",
+    })).toMatchObject({ created: false, activeCommandId: reserved.id, activeStatus: "dispatch_unknown" });
+
+    const reconciled = await reconcileCompatecCommand({
+      commandId: reserved.id,
+      operatorId: OPERATOR_ID,
+      operatorName: actor.operatorName,
+      authSessionId: SESSION_ID,
+      outcome: "not_applied",
+      verificationMethod: "Aplicativo Compatec conferido",
+      details: "Estado desarmado confirmado; Arme anterior não ocorreu",
+      ...directEvidence("arm", "not_applied"),
+    });
+    expect(reconciled).toMatchObject({ reconciled: true, commandId: reserved.id, incidentId: null, status: "cancelled" });
+
+    const [cancelled] = await commandRows();
+    expect(cancelled).toMatchObject({ id: reserved.id, status: "cancelled", operatorId: OPERATOR_ID, incidentId: null, panelConfirmedAt: null });
+    expect(cancelled.responsePayload).toContain("[CANCELAMENTO APÓS VERIFICAÇÃO: NÃO APLICADO]");
+    expect(cancelled.responsePayload).toContain(actor.operatorName);
+    expect(cancelled.responsePayload).toContain("Aplicativo Compatec conferido");
+    expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toHaveLength(0);
+    const report = (await reportRows()).find((row) => row.logs?.includes(`[COMANDO REMOTO #${reserved.id}]`));
+    expect(report).toBeTruthy();
+    expect(report?.operatorId).toBe(OPERATOR_ID);
+    expect(report?.observations).toContain("Não aplicado; conferência manual registrada");
+
+    expect(await recordRemoteCommandConfirmation({ commandId: reserved.id, responsePayload: "MB=KA4", confirmedAt: new Date() })).toMatchObject({ recorded: false });
+    await updateAlarmRemoteCommandDelivery(reserved.id, { status: "dispatch_unknown", appendResponsePayload: true, responsePayload: "Resposta atrasada" });
+    await updateAlarmRemoteCommandDelivery(reserved.id, { status: "sent", responsePayload: "Atualização tardia" });
+    const [stillCancelled] = await commandRows();
+    expect(stillCancelled.status).toBe("cancelled");
+    expect(stillCancelled.responsePayload).toContain("[CANCELAMENTO APÓS VERIFICAÇÃO: NÃO APLICADO]");
+    expect(stillCancelled.responsePayload).not.toContain("Resposta atrasada");
+    expect(stillCancelled.responsePayload).not.toContain("Atualização tardia");
+
+    const next = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "arm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null, reason: getCompatecArmAuditReason("customer_request", stateEventId),
+      commandPayload: "MB=AK4[4]",
+    });
+    expect(next.created).toBe(true);
+    if (!next.created) return;
+    let nextSendCalls = 0;
+    const fakeTransport = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID,
+      commandId: next.id,
+      expectedStatuses: ["queued"],
+      unavailableStatus: "waiting_connection",
+      sentResponsePayload: "Fake local dispatch accepted; no physical socket used.",
+      send: () => { nextSendCalls += 1; return { sent: true, payload: "fake in-memory test result" }; },
+    });
+    expect(fakeTransport).toMatchObject({ sent: true, status: "sent" });
+    expect(nextSendCalls).toBe(1);
+  });
+
+  it("mantém o bloqueio após Arme manualmente aplicado até chegar um novo estado armado real", async () => {
+    const reserved = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID,
+      incidentId: null,
+      operatorId: OPERATOR_ID,
+      brand: "COMPATEC",
+      commandType: "arm",
+      transportMode: "microbus_compatec",
+      status: "dispatch_unknown",
+      partition: null,
+      zoneNumber: null,
+      pgmNumber: null,
+      reason: "Base autorizadora do Arme: Pedido do cliente",
+      commandPayload: "MB=AK4[4]",
+      responsePayload: "Comando sem confirmação eletrônica; conferir a central.",
+    });
+    if (!reserved.created) throw new Error("Comando indeterminado de teste não reservado");
+
+    await orm.insert(alarmEvents).values({
+      alarmSystemId: SYSTEM_ID,
+      account: "0342",
+      brand: "COMPATEC",
+      qualifier: "R",
+      eventCode: "401",
+      description: "Estado armado real anterior à conferência manual",
+      receiverPort: 9271,
+      rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
+      receivedAt: new Date(Date.now() + 10_000),
+    });
+    await reconcileCompatecCommand({
+      commandId: reserved.id,
+      operatorId: OPERATOR_ID,
+      operatorName: actor.operatorName,
+      authSessionId: SESSION_ID,
+      outcome: "applied",
+      verificationMethod: "Aplicativo Compatec conferido",
+      details: "Central armada e estado conferido ao vivo",
+      ...directEvidence("arm", "applied", 12347),
+    });
+    const [reconciled] = await commandRows();
+    expect(reconciled.responsePayload).toContain("[CONFERÊNCIA MANUAL: APLICADO]");
+    expect(reconciled.responsePayload).toContain("[EVENTO DE ESTADO BASE DA CONFERÊNCIA MANUAL: #");
+    const blocked = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null, reason: "Desarme solicitado", commandPayload: "MB=AK4[12]",
+    });
+    expect(blocked).toMatchObject({ created: false, activeCommandId: reserved.id, activeStatus: "dispatch_unknown" });
+
+    await orm.insert(alarmEvents).values({
+      alarmSystemId: SYSTEM_ID,
+      account: "0342",
+      brand: "COMPATEC",
+      qualifier: "E",
+      eventCode: "401",
+      description: "Estado desarmado após a conferência; incompatível com o Arme aplicado",
+      receiverPort: 9271,
+      rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
+      receivedAt: new Date(Date.now() + 30_000),
+    });
+    const incompatible = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null, reason: "Desarme solicitado", commandPayload: "MB=AK4[12]",
+    });
+    expect(incompatible).toMatchObject({ created: false, activeCommandId: reserved.id, activeStatus: "dispatch_unknown" });
+
+    await orm.insert(alarmEvents).values({
+      alarmSystemId: SYSTEM_ID,
+      account: "0342",
+      brand: "COMPATEC",
+      qualifier: "R",
+      eventCode: "401",
+      description: "Armado confirmado por evento real",
+      receiverPort: 9271,
+      rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
+      receivedAt: new Date(Date.now() + 60_000),
+    });
+    const released = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null, reason: "Desarme solicitado", commandPayload: "MB=AK4[12]",
+    });
+    expect(released.created).toBe(true);
+  });
+
+  it("cancela sem transmissão quando o estado muda entre a reserva e o despacho do Arme", async () => {
+    const reserved = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "arm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null,
+      reason: "Base autorizadora do Arme: Pedido do cliente; estado desarmado conferido no evento #5001",
+      commandPayload: "MB=AK4[4]",
+    });
+    if (!reserved.created) throw new Error("Arme de teste não reservado");
+    await orm.insert(alarmEvents).values({
+      alarmSystemId: SYSTEM_ID, account: "0342", brand: "COMPATEC", qualifier: "R", eventCode: "401",
+      description: "Arme real recebido antes do envio solicitado", receiverPort: 9271,
+      rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB", receivedAt: new Date(Date.now() + 10_000),
+    });
+    let sendCalls = 0;
+    const result = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID, commandId: reserved.id, expectedStatuses: ["queued"],
+      unavailableStatus: "waiting_connection", sentResponsePayload: "Não deveria transmitir",
+      send: () => { sendCalls += 1; return { sent: true, payload: "não transmitir" }; },
+    });
+    expect(result).toMatchObject({ sent: false, status: "cancelled" });
+    expect(result.message).toContain("estado DESARMADO mudou desde a autorização");
+    expect(sendCalls).toBe(0);
+  });
+
+  it("não envia Arme programado se a agenda ativa deixou de autorizar antes do envio", async () => {
+    const stateEventId = await disarmedStateEventId();
+    const timeParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo", weekday: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date());
+    const part = (type: string) => timeParts.find((item) => item.type === type)?.value;
+    const nowMinutes = Number(part("hour")) * 60 + Number(part("minute"));
+    const armMinutes = (nowMinutes - 20 + 1440) % 1440;
+    const armAt = `${String(Math.floor(armMinutes / 60)).padStart(2, "0")}:${String(armMinutes % 60).padStart(2, "0")}`;
+    const scheduleResult = await upsertAlarmSchedule({
+      alarmSystemId: SYSTEM_ID,
+      partition: 1,
+      isActive: true,
+      mondayArm: armAt,
+      tuesdayArm: armAt,
+      wednesdayArm: armAt,
+      thursdayArm: armAt,
+      fridayArm: armAt,
+      saturdayArm: armAt,
+      sundayArm: armAt,
+    });
+    const scheduleContext = await getAlarmScheduleContext(SYSTEM_ID);
+    const activeSchedules = scheduleContext?.schedules ?? (scheduleContext?.schedule ? [scheduleContext.schedule] : []);
+    const decisions = activeSchedules.map((schedule) => evaluateAlarmSchedule({
+      schedule,
+      holidays: (scheduleContext?.holidayDates || []).map((date) => ({ date, holidayArm: schedule.holidayArm, holidayDisarm: schedule.holidayDisarm })),
+      exceptions: scheduleContext?.exceptions || [],
+      at: new Date(),
+      actualState: "disarmed",
+    }));
+    expect(areCompatecArmScheduleBasesAllowed("scheduled_arm_overdue", decisions)).toBe(true);
+    const reserved = await createExclusiveCompatecPhysicalCommand({
+      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
+      commandType: "arm", transportMode: "microbus_compatec", status: "queued", partition: null,
+      zoneNumber: null, pgmNumber: null,
+      reason: getCompatecArmAuditReason("scheduled_arm_overdue", stateEventId),
+      commandPayload: "MB=AK4[4]",
+    });
+    if (!reserved.created) throw new Error("Arme programado de teste não reservado");
+    await updateAlarmSchedule(scheduleResult.id, { isActive: false });
+    expect(await getAlarmScheduleContext(SYSTEM_ID)).toMatchObject({ schedules: [] });
+    let sendCalls = 0;
+    const result = await dispatchAlarmRemoteCommand({
+      alarmSystemId: SYSTEM_ID, commandId: reserved.id, expectedStatuses: ["queued"],
+      unavailableStatus: "waiting_connection", sentResponsePayload: "Não deveria transmitir",
+      send: () => { sendCalls += 1; return { sent: true, payload: "não transmitir" }; },
+    });
+    expect(result).toMatchObject({ sent: false, status: "cancelled" });
+    expect(result.message).toContain("agendas ativas de todas as partições");
+    expect(sendCalls).toBe(0);
   });
 
   it("mantém indeterminados também os comandos legados e Arme/Desarme após qualquer resposta tardia", async () => {
@@ -743,9 +1037,12 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
         outcome: row.commandType === "query_sectors" ? "verified" : "applied",
         verificationMethod: "Aplicativo Compatec conferido",
         details: `Estado de ${row.commandType} conferido com responsável`,
+        ...directEvidence(row.commandType, row.commandType === "query_sectors" ? "verified" : "applied"),
       });
     }
-    expect((await commandRows()).every((row) => row.status === "reconciled")).toBe(true);
+    const reconciledRows = await commandRows();
+    expect(reconciledRows.find((row) => row.commandType === "query_sectors")?.status).toBe("reconciled");
+    expect(reconciledRows.filter((row) => row.commandType !== "query_sectors").every((row) => row.status === "dispatch_unknown")).toBe(true);
   });
 
   it("cancela comandos individuais antigos que aguardavam conexão e não os envia no próximo login", async () => {

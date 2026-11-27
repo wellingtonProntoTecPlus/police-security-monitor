@@ -60,6 +60,7 @@ export function incidentAuditActionLabel(entry: Pick<IncidentAuditRow, "action" 
     case "police_action_registered": return "Registrou acionamento manual da Polícia";
     case "tactical_status_updated": return "Atualizou status informado do patrulheiro";
     case "remote_command_reconciled": return "Conferiu manualmente o resultado de comando remoto";
+    case "remote_command_cancelled_after_non_application": return "Cancelou comando remoto após conferir que não foi aplicado";
     default: return entry.action.replaceAll("_", " ");
   }
 }
