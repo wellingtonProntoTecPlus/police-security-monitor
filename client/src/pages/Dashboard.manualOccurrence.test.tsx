@@ -749,18 +749,19 @@ describe("Dashboard — Ocorrência Manual", () => {
     await user.click(screen.getByRole("button", { name: /^ARMAR$/ }));
 
     expect(screen.getByText(/#127 · Arme Compatec/)).toBeTruthy();
-    expect(screen.getByText(/simples tempo decorrido não comprova não aplicação/)).toBeTruthy();
+    expect(screen.getByText(/simples tempo decorrido não comprova aplicação nem não aplicação/)).toBeTruthy();
     await user.selectOptions(screen.getByRole("combobox", { name: "Resultado da conferência do comando 127" }), "not_applied");
-    expect(screen.getByRole("alert").textContent).toContain("o comando será cancelado e outro poderá ser solicitado");
+    expect(screen.getByRole("alert").textContent).toContain("O comando será cancelado para auditoria");
     await user.selectOptions(screen.getByRole("combobox", { name: "Fonte da conferência do comando 127" }), "official_app_command_history");
     await user.selectOptions(screen.getByRole("combobox", { name: "Estado observado no comando 127" }), "disarmed");
     await user.type(screen.getByRole("textbox", { name: "Referência da evidência do comando 127" }), "Registro #APP-12345");
     await user.type(screen.getByRole("textbox", { name: "Método de conferência do comando 127" }), "Aplicativo Compatec conferido");
     await user.type(screen.getByRole("textbox", { name: "Detalhes da conferência do comando 127" }), "Estado desarmado confirmado; Arme não ocorreu");
-    await user.click(screen.getByRole("button", { name: "Cancelar não aplicado e liberar novo comando" }));
+    await user.click(screen.getByRole("button", { name: "Registrar não aplicado" }));
 
     expect(confirm).toHaveBeenCalledOnce();
-    expect(confirm.mock.calls[0][0]).toContain("Só cancele e libere novo comando se a fonte direta comprovar que a ação não ocorreu");
+    expect(confirm.mock.calls[0][0]).toContain("Só registre não aplicado se a fonte direta comprovar que a ação não ocorreu");
+    expect(confirm.mock.calls[0][0]).toContain("Não basta o tempo decorrido.");
     expect(confirm.mock.calls[0][0]).toContain("Nenhum quadro será transmitido.");
     expect(reconcileCompatecMutation.mutate).toHaveBeenCalledWith({
       commandId: 127,

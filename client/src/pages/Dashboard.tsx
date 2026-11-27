@@ -1822,7 +1822,7 @@ export default function Dashboard() {
     }, {
       onSuccess: (result) => {
         addLog("Solicitação de Arme total AK4[4] registrada para a central Compatec.");
-        if (["failed", "cancelled", "dispatch_unknown"].includes(result.status)) toast.error(result.message || "Confira o resultado do comando na central.");
+        if (["failed", "cancelled", "dispatch_unknown"].includes(result.status)) { const detail = result.message || "Confira o resultado do comando na central."; toast.error(detail.includes("nova tentativa") ? detail : `${detail} Você já pode solicitar novamente.`); }
         else toast.success(result.status === "sent" ? "Arme total AK4[4] enviado. Aguarde a resposta da central." : result.message || "Arme aguardando conexão.");
         void utils.remoteCommand.list.invalidate({ alarmSystemId: selectedEvent.alarmSystemId, limit: 8 });
       }, onError: (error) => toast.error(error.message),
@@ -1936,7 +1936,7 @@ export default function Dashboard() {
       setStandaloneArmAuthorizationBasis("");
       void utils.dashboard.armDisarmStatus.invalidate();
       void utils.remoteCommand.list.invalidate({ alarmSystemId: systemId, limit: 8 });
-      if (["failed", "cancelled", "dispatch_unknown"].includes(result?.status)) toast.error(result?.message || "Comando não concluído; confira o relatório e a central.");
+      if (["failed", "cancelled", "dispatch_unknown"].includes(result?.status)) { const detail = result?.message || "Comando não concluído; confira o relatório e a central."; toast.error(detail.includes("nova tentativa") ? detail : `${detail} Você já pode solicitar novamente.`); }
       else toast.success(result?.status === "sent" ? `${actionLabel}: solicitação enviada. Aguarde o resultado da central.` : result?.message || `${actionLabel} registrado e aguardando conexão.`);
     };
     const onError = (error: any) => toast.error(error.message);

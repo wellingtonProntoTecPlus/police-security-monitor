@@ -1385,10 +1385,7 @@ export const appRouter = router({
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
       if (!reservation.created) {
-        const message = reservation.activeStatus === "reconciled"
-          ? `O comando Compatec #${reservation.activeCommandId} foi conferido manualmente como aplicado. Aguarde o evento real de estado da central antes de solicitar outra ação física.`
-          : `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.`;
-        throw new TRPCError({ code: "CONFLICT", message });
+        throw new TRPCError({ code: "CONFLICT", message: `Há um comando Compatec sendo transmitido neste instante (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde alguns segundos e tente novamente; falhas e resultados indeterminados não bloqueiam novas tentativas.` });
       }
       const created = { id: reservation.id };
       if (input.incidentId) {
@@ -1433,10 +1430,7 @@ export const appRouter = router({
         commandPayload: payload, responsePayload: "Aguardando a conexão autenticada da central Compatec.",
       });
       if (!reservation.created) {
-        const message = reservation.activeStatus === "reconciled"
-          ? `O comando Compatec #${reservation.activeCommandId} foi conferido manualmente como aplicado. Aguarde o evento real de estado da central antes de solicitar outra ação física.`
-          : `Já existe um comando físico Compatec em andamento (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde a resposta ou a falha auditada antes de solicitar outro.`;
-        throw new TRPCError({ code: "CONFLICT", message });
+        throw new TRPCError({ code: "CONFLICT", message: `Há um comando Compatec sendo transmitido neste instante (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde alguns segundos e tente novamente; falhas e resultados indeterminados não bloqueiam novas tentativas.` });
       }
       const created = { id: reservation.id };
       if (input.incidentId) {
@@ -1477,7 +1471,7 @@ export const appRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "Não foi possível reservar o comando Compatec." });
       }
       if (!reservation.created) {
-        throw new TRPCError({ code: "CONFLICT", message: `Já existe comando Compatec em andamento (${reservation.activeCommandId}, ${reservation.activeStatus}). Aguarde o resultado antes de solicitar outro.` });
+        throw new TRPCError({ code: "CONFLICT", message: `Há um comando Compatec sendo transmitido neste instante (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde alguns segundos e tente novamente; falhas e resultados indeterminados não bloqueiam novas tentativas.` });
       }
       const dispatched = await db.dispatchAlarmRemoteCommand({
         alarmSystemId: system.id,
@@ -1517,7 +1511,7 @@ export const appRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "Não foi possível reservar a configuração de setores." });
       }
       if (!reservation.created) {
-        throw new TRPCError({ code: "CONFLICT", message: `Já existe comando Compatec em andamento (${reservation.activeCommandId}, ${reservation.activeStatus}). Aguarde o resultado antes de solicitar outro.` });
+        throw new TRPCError({ code: "CONFLICT", message: `Há um comando Compatec sendo transmitido neste instante (comando ${reservation.activeCommandId}, status ${reservation.activeStatus}). Aguarde alguns segundos e tente novamente; falhas e resultados indeterminados não bloqueiam novas tentativas.` });
       }
       const dispatched = await db.dispatchAlarmRemoteCommand({
         alarmSystemId: system.id,

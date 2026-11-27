@@ -53,6 +53,7 @@ describe("CompatecCommandReconciliationPanel", () => {
   it("mostra comandos indeterminados e exige resultado, método e detalhes antes de registrar", () => {
     render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
     expect(screen.getByText("Comando sem resultado confirmado")).toBeTruthy();
+    expect(screen.getByText(/não bloqueiam novas solicitações/)).toBeTruthy();
     expect(screen.getByText("#77 · Configuração de setores AK2→AK1")).toBeTruthy();
     expect(screen.getByText(/Executado por Operador anterior/)).toBeTruthy();
     expect(screen.queryByText(/Solicitado por Operador anterior/)).toBeNull();
@@ -70,10 +71,10 @@ describe("CompatecCommandReconciliationPanel", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Referência da evidência do comando 77" }), { target: { value: "Eventos #12345 e #12346" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Método de conferência do comando 77" }), { target: { value: "Aplicativo Compatec" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Detalhes da conferência do comando 77" }), { target: { value: "Setores 1 e 2 conferidos no aplicativo" } });
-    fireEvent.click(screen.getByRole("button", { name: "Registrar aplicação e manter bloqueio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar conferência" }));
 
     expect(confirmation).toHaveBeenCalledOnce();
-    expect(confirmation.mock.calls[0][0]).toContain("bloqueio permanece");
+    expect(confirmation.mock.calls[0][0]).toContain("NÃO bloqueia novas solicitações");
     expect(mocks.mutate).toHaveBeenCalledOnce();
     expect(mocks.mutate).toHaveBeenCalledWith({
       commandId: 77,
@@ -95,7 +96,7 @@ describe("CompatecCommandReconciliationPanel", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Referência da evidência do comando 77" }), { target: { value: "Registro #APP-12345" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Método de conferência do comando 77" }), { target: { value: "Ligação ao responsável" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Detalhes da conferência do comando 77" }), { target: { value: "Responsável conferiu os setores" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cancelar não aplicado e liberar novo comando" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar não aplicado" }));
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
@@ -104,17 +105,17 @@ describe("CompatecCommandReconciliationPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Resultado da conferência do comando 77" }), { target: { value: "not_applied" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Fonte da conferência do comando 77" }), { target: { value: "external_report" } });
     expect(screen.getByText(/Relato externo é identificado separadamente/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Cancelar não aplicado e liberar novo comando" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Registrar não aplicado" }) as HTMLButtonElement).disabled).toBe(true);
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
-  it("mantém o bloqueio após aplicação e permite somente a conferência direta do estado final", () => {
+  it("mantém a conferência final após aplicação parcial sem alegar bloqueio", () => {
     commands[0].responsePayload = "[CONFERÊNCIA MANUAL: APLICAÇÃO PARCIAL]";
     render(<CompatecCommandReconciliationPanel alarmSystemId={78} />);
-    expect(screen.getByText(/bloqueio físico continua ativo/)).toBeTruthy();
+    expect(screen.getByText(/A aplicação já foi registrada em uma conferência anterior/)).toBeTruthy();
     const outcome = screen.getByRole("combobox", { name: "Resultado da conferência do comando 77" }) as HTMLSelectElement;
     expect(Array.from(outcome.options).map((option) => option.value)).toEqual(["", "partial", "verified"]);
     fireEvent.change(outcome, { target: { value: "verified" } });
-    expect(screen.getByRole("button", { name: "Registrar conferência final e liberar bloqueio" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Registrar estado final confirmado" })).toBeTruthy();
   });
 });

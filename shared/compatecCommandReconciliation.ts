@@ -50,12 +50,40 @@ export function getCompatecReconciliationOutcomeLabel(commandType: string, outco
   if (outcome === "verified") return "Estado final confirmado em nova conferência direta";
   if (outcome === "applied") return "Alteração solicitada confirmada na central";
   if (outcome === "not_applied") return "Não aplicado; estado atual conferido manualmente";
-  if (outcome === "partial" && commandType === "configure_zones") return "Aplicação parcial confirmada; bloqueio mantido até conferência completa";
+  if (outcome === "partial" && commandType === "configure_zones") return "Aplicação parcial confirmada; confira o estado final para encerrar a auditoria";
   return "Resultado inválido para este comando";
+}
+
+/**
+ * Um comando Compatec só pode bloquear uma nova solicitação enquanto está
+ * sendo transmitido neste instante. Falha, ausência de conexão ou resposta,
+ * cancelamento e resultado indeterminado NUNCA podem impedir o operador de
+ * tentar novamente: o serviço contratado (por exemplo, ARMAR O ALARME) precisa
+ * ser executado.
+ */
+export const COMPATEC_IN_FLIGHT_GRACE_MS: Record<string, number> = {
+  queued: 60_000,
+  waiting_connection: 15_000,
+  prepared: 60_000,
+  dispatching: 60_000,
+  sent: 30_000,
+};
+
+export function isCompatecCommandInFlight(
+  command: { status: string; updatedAt: Date | string | null },
+  referenceTime = new Date(),
+) {
+  const graceMs = COMPATEC_IN_FLIGHT_GRACE_MS[command.status];
+  if (!graceMs) return false;
+  const updatedAt = command.updatedAt ? new Date(command.updatedAt).getTime() : 0;
+  return referenceTime.getTime() - updatedAt < graceMs;
 }
 
 export function getCompatecReconciledStatus(commandType: string, outcome: CompatecReconciliationOutcome) {
   if (outcome === "not_applied") return "cancelled" as const;
+  // Aplicação registrada continua pendente apenas da conferência final, que é
+  // opcional e auditável. Nenhum desses status bloqueia novas tentativas: o
+  // operador precisa poder repetir a execução do serviço a qualquer momento.
   if (outcome === "applied" || outcome === "partial") return "dispatch_unknown" as const;
   return "reconciled" as const;
 }

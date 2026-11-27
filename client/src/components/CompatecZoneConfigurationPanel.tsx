@@ -44,7 +44,8 @@ export default function CompatecZoneConfigurationPanel(props: CompatecZoneConfig
       if (result.status === "sent") {
         toast.success("Alterações enviadas à central. Confira o estado final dos setores no painel.", { duration: 12_000 });
       } else if (result.status === "failed" || result.status === "dispatch_unknown") {
-        toast.error(result.message || "Não foi possível confirmar o resultado. Confira o histórico antes de tentar novamente.", { duration: 12_000 });
+        const detail = result.message || "Não foi possível confirmar o resultado. Confira o histórico.";
+        toast.error(detail.includes("nova tentativa") ? detail : `${detail} Você já pode solicitar novamente.`, { duration: 12_000 });
       } else {
         toast.warning(result.message || "Confira o histórico antes de fazer outra solicitação.", { duration: 12_000 });
       }

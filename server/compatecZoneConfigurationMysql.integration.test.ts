@@ -654,7 +654,7 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(sendCalls).toBe(1);
   });
 
-  it("libera o bloqueio somente após conferência manual auditada e não permite que uma resposta tardia a sobrescreva", async () => {
+  it("não bloqueia nova tentativa após resultado indeterminado e registra a conferência sem reenviar quadros", async () => {
     const reservation = await createExclusiveCompatecZoneConfiguration(input());
     if (!reservation.created) throw new Error("Reserva de teste não criada");
     let sendCalls = 0;
@@ -673,14 +673,19 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     await orm.update(alarmRemoteCommands).set({ updatedAt: new Date(Date.now() - 60_000) }).where(eq(alarmRemoteCommands.id, reservation.id));
     expect(await expireStaleRemoteCommandDispatches()).toBe(1);
     expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toMatchObject([{ id: reservation.id, commandType: "configure_zones", status: "dispatch_unknown" }]);
-    const blocked = await createExclusiveCompatecZoneConfiguration(input());
-    expect(blocked).toMatchObject({ created: false, activeStatus: "dispatch_unknown" });
+
+    // Resultado indeterminado não bloqueia: a nova tentativa é aceita na hora.
+    const retry = await createExclusiveCompatecZoneConfiguration(input());
+    expect(retry).toMatchObject({ created: true });
+    if (!retry.created) throw new Error("Nova tentativa deveria ter sido aceita");
+    await orm.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload: "Reserva criada apenas para provar a liberação." }).where(eq(alarmRemoteCommands.id, retry.id));
+
+    // Resposta tardia não sobrescreve o comando antigo nem cria bloqueio.
     expect(await recordRemoteCommandConfirmation({ commandId: reservation.id, responsePayload: "MB=KA1", confirmedAt: new Date() })).toMatchObject({ recorded: true, commandType: "configure_zones" });
-    const [afterLateAck] = await commandRows();
+    const [afterLateAck] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reservation.id));
     expect(afterLateAck.status).toBe("dispatch_unknown");
-    expect(afterLateAck.responsePayload).toContain("Bloqueio mantido até conferência manual");
+    expect(afterLateAck.responsePayload).toContain("Nenhum bloqueio permanece");
     expect(afterLateAck.panelConfirmedAt).toBeNull();
-    expect(await createExclusiveCompatecZoneConfiguration(input())).toMatchObject({ created: false, activeStatus: "dispatch_unknown" });
 
     const reconciled = await reconcileCompatecCommand({
       commandId: reservation.id,
@@ -693,59 +698,26 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
       ...directEvidence("configure_zones", "applied"),
     });
     expect(reconciled).toMatchObject({ reconciled: true, commandId: reservation.id, incidentId: INCIDENT_ID, status: "dispatch_unknown" });
-    expect(await commandRows()).toHaveLength(1);
-    const [stored] = await commandRows();
+    const [stored] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reservation.id));
     expect(stored.status).toBe("dispatch_unknown");
     expect(stored.panelConfirmedAt).toBeNull();
     expect(stored.responsePayload).toContain("Conferência manual");
     expect(stored.responsePayload).toContain("Aplicativo Compatec conferido");
-    const staleDispatch = await dispatchAlarmRemoteCommand({
-      alarmSystemId: SYSTEM_ID,
-      commandId: reservation.id,
-      requiredPanelActor: actor,
-      requiredPhysicalIdentity: { ...expectedPhysicalIdentity, macAddress: "FFFFFF" },
-      requiredZoneNumbers: zoneChanges.map((change) => change.zoneNumber),
-      expectedStatuses: ["prepared"],
-      unavailableStatus: "failed",
-      sentResponsePayload: "Não deveria enviar",
-      send: () => { sendCalls += 1; return { sent: true, payload: "Não deveria enviar" }; },
-    });
-    expect(staleDispatch).toMatchObject({ sent: false, status: "dispatch_unknown" });
-    expect(sendCalls).toBe(1);
-    const [afterStaleDispatch] = await commandRows();
-    expect(afterStaleDispatch.status).toBe("dispatch_unknown");
-    expect(afterStaleDispatch.responsePayload).toContain("Aplicativo Compatec conferido");
+    expect(stored.responsePayload).toContain("Nenhum bloqueio permanece");
     const [history] = await orm.select().from(incidentHistory);
     expect(history).toMatchObject({ incidentId: INCIDENT_ID, operatorId: OPERATOR_ID, action: "remote_command_reconciled" });
     expect(history.note).toContain("não é confirmação eletrônica");
     expect(await orm.select().from(alarmEvents)).toHaveLength(1);
 
-    expect(await recordRemoteCommandConfirmation({ commandId: reservation.id, responsePayload: "MB=KA1" })).toMatchObject({ recorded: true });
-    await updateAlarmRemoteCommandDelivery(reservation.id, { status: "dispatch_unknown", appendResponsePayload: true, responsePayload: "KA4 atrasado" });
-    await updateAlarmRemoteCommandDelivery(reservation.id, { status: "reconciled", responsePayload: "Reconciliado sem auditoria" });
-    expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toHaveLength(1);
-    const [stillBlocked] = await commandRows();
-    expect(stillBlocked.status).toBe("dispatch_unknown");
-    expect(stillBlocked.responsePayload).toContain("[CONFERÊNCIA MANUAL: APLICADO]");
-
-    const downgradeAttempt = await reconcileCompatecCommand({
-      commandId: reservation.id, operatorId: OPERATOR_ID, operatorName: actor.operatorName, authSessionId: SESSION_ID,
-      outcome: "not_applied", verificationMethod: "Aplicativo Compatec conferido novamente",
-      details: "O estado não corresponde ao resultado inicialmente registrado",
-      ...directEvidence("configure_zones", "not_applied", 12347),
-    });
-    expect(downgradeAttempt).toMatchObject({ reconciled: false });
-    expect(downgradeAttempt.message).toContain("não é possível reclassificar");
-    expect(await commandRows()).toMatchObject([{ id: reservation.id, status: "dispatch_unknown" }]);
-
+    // A conferência final é opcional e apenas encerra a auditoria; nunca bloqueia.
     const finalCheck = await reconcileCompatecCommand({
       commandId: reservation.id, operatorId: OPERATOR_ID, operatorName: actor.operatorName, authSessionId: SESSION_ID,
       outcome: "verified", verificationMethod: "Aplicativo Compatec consultado novamente",
-      details: "Todos os setores conferidos no estado solicitado após o ajuste", ...directEvidence("configure_zones", "verified", 12346),
+      details: "Todos os setores conferidos no estado solicitado", ...directEvidence("configure_zones", "verified", 12346),
     });
-    expect(finalCheck.status).toBe("reconciled");
+    expect(finalCheck).toMatchObject({ reconciled: true, status: "reconciled" });
     expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toHaveLength(0);
-    const [verified] = await commandRows();
+    const [verified] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reservation.id));
     expect(verified.status).toBe("reconciled");
     expect(verified.responsePayload).toContain("[CONFERÊNCIA MANUAL: ESTADO FINAL VERIFICADO]");
 
@@ -775,11 +747,14 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     if (!reserved.created) throw new Error("Comando indeterminado de teste não reservado");
 
     expect(await listIndeterminateCompatecCommands(SYSTEM_ID)).toMatchObject([{ id: reserved.id, incidentId: null, status: "dispatch_unknown" }]);
-    expect(await createExclusiveCompatecPhysicalCommand({
+    const immediateRetry = await createExclusiveCompatecPhysicalCommand({
       alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
       commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
       zoneNumber: null, pgmNumber: null, reason: "Desarme de teste", commandPayload: "MB=AK4[12]",
-    })).toMatchObject({ created: false, activeCommandId: reserved.id, activeStatus: "dispatch_unknown" });
+    });
+    expect(immediateRetry).toMatchObject({ created: true });
+    if (!immediateRetry.created) throw new Error("Nova tentativa deveria ter sido aceita");
+    await orm.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload: "Reserva de teste encerrada." }).where(eq(alarmRemoteCommands.id, immediateRetry.id));
 
     const reconciled = await reconcileCompatecCommand({
       commandId: reserved.id,
@@ -793,7 +768,7 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     });
     expect(reconciled).toMatchObject({ reconciled: true, commandId: reserved.id, incidentId: null, status: "cancelled" });
 
-    const [cancelled] = await commandRows();
+    const [cancelled] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reserved.id));
     expect(cancelled).toMatchObject({ id: reserved.id, status: "cancelled", operatorId: OPERATOR_ID, incidentId: null, panelConfirmedAt: null });
     expect(cancelled.responsePayload).toContain("[CANCELAMENTO APÓS VERIFICAÇÃO: NÃO APLICADO]");
     expect(cancelled.responsePayload).toContain(actor.operatorName);
@@ -807,7 +782,7 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(await recordRemoteCommandConfirmation({ commandId: reserved.id, responsePayload: "MB=KA4", confirmedAt: new Date() })).toMatchObject({ recorded: false });
     await updateAlarmRemoteCommandDelivery(reserved.id, { status: "dispatch_unknown", appendResponsePayload: true, responsePayload: "Resposta atrasada" });
     await updateAlarmRemoteCommandDelivery(reserved.id, { status: "sent", responsePayload: "Atualização tardia" });
-    const [stillCancelled] = await commandRows();
+    const [stillCancelled] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reserved.id));
     expect(stillCancelled.status).toBe("cancelled");
     expect(stillCancelled.responsePayload).toContain("[CANCELAMENTO APÓS VERIFICAÇÃO: NÃO APLICADO]");
     expect(stillCancelled.responsePayload).not.toContain("Resposta atrasada");
@@ -834,7 +809,7 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
     expect(nextSendCalls).toBe(1);
   });
 
-  it("mantém o bloqueio após Arme manualmente aplicado até chegar um novo estado armado real", async () => {
+  it("libera novo comando imediatamente após registrar Arme manualmente aplicado", async () => {
     const reserved = await createExclusiveCompatecPhysicalCommand({
       alarmSystemId: SYSTEM_ID,
       incidentId: null,
@@ -851,7 +826,6 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
       responsePayload: "Comando sem confirmação eletrônica; conferir a central.",
     });
     if (!reserved.created) throw new Error("Comando indeterminado de teste não reservado");
-
     await orm.insert(alarmEvents).values({
       alarmSystemId: SYSTEM_ID,
       account: "0342",
@@ -863,7 +837,7 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
       rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
       receivedAt: new Date(Date.now() + 10_000),
     });
-    await reconcileCompatecCommand({
+    const reconciled = await reconcileCompatecCommand({
       commandId: reserved.id,
       operatorId: OPERATOR_ID,
       operatorName: actor.operatorName,
@@ -873,51 +847,22 @@ describe.skipIf(!localEnabled)("Compatec configuração multi-setorial · integr
       details: "Central armada e estado conferido ao vivo",
       ...directEvidence("arm", "applied", 12347),
     });
-    const [reconciled] = await commandRows();
-    expect(reconciled.responsePayload).toContain("[CONFERÊNCIA MANUAL: APLICADO]");
-    expect(reconciled.responsePayload).toContain("[EVENTO DE ESTADO BASE DA CONFERÊNCIA MANUAL: #");
-    const blocked = await createExclusiveCompatecPhysicalCommand({
-      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
-      commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
-      zoneNumber: null, pgmNumber: null, reason: "Desarme solicitado", commandPayload: "MB=AK4[12]",
-    });
-    expect(blocked).toMatchObject({ created: false, activeCommandId: reserved.id, activeStatus: "dispatch_unknown" });
+    expect(reconciled).toMatchObject({ reconciled: true, status: "dispatch_unknown" });
+    const [stored] = await orm.select().from(alarmRemoteCommands).where(eq(alarmRemoteCommands.id, reserved.id));
+    expect(stored.status).toBe("dispatch_unknown");
+    expect(stored.responsePayload).toContain("[CONFERÊNCIA MANUAL: APLICADO]");
+    expect(stored.responsePayload).toContain("Nenhum bloqueio permanece");
 
-    await orm.insert(alarmEvents).values({
-      alarmSystemId: SYSTEM_ID,
-      account: "0342",
-      brand: "COMPATEC",
-      qualifier: "E",
-      eventCode: "401",
-      description: "Estado desarmado após a conferência; incompatível com o Arme aplicado",
-      receiverPort: 9271,
-      rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
-      receivedAt: new Date(Date.now() + 30_000),
-    });
-    const incompatible = await createExclusiveCompatecPhysicalCommand({
-      alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
-      commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
-      zoneNumber: null, pgmNumber: null, reason: "Desarme solicitado", commandPayload: "MB=AK4[12]",
-    });
-    expect(incompatible).toMatchObject({ created: false, activeCommandId: reserved.id, activeStatus: "dispatch_unknown" });
-
-    await orm.insert(alarmEvents).values({
-      alarmSystemId: SYSTEM_ID,
-      account: "0342",
-      brand: "COMPATEC",
-      qualifier: "R",
-      eventCode: "401",
-      description: "Armado confirmado por evento real",
-      receiverPort: 9271,
-      rawData: "Conta recebida: 0342\nIdentificado por mac_ascii: C1BDCB",
-      receivedAt: new Date(Date.now() + 60_000),
-    });
+    // Um evento posterior incompatível não é necessário para liberar: a nova
+    // tentativa já é aceita logo após o registro da conferência.
     const released = await createExclusiveCompatecPhysicalCommand({
       alarmSystemId: SYSTEM_ID, incidentId: null, operatorId: OPERATOR_ID, brand: "COMPATEC",
       commandType: "disarm", transportMode: "microbus_compatec", status: "queued", partition: null,
       zoneNumber: null, pgmNumber: null, reason: "Desarme solicitado", commandPayload: "MB=AK4[12]",
     });
     expect(released.created).toBe(true);
+    if (!released.created) throw new Error("Novo comando deveria ter sido aceito");
+    await orm.update(alarmRemoteCommands).set({ status: "cancelled", responsePayload: "Reserva de teste encerrada." }).where(eq(alarmRemoteCommands.id, released.id));
   });
 
   it("cancela sem transmissão quando o estado muda entre a reserva e o despacho do Arme", async () => {

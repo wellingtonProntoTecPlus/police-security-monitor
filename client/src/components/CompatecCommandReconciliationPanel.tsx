@@ -75,9 +75,9 @@ function formatDate(value: Date | string) {
 }
 
 function releaseButtonLabel(outcome: CompatecReconciliationOutcome | "") {
-  if (outcome === "not_applied") return "Cancelar não aplicado e liberar novo comando";
-  if (outcome === "verified") return "Registrar conferência final e liberar bloqueio";
-  if (outcome === "applied" || outcome === "partial") return "Registrar aplicação e manter bloqueio";
+  if (outcome === "not_applied") return "Registrar não aplicado";
+  if (outcome === "verified") return "Registrar estado final confirmado";
+  if (outcome === "applied" || outcome === "partial") return "Registrar conferência";
   return "Registrar conferência";
 }
 
@@ -97,9 +97,7 @@ export default function CompatecCommandReconciliationPanel({ alarmSystemId }: { 
         utils.remoteCommand.indeterminateCompatec.invalidate({ alarmSystemId }),
       ]);
       setDrafts((current) => { const next = { ...current }; delete next[result.commandId]; return next; });
-      toast.success(result.status === "dispatch_unknown"
-        ? "Conferência registrada. O bloqueio físico permanece até a confirmação direta do estado final."
-        : "Conferência registrada e auditada. Nenhuma transmissão foi feita.");
+      toast.success("Conferência registrada e auditada. Nenhum bloqueio permanece e nenhuma transmissão foi feita.");
     },
     onError: (error) => toast.error(error.message),
   });
@@ -144,10 +142,10 @@ export default function CompatecCommandReconciliationPanel({ alarmSystemId }: { 
       `Detalhes: ${draft.details.trim()}`,
       "",
       draft.outcome === "not_applied"
-        ? "Só cancele e libere novo comando se a fonte direta comprovar que a ação não ocorreu e o estado observado for compatível. Não basta o tempo decorrido. Nenhum quadro será transmitido."
+        ? "Só registre não aplicado se a fonte direta comprovar que a ação não ocorreu e o estado observado for compatível. Não basta o tempo decorrido. Nenhum quadro será transmitido."
         : draft.outcome === "applied" || draft.outcome === "partial"
-          ? "Este registro NÃO libera outro comando. O bloqueio permanece até conferir o estado final em fonte direta. Nenhum quadro será transmitido."
-          : "Esta conferência final libera o bloqueio, mas não transmite nem repete quadros físicos.",
+          ? "Este registro documenta a aplicação e NÃO bloqueia novas solicitações. Nenhum quadro será transmitido; a conferência final é opcional."
+          : "Esta conferência encerra a auditoria do comando, mas não transmite nem repete quadros físicos.",
     ].join("\n"));
     if (!confirmed) return;
     reconcile.mutate({
@@ -161,10 +159,10 @@ export default function CompatecCommandReconciliationPanel({ alarmSystemId }: { 
     });
   }
 
-  return <section aria-label="Conferência manual de comandos Compatec" className="mt-4 space-y-3 rounded-lg border border-red-400/50 bg-red-500/10 p-3">
+  return <section aria-label="Conferência manual de comandos Compatec" className="mt-4 space-y-3 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3">
     <div>
-      <h5 className="text-sm font-bold text-red-100">Comando sem resultado confirmado</h5>
-      <p className="mt-1 text-xs leading-relaxed text-red-50/90">O sistema não reenviará essa solicitação. Para liberar novo comando, confira o estado real em registro técnico direto e informe a referência. Relato externo ou o simples tempo decorrido não comprova não aplicação. A conferência registra operador e horário, não é confirmação eletrônica e não transmite quadros.</p>
+      <h5 className="text-sm font-bold text-amber-100">Comando sem resultado confirmado</h5>
+      <p className="mt-1 text-xs leading-relaxed text-amber-50/90">Estes comandos <strong>não bloqueiam novas solicitações</strong>. O sistema também não reenviará a solicitação antiga. Registre a conferência quando possível, com uma referência técnica direta, para encerrar a auditoria. Relato externo ou o simples tempo decorrido não comprova aplicação nem não aplicação. A conferência registra operador e horário, não é confirmação eletrônica e não transmite quadros.</p>
     </div>
     {query.isLoading ? <p role="status" className="text-xs">Consultando comandos que aguardam conferência…</p>
       : query.error ? <div role="alert" className="text-xs text-red-100">Não foi possível carregar as conferências pendentes. Tente atualizar o histórico.</div>
@@ -183,7 +181,7 @@ export default function CompatecCommandReconciliationPanel({ alarmSystemId }: { 
                 <p className="mt-1 text-[11px] text-muted-foreground">Executado por {command.operatorName || "operador"} · {formatDate(command.createdAt)}{command.incidentId ? ` · ocorrência #${command.incidentId}` : ""}</p>
                 <p className="mt-1 text-xs text-foreground">{commandSummary(command)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">Motivo: {command.reason}</p>
-                {applicationPending && <p role="alert" className="mt-2 rounded border border-amber-300/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-50">A aplicação foi registrada, mas o bloqueio físico continua ativo. Faça uma nova conferência direta do estado final para liberá-lo.</p>}
+                {applicationPending && <p role="alert" className="mt-2 rounded border border-amber-300/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-50">A aplicação já foi registrada em uma conferência anterior. Registre a conferência final para encerrar a auditoria; isso não bloqueia novas solicitações.</p>}
               </div>
               <label className="block text-xs font-medium text-foreground">Resultado observado
                 <select aria-label={`Resultado da conferência do comando ${command.id}`} value={draft.outcome} disabled={reconcile.isPending} onChange={(event) => updateDraft(command.id, "outcome", event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-2 py-2 text-foreground">
@@ -191,8 +189,8 @@ export default function CompatecCommandReconciliationPanel({ alarmSystemId }: { 
                   {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
-              {draft.outcome === "not_applied" && <p role="alert" className="rounded border border-amber-300/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-50">Só escolha “não aplicado” com registro técnico direto que mostre o estado oposto ao solicitado. Ao registrar, o comando será cancelado e outro poderá ser solicitado; nenhum quadro será transmitido.</p>}
-              {draft.outcome === "applied" && <p role="alert" className="rounded border border-amber-300/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-50">Este registro mantém o bloqueio. Após salvar, use “Estado final confirmado” quando o evento/status direto posterior confirmar o resultado.</p>}
+              {draft.outcome === "not_applied" && <p role="alert" className="rounded border border-amber-300/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-50">Só escolha “não aplicado” com registro técnico direto que mostre o estado oposto ao solicitado. O comando será cancelado para auditoria; nenhum quadro será transmitido.</p>}
+              {draft.outcome === "applied" && <p role="alert" className="rounded border border-amber-300/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-50">A aplicação fica registrada para auditoria e não mantém bloqueio. Nenhuma transmissão será feita; se necessário, registre depois a conferência do estado final.</p>}
               <label className="block text-xs font-medium text-foreground">Fonte da conferência
                 <select aria-label={`Fonte da conferência do comando ${command.id}`} value={draft.verificationSource} disabled={reconcile.isPending} onChange={(event) => updateDraft(command.id, "verificationSource", event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-2 py-2 text-foreground">
                   <option value="">Selecione…</option>

@@ -55,7 +55,7 @@ import { getAlarmSystemIdentifierValidationError, isJflVersion5OrLater as isJflV
 import { buildAlarmSystemDeletionConfirmation } from "@shared/alarmSystemDeletionConfirmation";
 import { notifyAlarmSystemsRetired } from "./_core/alarmSystemRuntime";
 import { getCompatecConnectionIdentity, type CompatecIdentitySource } from "@shared/compatecConnectionIdentity";
-import { COMPATEC_MANUAL_APPLICATION_EVENT_BASELINE_MARKER, COMPATEC_MANUAL_APPLICATION_MARKER, COMPATEC_MANUAL_NON_APPLICATION_MARKER, COMPATEC_MANUAL_PARTIAL_MARKER, COMPATEC_MANUAL_VERIFIED_MARKER, getCompatecReconciledStatus, getCompatecReconciliationOutcomeLabel, getManualCompatecApplicationEventBaseline, isCompatecReconciliationOutcomeAllowed, isManualCompatecApplication, isManualCompatecNonApplication, isManualCompatecVerified, type CompatecReconciliationOutcome } from "@shared/compatecCommandReconciliation";
+import { COMPATEC_MANUAL_APPLICATION_EVENT_BASELINE_MARKER, COMPATEC_MANUAL_APPLICATION_MARKER, COMPATEC_MANUAL_NON_APPLICATION_MARKER, COMPATEC_MANUAL_PARTIAL_MARKER, COMPATEC_MANUAL_VERIFIED_MARKER, getCompatecReconciledStatus, getCompatecReconciliationOutcomeLabel, getManualCompatecApplicationEventBaseline, isCompatecCommandInFlight, isCompatecReconciliationOutcomeAllowed, isManualCompatecApplication, isManualCompatecNonApplication, isManualCompatecVerified, type CompatecReconciliationOutcome } from "@shared/compatecCommandReconciliation";
 import { prepareAlarmSystemCreatePayload, prepareClientProcedurePayload, prepareFinalizationPayload, prepareSystemUserCreatePayload } from "./registrationCrudPayloads";
 import { measureKeepAlive } from "./keepAliveTracking";
 import { getKeepAliveConnectionStatus } from "./keepAliveStatus";
@@ -1551,7 +1551,35 @@ export async function setCompatecZoneArmSelection(input: { alarmSystemId: number
   });
 }
 
-async function findActiveCompatecPhysicalCommand(tx: any, alarmSystemId: number) {
+export { isCompatecCommandInFlight };
+
+/**
+ * Encerra reservas que deixaram de estar em andamento para que não sejam
+ * transmitidas depois da nova tentativa do operador. Comandos com resultado
+ * indeterminado permanecem apenas como auditoria e não bloqueiam nada.
+ */
+async function releaseStaleCompatecCommand(tx: any, command: typeof alarmRemoteCommands.$inferSelect) {
+  if (["queued", "waiting_connection", "prepared", "dispatching"].includes(command.status)) {
+    // "dispatching" pode ter escrito o quadro antes da interrupção: nesse caso
+    // o resultado é indeterminado, nunca "não transmitido".
+    const interruptedDuringWrite = command.status === "dispatching";
+    const status = interruptedDuringWrite ? "dispatch_unknown" : "cancelled";
+    const note = interruptedDuringWrite
+      ? "[LIBERAÇÃO AUTOMÁTICA] Despacho interrompido sem confirmação; a transmissão pode ter ocorrido. O comando não será reenviado. Uma nova tentativa já pode ser solicitada."
+      : "[LIBERAÇÃO AUTOMÁTICA] Reserva sem transmissão expirou; o comando foi cancelado e não será reenviado. Uma nova tentativa já pode ser solicitada.";
+    const responsePayload = `${command.responsePayload || ""}\n${note}`.trim();
+    await tx.update(alarmRemoteCommands).set({ status, responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+    await syncCompatecRemoteCommandOccurrence(tx, { ...command, status, responsePayload });
+    return;
+  }
+  if (command.status === "sent") {
+    const responsePayload = `${command.responsePayload || ""}\n[LIBERAÇÃO AUTOMÁTICA] Sem resposta de recebimento no prazo; resultado indeterminado e sem reenvio automático. Uma nova tentativa já pode ser solicitada.`.trim();
+    await tx.update(alarmRemoteCommands).set({ status: "dispatch_unknown", responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
+    await syncCompatecRemoteCommandOccurrence(tx, { ...command, status: "dispatch_unknown", responsePayload });
+  }
+}
+
+async function findActiveCompatecPhysicalCommand(tx: any, alarmSystemId: number, referenceTime = new Date()) {
   const commandTypes = ["query_status", "query_sectors", "arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"];
   const candidates: Array<typeof alarmRemoteCommands.$inferSelect> = await tx.select().from(alarmRemoteCommands)
     .where(and(
@@ -1559,64 +1587,18 @@ async function findActiveCompatecPhysicalCommand(tx: any, alarmSystemId: number)
       eq(alarmRemoteCommands.brand, "COMPATEC"),
       inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
       inArray(alarmRemoteCommands.commandType, commandTypes),
-      inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "dispatch_unknown", "sent", "reconciled"]),
+      // Somente status de transmissão em andamento podem bloquear. Resultados
+      // antigos (inclusive dispatch_unknown/reconciled) nunca entram na busca.
+      inArray(alarmRemoteCommands.status, ["queued", "waiting_connection", "prepared", "dispatching", "sent"]),
     ))
     .orderBy(alarmRemoteCommands.id)
-    .limit(20)
+    .limit(50)
     .for("update");
   for (const command of candidates) {
-    const hasApplicationMarker = isManualCompatecApplication(command.responsePayload);
-    if (command.status === "reconciled" && !hasApplicationMarker) continue;
-    if (hasApplicationMarker && await isManualCompatecApplicationConfirmedByLaterEvents(tx, command)) continue;
-    return { id: command.id, status: command.status };
+    if (isCompatecCommandInFlight(command, referenceTime)) return { id: command.id, status: command.status };
+    await releaseStaleCompatecCommand(tx, command);
   }
   return undefined;
-}
-
-async function isManualCompatecApplicationConfirmedByLaterEvents(tx: any, command: typeof alarmRemoteCommands.$inferSelect) {
-  if (isManualCompatecVerified(command.responsePayload)) return true;
-  const eventBaseline = getManualCompatecApplicationEventBaseline(command.responsePayload);
-  const newerThanBaseline = eventBaseline !== null ? gt(alarmEvents.id, eventBaseline) : gt(alarmEvents.receivedAt, command.updatedAt);
-  const [system] = await tx.select({ account: alarmSystems.account, brand: alarmSystems.brand, macAddress: alarmSystems.macAddress,
-    imeiGprs: alarmSystems.imeiGprs, receiverPort: alarmSystems.receiverPort })
-    .from(alarmSystems).where(eq(alarmSystems.id, command.alarmSystemId)).limit(1).for("update");
-  if (!system || system.brand !== "COMPATEC") return false;
-  const events: Array<typeof alarmEvents.$inferSelect> = await tx.select().from(alarmEvents).where(and(
-    eq(alarmEvents.alarmSystemId, command.alarmSystemId), newerThanBaseline,
-  )).orderBy(alarmEvents.id).limit(500).for("update");
-  const validEvents = events.filter((event) => isCurrentCompatecStateEventSource(event, system));
-
-  if (command.commandType === "arm" || command.commandType === "disarm") {
-    const latestState = validEvents.filter(isArmDisarmStatusEvent).at(-1);
-    const expected = command.commandType === "arm" ? "armed" : "disarmed";
-    return Boolean(latestState && classifyContactIdOperationalEvent(latestState).state === expected);
-  }
-
-  let requestedChanges: CompatecZoneConfigurationChange[] = [];
-  try {
-    const payload = JSON.parse(command.commandPayload);
-    if (Array.isArray(payload.zoneChanges)) requestedChanges = payload.zoneChanges;
-    else if (Number.isInteger(payload.zoneNumber)) requestedChanges = [{
-      zoneNumber: payload.zoneNumber,
-      bypassState: command.commandType === "isolate_zone" ? "annulled" : "restored",
-    }];
-  } catch { /* Comando legado sem metadados setoriais. */ }
-  if (!requestedChanges.length && command.zoneNumber) requestedChanges = [{ zoneNumber: command.zoneNumber,
-    bypassState: command.commandType === "isolate_zone" ? "annulled" : "restored" }];
-
-  const bypassChanges = requestedChanges.filter((change) => change.bypassState !== undefined);
-  const onlyBypassChanges = bypassChanges.length > 0 && requestedChanges.every((change) => change.armState === undefined);
-  if (onlyBypassChanges) {
-    return bypassChanges.every((change) => {
-      const latest = validEvents.filter((event) => {
-        const zone = Number(String(event.zoneUser || "").replace(/^0+/, "") || 0);
-        return zone === change.zoneNumber && classifyContactIdOperationalEvent(event).kind === "isolation";
-      }).at(-1);
-      const expected = change.bypassState === "annulled" ? "isolated" : "restored";
-      return Boolean(latest && classifyContactIdOperationalEvent(latest).state === expected);
-    });
-  }
-  return false;
 }
 
 /** Reserva uma única ação física MicroBus; seleções são consumidas sob o mesmo lock do Arme. */
@@ -2250,24 +2232,34 @@ export async function dispatchAlarmRemoteCommand(input: {
 export async function expireStaleRemoteCommandDispatches(referenceTime = new Date()) {
   const db = await getDb();
   if (!db) return 0;
-  const cutoff = new Date(referenceTime.getTime() - 2 * 60_000);
+  const dispatchCutoff = new Date(referenceTime.getTime() - 2 * 60_000);
+  const queueCutoff = new Date(referenceTime.getTime() - 10 * 60_000);
+  const sentCutoff = new Date(referenceTime.getTime() - 30_000);
   return db.transaction(async (tx) => {
     const stale = await tx.select().from(alarmRemoteCommands).where(or(
-      and(eq(alarmRemoteCommands.status, "prepared"), lte(alarmRemoteCommands.updatedAt, cutoff)),
-      and(eq(alarmRemoteCommands.status, "dispatching"), lte(alarmRemoteCommands.updatedAt, cutoff)),
-      and(eq(alarmRemoteCommands.status, "sent"), eq(alarmRemoteCommands.brand, "COMPATEC"), eq(alarmRemoteCommands.commandType, "configure_zones"), lte(alarmRemoteCommands.updatedAt, new Date(referenceTime.getTime() - 30_000))),
-      and(eq(alarmRemoteCommands.status, "sent"), eq(alarmRemoteCommands.brand, "COMPATEC"), eq(alarmRemoteCommands.commandType, "arm"),
-        like(alarmRemoteCommands.commandPayload, '%"mode":"physical_arm_with_zones"%'),
-        lte(alarmRemoteCommands.updatedAt, new Date(referenceTime.getTime() - 30_000))),
+      and(eq(alarmRemoteCommands.status, "queued"), eq(alarmRemoteCommands.brand, "COMPATEC"),
+        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
+        lte(alarmRemoteCommands.updatedAt, queueCutoff)),
+      and(eq(alarmRemoteCommands.status, "waiting_connection"), eq(alarmRemoteCommands.brand, "COMPATEC"),
+        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
+        lte(alarmRemoteCommands.updatedAt, queueCutoff)),
+      and(eq(alarmRemoteCommands.status, "prepared"), lte(alarmRemoteCommands.updatedAt, dispatchCutoff)),
+      and(eq(alarmRemoteCommands.status, "dispatching"), lte(alarmRemoteCommands.updatedAt, dispatchCutoff)),
+      and(eq(alarmRemoteCommands.status, "sent"), eq(alarmRemoteCommands.brand, "COMPATEC"),
+        inArray(alarmRemoteCommands.transportMode, ["microbus_compatec", "microbus_bench"]),
+        lte(alarmRemoteCommands.updatedAt, sentCutoff)),
     )).for("update");
     for (const command of stale) {
+      const neverTransmitted = command.status === "queued" || command.status === "waiting_connection";
       const neverClaimed = command.status === "prepared";
-      const status = neverClaimed ? "cancelled" : "dispatch_unknown";
-      const responsePayload = neverClaimed
-        ? "Reserva expirada antes do despacho físico; nenhum quadro foi escrito. A ação foi cancelada e não será reenviada automaticamente."
-        : command.commandType === "configure_zones"
-          ? "KA1 não recebido no prazo; resultado indeterminado. A configuração pode ter sido recebida, mas o estado final dos setores não foi confirmado. Conferir a central; não reenviar automaticamente."
-          : "Resultado indeterminado após interrupção durante o despacho; a transmissão pode ter ocorrido. Conferir a central e não reenviar automaticamente.";
+      const status = neverTransmitted || neverClaimed ? "cancelled" : "dispatch_unknown";
+      const responsePayload = neverTransmitted
+        ? "Comando não transmitido: a central não conectou no prazo. A reserva foi cancelada e não será reenviada automaticamente. Uma nova tentativa já pode ser solicitada."
+        : neverClaimed
+          ? "Reserva expirada antes do despacho físico; nenhum quadro foi escrito. A ação foi cancelada e não será reenviada automaticamente. Uma nova tentativa já pode ser solicitada."
+          : command.commandType === "configure_zones"
+            ? "KA1 não recebido no prazo; resultado indeterminado. A configuração pode ter sido recebida, mas o estado final dos setores não foi confirmado. Conferir a central; uma nova tentativa já pode ser solicitada."
+            : "Resultado indeterminado após interrupção durante o despacho; a transmissão pode ter ocorrido. Conferir a central; uma nova tentativa já pode ser solicitada.";
       await tx.update(alarmRemoteCommands).set({ status, responsePayload }).where(eq(alarmRemoteCommands.id, command.id));
       await syncCompatecRemoteCommandOccurrence(tx, { ...command, status, responsePayload });
     }
@@ -2319,11 +2311,6 @@ export async function reconcileCompatecCommand(input: {
     if (!isCompatecReconciliationOutcomeAllowed(command.commandType, input.outcome)) {
       return { reconciled: false as const, message: "Resultado de conferência inválido para esta ação." };
     }
-    if (isManualCompatecApplication(command.responsePayload)
-      && input.outcome !== "verified"
-      && !(command.commandType === "configure_zones" && input.outcome === "partial")) {
-      return { reconciled: false as const, message: "A aplicação já foi registrada; não é possível reclassificar depois como não aplicado. Confirme o estado final em nova evidência direta." };
-    }
     if (!isCompatecManualReconciliationEvidenceValid({
       commandType: command.commandType,
       outcome: input.outcome,
@@ -2341,21 +2328,16 @@ export async function reconcileCompatecCommand(input: {
     const operatorName = input.operatorName.trim().slice(0, 255) || `Operador ${input.operatorId}`;
     const outcomeLabel = getCompatecReconciliationOutcomeLabel(command.commandType, input.outcome);
     const status = getCompatecReconciledStatus(command.commandType, input.outcome);
-    const requiresPostManualStateEvent = status === "dispatch_unknown"
-      && ["arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"].includes(command.commandType);
-    const baselineEvents = requiresPostManualStateEvent ? await tx.select({ id: alarmEvents.id }).from(alarmEvents)
-      .where(eq(alarmEvents.alarmSystemId, command.alarmSystemId)).orderBy(desc(alarmEvents.id)).limit(1) : [];
-    const eventBaseline = baselineEvents[0]?.id ?? 0;
     const nonApplicationAudit = status === "cancelled"
       ? `${COMPATEC_MANUAL_NON_APPLICATION_MARKER}\nComando cancelado após conferência manual: a ação solicitada não foi aplicada à central.`
       : null;
     const applicationMarker = input.outcome === "applied" ? COMPATEC_MANUAL_APPLICATION_MARKER
       : input.outcome === "partial" ? COMPATEC_MANUAL_PARTIAL_MARKER : null;
     const appliedAudit = applicationMarker
-      ? `${applicationMarker}\n${requiresPostManualStateEvent ? `${COMPATEC_MANUAL_APPLICATION_EVENT_BASELINE_MARKER}${eventBaseline}]\n` : ""}Novos comandos físicos permanecem bloqueados até conferência direta e compatível do estado final.`
+      ? `${applicationMarker}\nConferência registrada. Nenhum bloqueio permanece: novas solicitações já podem ser feitas pelo operador.`
       : null;
     const verifiedAudit = input.outcome === "verified" && ["arm", "disarm", "isolate_zone", "restore_zone", "configure_zones"].includes(command.commandType)
-      ? `${COMPATEC_MANUAL_VERIFIED_MARKER}\nEstado final conferido diretamente; o bloqueio físico pode ser liberado.`
+      ? `${COMPATEC_MANUAL_VERIFIED_MARKER}\nEstado final conferido diretamente; conferência encerrada e novas solicitações liberadas.`
       : null;
     const auditNote = [
       `Conferência manual do comando #${command.id}: ${outcomeLabel}.`,
@@ -2441,7 +2423,7 @@ export async function recordRemoteCommandConfirmation(input: {
         : command.commandType === "arm" || command.commandType === "disarm"
           ? "Resposta Compatec recebida tardiamente; não confirma o estado final"
           : "Resposta Compatec recebida tardiamente; não confirma o estado final do setor";
-      const responsePayload = `${command.responsePayload || "Resultado indeterminado; conferência necessária."}\n${responseLabel} em ${confirmedAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}: ${input.responsePayload}. Bloqueio mantido até conferência manual.`;
+      const responsePayload = `${command.responsePayload || "Resultado indeterminado; conferência necessária."}\n${responseLabel} em ${confirmedAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}: ${input.responsePayload}. Nenhum bloqueio permanece; uma nova tentativa já pode ser solicitada.`;
       const updatedCommand = { ...command, responsePayload, updatedAt: confirmedAt };
       await tx.update(alarmRemoteCommands).set({ responsePayload, updatedAt: confirmedAt }).where(eq(alarmRemoteCommands.id, command.id));
       const occurrenceId = isCompatecPhysicalAckAction ? await syncCompatecRemoteCommandOccurrence(tx, updatedCommand) : null;

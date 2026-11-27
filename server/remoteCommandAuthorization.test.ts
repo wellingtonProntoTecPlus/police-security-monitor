@@ -95,20 +95,20 @@ describe("autorização dos comandos MicroBus de bancada", () => {
     expect(dashboardSource).toContain('standaloneRemoteRequest.commandType === "disarm" && standaloneRemoteReason.trim().length < 5');
   });
 
-  it("mostra o painel de conferência também standalone e orienta evidência para liberar o bloqueio sem transmitir", () => {
+  it("mostra o painel de conferência também standalone e orienta evidência sem manter bloqueio", () => {
     expect(dashboardSource).toContain("<CompatecCommandReconciliationPanel alarmSystemId={standaloneRemoteSystemId} />");
-    expect(reconciliationPanelSource).toContain("simples tempo decorrido não comprova não aplicação");
+    expect(reconciliationPanelSource).toContain("simples tempo decorrido não comprova aplicação nem não aplicação");
     expect(reconciliationPanelSource).toContain("registro técnico direto");
-    expect(reconciliationPanelSource).toContain("bloqueio físico permanece até a confirmação direta do estado final");
+    expect(reconciliationPanelSource).toContain("não bloqueiam novas solicitações");
     expect(reconciliationPanelSource).toContain("Relato externo");
     expect(reconciliationPanelSource).toContain("verificationSource: draft.verificationSource");
     expect(reconciliationPanelSource).toContain("evidenceReference: draft.evidenceReference.trim()");
     expect(reconciliationContractSource).toContain('if (outcome === "not_applied") return "cancelled"');
-    expect(reconciliationContractSource).toContain('if (outcome === "applied" || outcome === "partial") return "dispatch_unknown"');
+    expect(reconciliationContractSource).toContain('if (outcome === "applied" || outcome === "partial") return "dispatch_unknown" as const');
     expect(databaseSource).toContain("COMPATEC_MANUAL_NON_APPLICATION_MARKER");
     expect(databaseSource).toContain("isCompatecManualReconciliationEvidenceValid({");
     expect(databaseSource).toContain("COMPATEC_MANUAL_VERIFIED_MARKER");
-    expect(databaseSource).toContain("não é possível reclassificar depois como não aplicado");
+    expect(databaseSource).toContain("Nenhum bloqueio permanece");
     expect(databaseSource).toContain('action: status === "cancelled" ? "remote_command_cancelled_after_non_application"');
   });
 
